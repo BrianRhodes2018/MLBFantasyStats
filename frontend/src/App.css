@@ -1,0 +1,999 @@
+/*
+ * App.css - Application Styles (Dark Mode — Yankees Theme)
+ * =========================================================
+ *
+ * Color palette inspired by the New York Yankees:
+ *   - Navy:   #1c2841 (primary background)
+ *   - Dark:   #0f1a2e (deeper background)
+ *   - Card:   #1e3050 (card/panel surfaces)
+ *   - Silver: #c4ced4 (text, pinstripe accent)
+ *   - White:  #e8ecf0 (primary text)
+ *   - Accent: #4a90d9 (links, highlights — Yankees blue)
+ *
+ * CSS organization:
+ * 1. Global / Layout styles
+ * 2. Position Filter styles
+ * 3. Stats Panel styles
+ * 4. Player Form styles
+ * 5. Player Table styles
+ * 6. Form Message styles
+ * 7. Player Search styles
+ * 8. Inline Edit styles
+ * 8. Pagination styles
+ * 9. Time Period Selector styles
+ * 10. Responsive breakpoints
+ */
+
+/* ===========================================================================
+   1. GLOBAL / LAYOUT STYLES
+   =========================================================================== */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: #0f1a2e;
+  color: #e8ecf0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Main container — centered with a max-width for readability on wide screens */
+.app {
+  max-width: 1540px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+/* Page title */
+.app h1 {
+  text-align: center;
+  font-size: 2rem;
+  color: #ffffff;
+  margin-bottom: 32px;
+  letter-spacing: -0.5px;
+}
+
+/* Section headings used by each component */
+h2 {
+  font-size: 1.3rem;
+  color: #e8ecf0;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #4a90d9;
+  padding-bottom: 8px;
+  display: inline-block;
+}
+
+/* ===========================================================================
+   2. POSITION FILTER STYLES
+   =========================================================================== */
+
+.position-filter {
+  background: #1e3050;
+  border-radius: 12px;
+  padding: 16px 24px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.position-filter label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #c4ced4;
+}
+
+.position-filter select {
+  padding: 10px 16px;
+  border: 2px solid #4a90d9;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  background: #162236;
+  color: #e8ecf0;
+  cursor: pointer;
+  min-width: 220px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.position-filter select:hover {
+  border-color: #6ba3e0;
+}
+
+.position-filter select:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.25);
+}
+
+/* Position filter when placed inside the table card (legacy — kept for reference) */
+.position-filter-inline {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #2a3f5f;
+  padding-bottom: 16px;
+  border-radius: 0;
+}
+
+/* ===========================================================================
+   2b. TABLE HEADER BAR
+   ===========================================================================
+   A unified bar that sits directly above the data table, combining:
+   - The table title (e.g., "All Batters (150)")
+   - The "View by Position" dropdown filter
+   into a single row. This visually ties the filter to the table it controls. */
+
+.table-header-bar {
+  background: #1e3050;
+  border-radius: 12px 12px 0 0;       /* Rounded top corners only — merges with the table below */
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;      /* Title on the left, dropdown on the right */
+  gap: 16px;
+  border-bottom: 2px solid #4a90d9;   /* Blue accent line separating header from table rows */
+}
+
+/* The table title inside the header bar — reset default h2 margins
+   so it sits flush within the flex container */
+.table-header-bar .table-header-title {
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 1.2rem;
+  color: #e8ecf0;
+  display: inline;
+}
+
+/* Container for the filter dropdowns (position + team) — sits on the right
+   side of the header bar, with both dropdowns side by side */
+.table-header-filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Individual filter dropdown container (label + select pair) */
+.table-header-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-header-filter label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #c4ced4;
+  white-space: nowrap;
+}
+
+.table-header-filter select {
+  padding: 8px 12px;
+  border: 2px solid #4a90d9;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  background: #162236;
+  color: #e8ecf0;
+  cursor: pointer;
+  min-width: 180px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.table-header-filter select:hover {
+  border-color: #6ba3e0;
+}
+
+.table-header-filter select:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.25);
+}
+
+/* ===========================================================================
+   2c. NAME SEARCH BAR
+   ===========================================================================
+   A text input placed between the table header bar and the data table.
+   Allows fuzzy searching by player name with real-time filtering.
+   Visually connects to the header bar above and table below. */
+
+.name-search-bar {
+  background: #1e3050;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #2a3f5f;     /* Subtle separator from header bar */
+}
+
+.name-search-bar input {
+  flex: 1;
+  padding: 8px 14px;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: #162236;
+  color: #e8ecf0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.name-search-bar input::placeholder {
+  color: #6b7f94;
+}
+
+.name-search-bar input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.2);
+}
+
+/* Clear button (✕) — appears when text is entered in the name search */
+.name-search-clear {
+  background: transparent;
+  border: none;
+  color: #6b7f94;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.name-search-clear:hover {
+  color: #e8ecf0;
+  background: #2a3f5f;
+}
+
+/* ===========================================================================
+   3. STATS PANEL STYLES
+   =========================================================================== */
+
+.stats-panel {
+  background: #1e3050;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* CSS Grid layout for stat cards */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: #162236;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  border: 1px solid #2a3f5f;
+  transition: transform 0.15s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #8899aa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #4a90d9;
+}
+
+/* Collapsible section heading — clickable to toggle visibility */
+.collapsible-heading {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.collapsible-heading:hover {
+  color: #4a90d9;
+}
+
+.collapse-indicator {
+  margin-right: 6px;
+  font-size: 0.9rem;
+}
+
+/* Team stats table within the stats panel */
+.team-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.team-stats-table th {
+  background: #0f1a2e;
+  color: #c4ced4;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.team-stats-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a3f5f;
+  color: #e8ecf0;
+}
+
+.team-stats-table tr:nth-child(even) {
+  background: #162236;
+}
+
+.team-stats-table tr:hover {
+  background: #1a3a5c;
+}
+
+/* ===========================================================================
+   3. PLAYER FORM STYLES
+   =========================================================================== */
+
+.player-form {
+  background: #1e3050;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.player-form form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.player-form input {
+  padding: 10px 14px;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  flex: 1 1 140px;
+  min-width: 120px;
+  background: #162236;
+  color: #e8ecf0;
+  transition: border-color 0.2s ease;
+}
+
+.player-form input::placeholder {
+  color: #6b7f94;
+}
+
+.player-form input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.2);
+}
+
+.player-form button {
+  padding: 10px 28px;
+  background: #4a90d9;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.player-form button:hover {
+  background: #3a7bc8;
+}
+
+/* ===========================================================================
+   4. PLAYER TABLE STYLES
+   =========================================================================== */
+
+.player-table {
+  background: #1e3050;
+  border-radius: 0 0 12px 12px;       /* Flat top — merges with .name-search-bar above */
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  overflow-x: auto;
+}
+
+.player-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.player-table th {
+  background: #0f1a2e;
+  color: #c4ced4;
+  padding: 12px 14px;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.player-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a3f5f;
+  white-space: nowrap;
+  color: #e8ecf0;
+}
+
+.player-table tr:nth-child(even) {
+  background: #162236;
+}
+
+.player-table tr:hover {
+  background: #1a3a5c;
+}
+
+/* Special styling for computed stat columns */
+.computed-stat {
+  color: #7eb8f0;
+  font-weight: 600;
+}
+
+/* --- Sortable Table Headers --- */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.sortable-th:hover {
+  background: #1a3a5c !important;
+}
+
+.sort-indicator {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+/* --- Column Header Tooltips --- */
+
+.column-header-content {
+  position: relative;
+  display: inline-block;
+}
+
+.has-tooltip .column-header-content {
+  border-bottom: 1px dotted rgba(200, 210, 220, 0.4);
+}
+
+.column-tooltip {
+  visibility: hidden;
+  opacity: 0;
+
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+
+  background: #0a1020;
+  color: #c4ced4;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-line;
+  min-width: 200px;
+  max-width: 280px;
+  margin-top: 8px;
+  border: 1px solid #2a3f5f;
+
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.column-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: #0a1020;
+}
+
+.column-header-content:hover .column-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* ===========================================================================
+   5. FORM MESSAGE STYLES (Success/Error Confirmation)
+   =========================================================================== */
+
+.form-message {
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.form-message-success {
+  background: #1a3a2a;
+  color: #6fcf97;
+  border: 1px solid #2a5a3a;
+}
+
+.form-message-error {
+  background: #3a1a1a;
+  color: #f08080;
+  border: 1px solid #5a2a2a;
+}
+
+/* ===========================================================================
+   6. PLAYER SEARCH STYLES
+   =========================================================================== */
+
+.player-search {
+  background: #1e3050;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.search-dropdowns {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.search-stat-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #8899aa;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.filter-group select {
+  padding: 8px 12px;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: #162236;
+  color: #e8ecf0;
+  min-width: 150px;
+  cursor: pointer;
+}
+
+.filter-group select:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.2);
+}
+
+.min-max-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.min-max-inputs input {
+  padding: 8px 10px;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  width: 100px;
+  flex: 1;
+  background: #162236;
+  color: #e8ecf0;
+}
+
+.min-max-inputs input::placeholder {
+  color: #6b7f94;
+}
+
+.min-max-inputs input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.2);
+}
+
+.range-separator {
+  color: #6b7f94;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.search-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btn-search {
+  padding: 10px 28px;
+  background: #4a90d9;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-search:hover {
+  background: #3a7bc8;
+}
+
+.btn-clear {
+  padding: 10px 28px;
+  background: #3a4a5c;
+  color: #c4ced4;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-clear:hover {
+  background: #4a5a6c;
+}
+
+/* ===========================================================================
+   7. INLINE EDIT STYLES
+   =========================================================================== */
+
+.edit-input {
+  padding: 4px 8px;
+  border: 1px solid #4a90d9;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  width: 100%;
+  min-width: 60px;
+  box-sizing: border-box;
+  background: #162236;
+  color: #e8ecf0;
+}
+
+.edit-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.3);
+}
+
+.actions-cell {
+  white-space: nowrap;
+}
+
+.actions-cell button {
+  margin-right: 6px;
+}
+
+.actions-cell button:last-child {
+  margin-right: 0;
+}
+
+.btn-edit {
+  padding: 4px 12px;
+  background: #4a90d9;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-edit:hover {
+  background: #3a7bc8;
+}
+
+.btn-save {
+  padding: 4px 12px;
+  background: #2e8b57;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-save:hover {
+  background: #267a4a;
+}
+
+.btn-cancel {
+  padding: 4px 12px;
+  background: #3a4a5c;
+  color: #c4ced4;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-cancel:hover {
+  background: #4a5a6c;
+}
+
+/* ===========================================================================
+   8. PAGINATION STYLES
+   =========================================================================== */
+
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #2a3f5f;
+  flex-wrap: wrap;
+}
+
+.pagination-btn {
+  padding: 8px 16px;
+  background: #0f1a2e;
+  color: #c4ced4;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: #4a90d9;
+  color: white;
+  border-color: #4a90d9;
+}
+
+.pagination-btn:disabled {
+  background: #162236;
+  color: #4a5a6c;
+  border-color: #2a3f5f;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pagination-info {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #c4ced4;
+  padding: 0 12px;
+}
+
+.pagination-range {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #8899aa;
+  margin-left: 8px;
+}
+
+/* ===========================================================================
+   9. TIME PERIOD SELECTOR STYLES
+   =========================================================================== */
+/* Row of buttons for switching between Season and rolling time-period views.
+   Styled to match the Yankees dark theme with the blue accent for active state. */
+
+.time-period-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: #1e3050;
+  border: 1px solid #2a3f5f;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+/* "View Stats:" label text */
+.time-period-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #c4ced4;
+  white-space: nowrap;
+}
+
+/* Container for the buttons — keeps them together */
+.time-period-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Individual period button (Season, Last 5 Days, etc.) */
+.time-period-btn {
+  padding: 8px 16px;
+  background: #0f1a2e;
+  color: #c4ced4;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+/* Hover effect for non-active, non-disabled buttons */
+.time-period-btn:hover:not(.active):not(:disabled) {
+  background: #253b5c;
+  border-color: #4a90d9;
+  color: #e8ecf0;
+}
+
+/* Active state — Yankees blue to clearly show which period is selected */
+.time-period-btn.active {
+  background: #4a90d9;
+  color: #ffffff;
+  border-color: #4a90d9;
+  box-shadow: 0 2px 8px rgba(74, 144, 217, 0.3);
+}
+
+/* Disabled state while loading */
+.time-period-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Subtle loading indicator */
+.time-period-loading {
+  font-size: 0.8rem;
+  color: #4a90d9;
+  font-style: italic;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* Pulse animation for the loading text */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ===========================================================================
+   10. RESPONSIVE BREAKPOINTS
+   =========================================================================== */
+
+@media (max-width: 768px) {
+  .app {
+    padding: 16px 12px;
+  }
+
+  .app h1 {
+    font-size: 1.5rem;
+  }
+
+  .position-filter {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .position-filter select {
+    width: 100%;
+    min-width: unset;
+  }
+
+  /* Stack the table header bar vertically on small screens */
+  .table-header-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+
+  .table-header-filters {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .table-header-filter select {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .name-search-bar {
+    padding: 8px 16px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+  }
+
+  .stat-value {
+    font-size: 1.3rem;
+  }
+
+  .player-form input {
+    flex: 1 1 100%;
+  }
+
+  .search-dropdowns {
+    flex-direction: column;
+  }
+
+  .search-stat-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .search-actions {
+    flex-direction: column;
+  }
+
+  .btn-search, .btn-clear {
+    width: 100%;
+  }
+
+  .pagination-controls {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pagination-info {
+    text-align: center;
+  }
+
+  .pagination-range {
+    display: block;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+
+  .time-period-selector {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .time-period-buttons {
+    justify-content: center;
+  }
+
+  .time-period-btn {
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
+}

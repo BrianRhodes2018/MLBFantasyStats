@@ -1,0 +1,21 @@
+/**
+ * index.css - Minimal CSS Reset
+ * ==============================
+ *
+ * This file replaces Vite's default template styles with a minimal reset.
+ * Vite's default index.css includes dark-mode colors, centered layout,
+ * and button styles that conflict with our App.css — so we strip it down
+ * to just a basic box-sizing reset.
+ *
+ * All actual application styles live in App.css.
+ *
+ * box-sizing: border-box — makes width/height include padding and border.
+ * Without this, a 100px-wide element with 10px padding becomes 120px total.
+ * With border-box, it stays 100px total (content shrinks to 80px).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

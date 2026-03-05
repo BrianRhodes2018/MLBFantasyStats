@@ -1,0 +1,80 @@
+# ===========================================================================
+# Python Dependencies for the MLB Player Stats Backend
+# ===========================================================================
+# Install all dependencies with: pip install -r requirements.txt
+#
+# Each library serves a specific purpose in the stack:
+
+# --- Web Framework ---
+# FastAPI: Modern, high-performance Python web framework for building APIs.
+# It provides automatic request validation (via Pydantic), auto-generated
+# Swagger UI docs at /docs, async support, and type-based routing.
+# This is the core framework that defines all our API endpoints.
+fastapi
+
+# Uvicorn: ASGI server that actually RUNS the FastAPI application.
+# FastAPI defines the endpoints, but uvicorn is what listens for HTTP
+# requests and passes them to FastAPI. The [standard] extra installs
+# uvloop (faster event loop) and httptools (faster HTTP parsing).
+# Run with: uvicorn main:app --reload
+uvicorn[standard]
+
+# --- Database ---
+# databases: Async database interface that works with FastAPI's async/await.
+# It manages a connection pool and supports non-blocking queries so the
+# server can handle other requests while waiting for database responses.
+# The [postgresql] extra installs the PostgreSQL-specific dependencies.
+# Used for all runtime queries: SELECT, INSERT, UPDATE via await database.execute()
+databases[postgresql]
+
+# asyncpg: The async PostgreSQL driver that 'databases' uses under the hood.
+# It's the fastest Python PostgreSQL driver because it's written in C and
+# uses PostgreSQL's binary protocol (not text). You never import this
+# directly — the 'databases' library uses it automatically when the
+# connection string includes "+asyncpg".
+asyncpg
+
+# SQLAlchemy: SQL toolkit for Python. We use SQLAlchemy Core (not the ORM)
+# to define our table schema in models.py. It builds SQL queries as Python
+# objects: players.select(), players.insert().values(...), etc.
+# Also used for metadata.create_all() to create tables on startup.
+# Note: We use SQLAlchemy for query building + schema, but 'databases'
+# for actually executing queries asynchronously.
+sqlalchemy
+
+# psycopg2-binary: Synchronous PostgreSQL driver needed ONLY for
+# metadata.create_all() at startup (which is a sync operation).
+# The "binary" variant includes pre-compiled C extensions so you don't
+# need PostgreSQL development headers installed on your system.
+# All async queries use asyncpg instead — this is just for table creation.
+psycopg2-binary
+
+# --- Data Analysis ---
+# Polars: High-performance DataFrame library (like Pandas but faster).
+# Written in Rust, it's used here to compute:
+# - League-wide averages (pl.col().mean())
+# - Per-player derived stats (.with_columns() with column arithmetic)
+# - Team-level aggregations (.group_by().agg())
+# - Dynamic search filtering (.filter() with conditional expressions)
+# Polars is the core data analysis engine of this project.
+polars
+
+# --- Configuration ---
+# python-dotenv: Loads environment variables from a .env file into os.environ.
+# This lets you store config like DATABASE_URL in a .env file instead of
+# setting environment variables manually. Used in database.py to load
+# the database connection string. The .env file is not committed to git
+# (it often contains passwords and secrets).
+python-dotenv
+
+# --- MLB Data ---
+# MLB-StatsAPI: Official Python wrapper for the MLB Stats API.
+# Provides easy access to real-time and historical MLB statistics including:
+# - Player batting/pitching stats by season
+# - Team rosters and standings
+# - Game schedules and scores
+# - Player biographical info and positions
+# Free to use, no API key required. Used by mlb_data_fetcher.py to
+# fetch real player stats and populate/update the database.
+# Documentation: https://pypi.org/project/MLB-StatsAPI/
+MLB-StatsAPI

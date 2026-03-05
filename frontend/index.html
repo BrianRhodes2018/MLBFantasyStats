@@ -1,0 +1,52 @@
+<!--
+  index.html - The HTML Entry Point
+  ==================================
+
+  This is the ONLY HTML file in the entire React application.
+  React is a Single Page Application (SPA) framework — instead of having
+  separate HTML files for each "page", we have one HTML file and React
+  dynamically changes what's displayed using JavaScript.
+
+  How it works:
+  1. The browser loads this HTML file
+  2. It finds the <script> tag pointing to /src/main.jsx
+  3. Vite compiles the JSX into JavaScript and serves it to the browser
+  4. main.jsx runs, finds the <div id="root">, and mounts the React app into it
+  5. From this point on, React controls everything inside <div id="root">
+
+  The <div id="root"> starts EMPTY. React fills it with the component tree:
+    <App>
+      <StatsPanel />
+      <PlayerSearch />
+      <PlayerForm />
+      <PlayerTable />
+    </App>
+
+  Key elements:
+  - <!doctype html>: Tells the browser this is an HTML5 document
+  - <meta charset="UTF-8">: Supports all characters (accents, emojis, etc.)
+  - <meta name="viewport">: Makes the page responsive on mobile devices
+  - <div id="root">: The container where React renders the entire application
+  - <script type="module">: Loads main.jsx as an ES module (supports import/export)
+    The "module" type is required for Vite's dev server to work correctly.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MLB Player Stats</title>
+  </head>
+  <body>
+    <!-- React mounts the entire application inside this div.
+         The id="root" is referenced in main.jsx:
+         createRoot(document.getElementById('root')).render(<App />) -->
+    <div id="root"></div>
+
+    <!-- Vite serves this as compiled JavaScript during development.
+         In production (npm run build), Vite bundles everything into
+         optimized static files in the dist/ directory. -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

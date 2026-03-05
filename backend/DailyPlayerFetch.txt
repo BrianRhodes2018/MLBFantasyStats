@@ -1,0 +1,28 @@
+Setting Up Daily Automatic Updates (Windows Task Scheduler)
+Since you're on Windows, here's how to set up Task Scheduler:
+
+Open Task Scheduler: Press Win + R, type taskschd.msc, press Enter
+
+Create a Basic Task:
+
+Click "Create Basic Task..." in the right panel
+Name: MLB Stats Daily Update
+Description: Fetches latest MLB player statistics
+Set the Trigger:
+
+Select "Daily"
+Set time to 6:00 AM (after overnight games finish)
+Recur every 1 day
+Set the Action:
+
+Select "Start a program"
+Program/script: python (or full path like C:\Users\brhod\AppData\Local\Programs\Python\Python311\python.exe)
+Add arguments: daily_update.py --all
+Start in: C:\Users\brhod\Brian\FastAPI-Polars-React-MLB\backend
+Finish: Check "Open the Properties dialog" and click Finish
+
+In Properties (important settings):
+
+Under "Conditions" tab: Uncheck "Start only if computer is on AC power" if you want it to run on battery
+Under "Settings" tab: Check "Run task as soon as possible after a scheduled start is missed"
+The daily_update.py script automatically checks if it's baseball season (late March - October) and skips updates during the offseason to avoid unnecessary API calls.
