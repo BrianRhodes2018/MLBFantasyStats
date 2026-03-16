@@ -32,6 +32,7 @@ Production URL Handling:
 """
 
 import os
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from dotenv import load_dotenv  # Loads variables from a .env file into os.environ
 
 # load_dotenv() reads a .env file in the project root (if it exists) and adds
@@ -91,48 +92,85 @@ else:
 SYNC_URL = ASYNC_URL.replace("+asyncpg", "")
 
 # ---------------------------------------------------------------------------
-# ADD SSL FOR REMOTE DATABASES
+# CLEAN UP QUERY PARAMETERS FOR EACH DRIVER
 # ---------------------------------------------------------------------------
-# Cloud databases like Neon REQUIRE encrypted (SSL) connections.
-# Local development (localhost) doesn't need SSL.
+# Cloud databases like Neon include query parameters in their URLs, e.g.:
+#   ?sslmode=require&channel_binding=require
 #
-# How to tell if we're connecting to a remote database:
-#   - If "localhost" or "127.0.0.1" is in the URL → local, no SSL needed
-#   - Otherwise → remote, SSL required
+# THE PROBLEM: asyncpg and psycopg2 support DIFFERENT parameter names!
 #
-# The tricky part: asyncpg and psycopg2 use DIFFERENT SSL parameter names:
-#   - asyncpg (async driver):   ?ssl=require
-#   - psycopg2 (sync driver):   ?sslmode=require
+#   asyncpg (async driver) understands:
+#     - ssl=require        (NOT sslmode — that's a libpq/psycopg2 thing)
 #
-# We also need to handle URLs that already have query parameters (?foo=bar)
-# by using "&" instead of "?" for additional parameters.
+#   psycopg2 (sync driver) understands:
+#     - sslmode=require    (standard libpq parameter)
+#     - channel_binding=require  (libpq parameter for extra security)
+#
+#   If we pass "sslmode" or "channel_binding" to asyncpg, it crashes with
+#   "unrecognized parameter" error. So we need to:
+#     1. For ASYNC_URL: remove sslmode & channel_binding, add ssl=require
+#     2. For SYNC_URL: keep sslmode & channel_binding as-is (psycopg2 handles them)
+#
+# We use Python's urllib.parse to properly parse and rebuild the URLs.
+# This is safer than string manipulation because it handles edge cases
+# (encoded characters, multiple params, etc.).
 
 is_remote = "localhost" not in ASYNC_URL and "127.0.0.1" not in ASYNC_URL
 
 if is_remote:
-    # Add SSL parameter for the ASYNC driver (asyncpg uses "ssl" not "sslmode")
-    if "?" in ASYNC_URL:
-        # URL already has query params — append with &
-        ASYNC_URL += "&ssl=require"
-    else:
-        # No existing query params — start with ?
-        ASYNC_URL += "?ssl=require"
+    # --- Fix ASYNC_URL for asyncpg ---
+    # Parse the URL into its components (scheme, host, path, query, etc.)
+    parsed = urlparse(ASYNC_URL)
 
-    # Add SSL parameter for the SYNC driver (psycopg2 uses "sslmode")
-    if "?" in SYNC_URL:
-        SYNC_URL += "&sslmode=require"
-    else:
-        SYNC_URL += "?sslmode=require"
+    # Parse the query string into a dictionary.
+    # parse_qs returns {'sslmode': ['require'], 'channel_binding': ['require']}
+    # keep_blank_values=True preserves params like "?foo=" with empty values.
+    params = parse_qs(parsed.query, keep_blank_values=True)
+
+    # Remove parameters that asyncpg doesn't understand.
+    # These are libpq-specific params that psycopg2 supports but asyncpg doesn't.
+    params.pop("sslmode", None)          # asyncpg uses "ssl" instead
+    params.pop("channel_binding", None)  # libpq-only, asyncpg doesn't support this
+
+    # Add the asyncpg-compatible SSL parameter.
+    # "ssl=require" tells asyncpg to use an encrypted connection.
+    params["ssl"] = ["require"]
+
+    # Rebuild the query string from the cleaned parameters.
+    # doseq=True handles list values (parse_qs returns lists).
+    new_query = urlencode(params, doseq=True)
+
+    # Reassemble the full URL with the cleaned query string.
+    # urlunparse takes a tuple: (scheme, netloc, path, params, query, fragment)
+    # parsed._replace() creates a copy with just the query part changed.
+    ASYNC_URL = urlunparse(parsed._replace(query=new_query))
+
+    # --- Fix SYNC_URL for psycopg2 ---
+    # psycopg2 understands sslmode and channel_binding natively, so we just
+    # need to make sure sslmode is present. Parse and check.
+    parsed_sync = urlparse(SYNC_URL)
+    sync_params = parse_qs(parsed_sync.query, keep_blank_values=True)
+
+    # Ensure sslmode=require is present (psycopg2's SSL parameter)
+    if "sslmode" not in sync_params:
+        sync_params["sslmode"] = ["require"]
+
+    new_sync_query = urlencode(sync_params, doseq=True)
+    SYNC_URL = urlunparse(parsed_sync._replace(query=new_sync_query))
 
 # For reference, here's what the final URLs look like:
 #
-#   LOCAL DEVELOPMENT:
+#   LOCAL DEVELOPMENT (no changes, no SSL):
 #     ASYNC_URL = "postgresql+asyncpg://postgres:admin123@localhost:5432/mlb_db"
 #     SYNC_URL  = "postgresql://postgres:admin123@localhost:5432/mlb_db"
 #
-#   PRODUCTION (Neon example):
-#     ASYNC_URL = "postgresql+asyncpg://user:pass@ep-cool-name.neon.tech/neondb?ssl=require"
-#     SYNC_URL  = "postgresql://user:pass@ep-cool-name.neon.tech/neondb?sslmode=require"
+#   PRODUCTION with Neon URL like:
+#     postgresql://user:pass@ep-cool.neon.tech/neondb?sslmode=require&channel_binding=require
+#
+#     ASYNC_URL = "postgresql+asyncpg://user:pass@ep-cool.neon.tech/neondb?ssl=require"
+#                 (sslmode → ssl, channel_binding removed — asyncpg compatible)
+#     SYNC_URL  = "postgresql://user:pass@ep-cool.neon.tech/neondb?sslmode=require&channel_binding=require"
+#                 (kept as-is — psycopg2 compatible)
 
 # Keep DATABASE_URL pointing to the async version for backward compatibility
 # (main.py and other modules import DATABASE_URL from this file).
