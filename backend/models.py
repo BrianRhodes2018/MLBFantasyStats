@@ -15,6 +15,7 @@ Tables:
 - pitchers: MLB pitcher statistics (era, whip, wins, losses, etc.)
 - batter_game_logs: Per-game batting stats for computing rolling averages
 - pitcher_game_logs: Per-game pitching stats for computing rolling averages
+- fantasy_leagues: Fantasy league configurations and scoring rules (ESPN + Yahoo)
 """
 
 from sqlalchemy import Table, Column, Integer, String, Float
@@ -67,6 +68,18 @@ players = Table(
     Column("walks", Integer, nullable=True),          # BB - Bases on balls (walks)
     Column("hit_by_pitch", Integer, nullable=True),   # HBP - Hit by pitch
     Column("sacrifice_flies", Integer, nullable=True),# SF - Sacrifice flies
+
+    # Fantasy-relevant stats — these are needed for accurate ESPN fantasy point
+    # calculations. For example, a league that awards 1 pt per double needs the
+    # actual doubles count, not just total bases.
+    Column("hits", Integer, nullable=True),            # H - Total hits
+    Column("doubles", Integer, nullable=True),         # 2B - Doubles
+    Column("triples", Integer, nullable=True),         # 3B - Triples
+    Column("caught_stealing", Integer, nullable=True), # CS - Caught stealing (usually negative pts)
+
+    # Games played — number of games the player appeared in during the season.
+    # Used to compute fantasy points per game (Pts/G).
+    Column("games_played", Integer, nullable=True),   # G - Games played
 
     # MLB Stats API player ID — used to link this player to their game logs.
     # The MLB API assigns a unique numeric ID to every player (e.g., Aaron Judge = 592450).
@@ -214,4 +227,83 @@ pitcher_game_logs = Table(
     Column("saves", Integer, default=0),               # 0 or 1
     Column("quality_start", Integer, default=0),       # 0 or 1 (6+ IP, 3 or fewer ER)
     Column("pitches", Integer, default=0),             # Pitch count
+)
+
+
+# =============================================================================
+# FANTASY LEAGUES TABLE (ESPN + Yahoo)
+# =============================================================================
+# Stores fantasy league configurations for both ESPN and Yahoo providers.
+# Each row represents one league that the user has connected. The
+# scoring_settings column stores the full scoring rules as a JSON string
+# (serialized dict) fetched from the provider's API.
+#
+# Why store scoring_settings as a JSON string instead of a separate table?
+# Scoring rules are a flat list of {statKey: point_value} pairs. Storing
+# them as JSON keeps the schema simple and avoids a many-to-many join table
+# for what is essentially configuration data that rarely changes.
+#
+# Authentication:
+# - ESPN public leagues: only league_id is needed
+# - ESPN private leagues: also need espn_s2 and swid cookies from the browser
+#   (found in DevTools → Application → Cookies → espn.com)
+# - Yahoo leagues: require OAuth 1.0a — consumer key + secret from a Yahoo
+#   Developer app, plus access/refresh tokens obtained via the OAuth flow
+fantasy_leagues = Table(
+    "fantasy_leagues",
+    metadata,
+    Column("id", Integer, primary_key=True),
+
+    # Provider identifier — "espn" or "yahoo".
+    # Tells the app which API/logic to use for this league.
+    # Nullable with default "espn" for backward compatibility with existing rows.
+    Column("provider", String(20), nullable=True),
+
+    # ESPN league ID — the numeric identifier from the ESPN fantasy league URL.
+    # Example: https://fantasy.espn.com/baseball/league?leagueId=12345
+    # Multiple rows can share the same league_id (e.g., different seasons).
+    # Nullable because Yahoo leagues use yahoo_league_key instead.
+    Column("league_id", Integer, nullable=True),
+
+    # Human-readable league name fetched from ESPN/Yahoo (e.g., "Brian's Dynasty League").
+    # This is displayed in the league selector dropdown in the frontend.
+    Column("league_name", String(200), nullable=False),
+
+    # The season year this scoring configuration applies to (e.g., 2025).
+    Column("season_year", Integer, nullable=False),
+
+    # JSON-serialized dict of scoring rules: {"statKey": pointValue, ...}
+    # ESPN example: {"5": 5.0, "6": 2.0, "8": 1.0, "9": -1.0, ...}
+    #   Each key is an ESPN stat ID (as a string), value is point value.
+    # Yahoo example: {"HR": 5.0, "RBI": 1.0, "K": -1.0, ...}
+    #   Each key is a Yahoo stat display_name, value is point value.
+    # Stored as a string because SQLAlchemy Core + asyncpg handles Text
+    # more reliably than PostgreSQL JSON columns with the databases library.
+    Column("scoring_settings", String(5000), nullable=False),
+
+    # --- ESPN-specific authentication ---
+    # Optional ESPN authentication cookies for private leagues.
+    # espn_s2: A long session cookie (~300+ chars) from espn.com
+    # swid: A shorter GUID-format cookie like {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}
+    # For public leagues or Yahoo leagues, these are left null.
+    Column("espn_s2", String(500), nullable=True),
+    Column("swid", String(100), nullable=True),
+
+    # --- Yahoo-specific fields ---
+    # Yahoo league key — string format "431.l.123456" (game_id.l.league_id).
+    # The game_id changes each season (e.g., 431 = 2025 MLB).
+    # This is Yahoo's equivalent of ESPN's numeric league_id.
+    Column("yahoo_league_key", String(50), nullable=True),
+
+    # Yahoo OAuth 1.0a tokens — obtained through the OAuth authorization flow.
+    # access_token: Used to authenticate API requests (~60 min lifespan)
+    # refresh_token: Used to get a new access_token when it expires (long-lived)
+    # token_expires_at: ISO timestamp of when the access_token expires,
+    #   so we know when to refresh before making API calls.
+    Column("yahoo_access_token", String(2000), nullable=True),
+    Column("yahoo_refresh_token", String(2000), nullable=True),
+    Column("yahoo_token_expires_at", String(30), nullable=True),
+
+    # Timestamp of when this league was added (ISO format string "YYYY-MM-DD HH:MM:SS").
+    Column("created_at", String(30), nullable=True),
 )

@@ -47,6 +47,18 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Forward fantasy league routes — ESPN fantasy league integration.
+      // Covers: /fantasy/leagues, /fantasy/points/batters/{id}, /fantasy/points/pitchers/{id}
+      '/fantasy': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      // Forward player detail routes — ESPN news proxy + MLB transactions.
+      // Covers: /player-detail/news, /player-detail/transactions/{mlb_id}
+      '/player-detail': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

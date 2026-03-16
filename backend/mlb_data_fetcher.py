@@ -158,6 +158,13 @@ def get_qualified_batters(season: int, limit: int = 1000, qualified_only: bool =
             'walks': stat.get('baseOnBalls', 0),          # BB - needed for OBP calculation
             'hit_by_pitch': stat.get('hitByPitch', 0),    # HBP - needed for OBP calculation
             'sacrifice_flies': stat.get('sacFlies', 0),   # SF - needed for OBP calculation
+            # Fantasy-relevant stats — needed for accurate ESPN fantasy point calculations.
+            # These are available from the MLB API but weren't previously fetched.
+            'hits': stat.get('hits', 0),                    # H - Total hits
+            'doubles': stat.get('doubles', 0),              # 2B - Doubles
+            'triples': stat.get('triples', 0),              # 3B - Triples
+            'caught_stealing': stat.get('caughtStealing', 0),  # CS - Caught stealing
+            'games_played': stat.get('gamesPlayed', 0),      # G - Games played (for Pts/G)
             'mlb_id': player_info.get('id'),  # MLB API unique player ID
         }
         players.append(player_record)
@@ -289,6 +296,12 @@ def get_all_active_players(season: int) -> pl.DataFrame:
                                 'walks': batting_stats.get('baseOnBalls', 0),          # BB - needed for OBP calculation
                                 'hit_by_pitch': batting_stats.get('hitByPitch', 0),    # HBP - needed for OBP calculation
                                 'sacrifice_flies': batting_stats.get('sacFlies', 0),   # SF - needed for OBP calculation
+                                # Fantasy-relevant stats
+                                'hits': batting_stats.get('hits', 0),
+                                'doubles': batting_stats.get('doubles', 0),
+                                'triples': batting_stats.get('triples', 0),
+                                'caught_stealing': batting_stats.get('caughtStealing', 0),
+                                'games_played': batting_stats.get('gamesPlayed', 0),  # G - Games played (for Pts/G)
                                 'mlb_id': player_id,  # MLB API unique player ID
                             }
                             all_players.append(player_record)

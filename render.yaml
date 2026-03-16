@@ -1,0 +1,131 @@
+# ===========================================================================
+# render.yaml — Render Blueprint (Backend Deployment Configuration)
+# ===========================================================================
+#
+# This file tells Render how to build and run the FastAPI backend.
+# When you connect your GitHub repo to Render, it reads this file and
+# auto-configures your web service — no manual setup needed!
+#
+# WHAT IS RENDER?
+#   Render is a cloud platform that hosts web applications. Their free tier
+#   can run Python (FastAPI) web services. The only downside: free-tier
+#   services "spin down" after 15 minutes of no traffic, and take ~30 seconds
+#   to "cold start" when someone visits again.
+#
+# ============================================
+# STEP-BY-STEP DEPLOYMENT GUIDE
+# ============================================
+#
+# STEP 1: Push your code to GitHub
+#   - Create a new GitHub repository
+#   - git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+#   - git push -u origin main
+#
+# STEP 2: Create a free Neon PostgreSQL database
+#   - Go to https://neon.tech and sign up (free)
+#   - Create a new project (any name, pick the region closest to you)
+#   - Copy the connection string from the dashboard. It looks like:
+#     postgres://username:password@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require
+#   - Save this — you'll paste it into Render as DATABASE_URL
+#
+# STEP 3: Deploy the backend on Render
+#   - Go to https://render.com and sign up (free)
+#   - Click "New" → "Blueprint" → connect your GitHub repo
+#   - Render reads THIS FILE and creates the web service automatically
+#   - In the Render dashboard, go to your service → "Environment" tab
+#   - Add these environment variables:
+#       DATABASE_URL  = (paste your Neon connection string from Step 2)
+#       CORS_ORIGINS  = https://your-app.vercel.app
+#                       (you'll get this URL after deploying the frontend in Step 4)
+#   - Click "Manual Deploy" → "Deploy latest commit"
+#   - Wait for the build to finish — your backend URL will be something like:
+#     https://mlb-stats-api.onrender.com
+#
+# STEP 4: Deploy the frontend on Vercel
+#   - Go to https://vercel.com and sign up (free)
+#   - Click "Add New Project" → import your GitHub repo
+#   - IMPORTANT: Set the "Root Directory" to "frontend" (click "Edit" next to it)
+#   - Vercel auto-detects Vite and sets build command to "npm run build"
+#   - Before deploying, add this Environment Variable:
+#       VITE_API_URL = https://mlb-stats-api.onrender.com
+#                      (your Render backend URL from Step 3)
+#   - Click "Deploy" — your frontend URL will be something like:
+#     https://your-app.vercel.app
+#
+# STEP 5: Update CORS on Render
+#   - Now that you have the Vercel URL, go back to Render
+#   - Update the CORS_ORIGINS environment variable to your Vercel URL:
+#       CORS_ORIGINS = https://your-app.vercel.app
+#   - Render will auto-redeploy with the new setting
+#
+# STEP 6: Seed the database with MLB data
+#   - On your LOCAL machine (not Render), set the DATABASE_URL to your Neon string:
+#       export DATABASE_URL="postgres://user:pass@host/neondb?sslmode=require"
+#   - Run the data fetcher to populate the database:
+#       cd backend
+#       python mlb_data_fetcher.py --save
+#       python mlb_data_fetcher.py --pitchers --save
+#       python mlb_data_fetcher.py --gamelogs --save
+#   - The data is now in Neon and accessible from the deployed app!
+#
+# ===========================================================================
+
+# Render Blueprint specification version
+# (this tells Render which config format we're using)
+version: "1"
+
+services:
+  # ---------------------------------------------------------------------------
+  # WEB SERVICE — FastAPI Backend
+  # ---------------------------------------------------------------------------
+  # This defines a single web service that Render will build and run.
+  # A "web service" is a long-running process that listens for HTTP requests.
+
+  - type: web
+    # The name that appears in your Render dashboard.
+    # Also becomes part of the URL: https://mlb-stats-api.onrender.com
+    name: mlb-stats-api
+
+    # Runtime environment — tells Render to set up Python with pip.
+    runtime: python
+
+    # Which folder contains the backend code.
+    # Render will cd into this directory before running build/start commands.
+    rootDir: backend
+
+    # Build command — runs ONCE when deploying (installs dependencies).
+    # pip install -r requirements.txt reads the file and installs all listed
+    # packages (FastAPI, Polars, asyncpg, etc.) into the deployment environment.
+    buildCommand: pip install -r requirements.txt
+
+    # Start command — runs your FastAPI server.
+    # - uvicorn: The ASGI server that runs FastAPI
+    # - main:app: Import the `app` object from main.py
+    # - --host 0.0.0.0: Listen on all network interfaces (required for Render)
+    # - --port $PORT: Use the port Render assigns (they set this automatically)
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+    # Use the free plan (no credit card required).
+    # Free plan limitations:
+    #   - 750 hours/month of runtime
+    #   - Spins down after 15 min of inactivity (~30s cold start)
+    #   - 512 MB RAM
+    #   - Shared CPU
+    plan: free
+
+    # Environment variables — these configure the app for production.
+    # You'll set the actual VALUES in the Render dashboard (not here,
+    # because this file is committed to GitHub and shouldn't contain secrets).
+    envVars:
+      # DATABASE_URL: Your Neon PostgreSQL connection string.
+      # The app's database.py auto-converts the URL format and adds SSL.
+      # Set this in the Render dashboard to your Neon connection string.
+      - key: DATABASE_URL
+        sync: false  # Don't auto-sync — you'll set this manually
+
+      # CORS_ORIGINS: Your Vercel frontend URL (so the browser can make API calls).
+      # Example: https://your-app.vercel.app
+      # Multiple origins can be comma-separated:
+      #   https://your-app.vercel.app,https://custom-domain.com
+      - key: CORS_ORIGINS
+        sync: false  # Don't auto-sync — you'll set this manually

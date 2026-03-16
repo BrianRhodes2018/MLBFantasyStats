@@ -109,10 +109,16 @@ const COLUMNS = [
   },
   {
     key: 'at_bats',
-    label: 'AB',
-    tooltip: 'At Bats (AB)\nAn official plate appearance that does not result in a walk, hit by pitch, sacrifice, or obstruction.\nAverage: 450 | Good: 550 | Elite: 600+',
+    label: 'H/AB',
+    tooltip: 'Hits / At Bats (H/AB)\nHits: total base hits. At Bats: official plate appearances excluding walks, HBP, sacrifices.\nDisplayed as H/AB (e.g., 150/525). Sorts and edits by AB.\nAverage AB: 450 | Good: 550 | Elite: 600+',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    // formatRow receives the full player object so we can display "hits/at_bats"
+    formatRow: (player) => {
+      const h = player.hits ?? '—'
+      const ab = player.at_bats ?? '—'
+      return `${h}/${ab}`
+    },
   },
   {
     key: 'batting_average',
@@ -198,9 +204,25 @@ const COLUMNS = [
     tooltip: 'Speed Score (Custom)\nSB / (SB + 10) × 100\nNormalized 0-100 scale with diminishing returns at high SB counts.\nAverage: 30 | Good: 60 | Elite: 80+',
     isComputed: true
   },
+  {
+    key: 'fantasy_pts',
+    label: 'Fantasy Pts',
+    tooltip: 'Fantasy Points\nComputed based on the selected ESPN fantasy league\'s scoring settings.\nSelect a league in the header bar to see fantasy points.\nPoints = SUM(stat × league_point_value) for each scored category.',
+    format: (v) => v != null ? v.toFixed(1) : '—',
+    isComputed: true,   // Value comes from the fantasyPoints array, not the player object
+    isFantasy: true,    // Special flag: column only shows when a league is selected
+  },
+  {
+    key: 'fantasy_pts_per_game',
+    label: 'Pts/G',
+    tooltip: 'Fantasy Points Per Game (Pts/G)\nTotal fantasy points ÷ games played.\nCompares per-game fantasy value across players with different games played.\nHigher = more valuable on a per-game basis.',
+    format: (v) => v != null ? v.toFixed(1) : '—',
+    isComputed: true,
+    isFantasy: true,
+  },
 ]
 
-function PlayerTable({ players, computed, onPlayerUpdated, isRolling }) {
+function PlayerTable({ players, computed, fantasyPoints, onPlayerUpdated, isRolling, onPlayerClick, comparisonIds, onAddToComparison }) {
   // -------------------------------------------------------------------------
   // SORT STATE
   // -------------------------------------------------------------------------
@@ -256,6 +278,9 @@ function PlayerTable({ players, computed, onPlayerUpdated, isRolling }) {
   ]
   const activeColumns = COLUMNS.filter((col) => {
     if (col.rollingOnly && !isRolling) return false
+    // Hide the Fantasy Pts column when no league is selected or no data yet.
+    // This prevents showing an empty "Fantasy Pts" column with all dashes.
+    if (col.isFantasy && (!fantasyPoints || fantasyPoints.length === 0)) return false
     if (isRolling) {
       // In rolling mode, only show columns that exist in rolling data
       return rollingBatterKeys.includes(col.key)
@@ -537,7 +562,11 @@ function PlayerTable({ players, computed, onPlayerUpdated, isRolling }) {
   const mergedPlayers = players.map((player) => {
     if (isRolling) return player  // Rolling data is already complete
     const comp = getComputedStats(player.id)
-    return { ...player, ...(comp || {}) }
+    // Merge fantasy points — same pattern as computed stats.
+    // fantasyPoints is an array of {id, name, fantasy_pts} objects.
+    // We find the matching entry by player ID and spread it into the player object.
+    const fantasyPt = fantasyPoints?.find((f) => f.id === player.id)
+    return { ...player, ...(comp || {}), ...(fantasyPt || {}) }
   })
 
   /**
@@ -716,11 +745,13 @@ function PlayerTable({ players, computed, onPlayerUpdated, isRolling }) {
                   // For non-editing rows (or non-editable columns in editing rows),
                   // display the value with optional formatting.
                   const rawValue = player[col.key]
-                  const displayValue = col.format
-                    ? col.format(rawValue)       // Apply format function if defined
-                    : col.isComputed
-                      ? (rawValue ?? '—')        // Computed: show dash if missing
-                      : rawValue                 // Raw: show as-is
+                  const displayValue = col.formatRow
+                    ? col.formatRow(player)      // Format using full player object (e.g., H/AB)
+                    : col.format
+                      ? col.format(rawValue)     // Apply format function if defined
+                      : col.isComputed
+                        ? (rawValue ?? '—')      // Computed: show dash if missing
+                        : rawValue               // Raw: show as-is
 
                   return (
                     <td
@@ -728,7 +759,21 @@ function PlayerTable({ players, computed, onPlayerUpdated, isRolling }) {
                       // Add "computed-stat" class for purple styling on computed columns
                       className={col.isComputed ? 'computed-stat' : undefined}
                     >
-                      {displayValue}
+                      {/* Name column: render as a clickable link that opens the player detail modal.
+                          Other columns render as plain text. */}
+                      {col.key === 'name' && onPlayerClick ? (
+                        <span
+                          className="player-name-link"
+                          onClick={() => onPlayerClick(player)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === 'Enter' && onPlayerClick(player)}
+                        >
+                          {displayValue}
+                        </span>
+                      ) : (
+                        displayValue
+                      )}
                     </td>
                   )
                 })}
@@ -757,7 +802,19 @@ function PlayerTable({ players, computed, onPlayerUpdated, isRolling }) {
                         <button className="btn-cancel" onClick={handleCancelEdit}>Cancel</button>
                       </>
                     ) : (
-                      <button className="btn-edit" onClick={() => handleEditClick(player)}>Edit</button>
+                      <>
+                        <button className="btn-edit" onClick={() => handleEditClick(player)}>Edit</button>
+                        {onAddToComparison && (
+                          <button
+                            className={`btn-compare ${comparisonIds?.has(player.id) ? 'active' : ''}`}
+                            onClick={() => onAddToComparison(player, 'batter')}
+                            disabled={comparisonIds?.has(player.id)}
+                            title={comparisonIds?.has(player.id) ? 'Already in comparison' : 'Add to comparison'}
+                          >
+                            {comparisonIds?.has(player.id) ? '✓' : 'Compare'}
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 )}

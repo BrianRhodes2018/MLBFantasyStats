@@ -135,6 +135,8 @@ h2 {
   justify-content: space-between;      /* Title on the left, dropdown on the right */
   gap: 16px;
   border-bottom: 2px solid #4a90d9;   /* Blue accent line separating header from table rows */
+  overflow: visible;                   /* Allow league selector popup to extend outside the bar */
+  position: relative;                  /* Needed for absolutely-positioned children like the league form */
 }
 
 /* The table title inside the header bar — reset default h2 margins
@@ -155,6 +157,7 @@ h2 {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  overflow: visible;                   /* Allow league form popup to extend outside */
 }
 
 /* Individual filter dropdown container (label + select pair) */
@@ -995,5 +998,1154 @@ h2 {
     text-align: center;
     padding: 8px 10px;
     font-size: 0.8rem;
+  }
+}
+
+
+/* ===========================================================================
+   10. FANTASY LEAGUE SELECTOR STYLES
+   ===========================================================================
+   Styles for the ESPN Fantasy League integration UI — the league selector
+   dropdown, add/remove buttons, and the inline form for connecting new leagues.
+   These match the existing dark theme and filter dropdown patterns. */
+
+/* The league selector container — sits inline with Position and Team filters */
+.league-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+/* Add/Remove league buttons — compact, outlined style matching the theme */
+.btn-add-league,
+.btn-remove-league {
+  padding: 6px 12px;
+  border: 2px solid #4a90d9;
+  border-radius: 8px;
+  background: transparent;
+  color: #c4ced4;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-add-league:hover {
+  background: rgba(74, 144, 217, 0.15);
+  border-color: #6ba3e0;
+  color: #e0e8f0;
+}
+
+/* Remove button uses a red accent to signal destructive action */
+.btn-remove-league {
+  border-color: #c0392b;
+  color: #e74c3c;
+}
+
+.btn-remove-league:hover {
+  background: rgba(231, 76, 60, 0.15);
+  border-color: #e74c3c;
+}
+
+/* Add League inline form — positioned absolutely below the header bar.
+   Uses a card-style popup with the same dark theme as the rest of the app. */
+.add-league-form {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  background: #1e3050;
+  border: 2px solid #4a90d9;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 400px;
+  max-width: 460px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Each field in the add-league form (label + input pair) */
+.add-league-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.add-league-field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c4ced4;
+}
+
+.add-league-field input {
+  padding: 8px 12px;
+  border: 2px solid #3a5a8a;
+  border-radius: 8px;
+  background: #162236;
+  color: #e0e8f0;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease;
+}
+
+.add-league-field input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.25);
+}
+
+.add-league-field input::placeholder {
+  color: #6a7a8a;
+}
+
+/* Action buttons inside the add-league form */
+.add-league-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Connect League button — primary action, solid blue */
+.btn-connect-league {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #4a90d9;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-connect-league:hover {
+  background: #3a7bc8;
+}
+
+.btn-connect-league:disabled {
+  background: #3a5a7a;
+  cursor: not-allowed;
+  color: #8899aa;
+}
+
+/* Cancel button — secondary action, subtle */
+.btn-cancel-league {
+  padding: 8px 16px;
+  border: 2px solid #4a5a6c;
+  border-radius: 8px;
+  background: transparent;
+  color: #c4ced4;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-cancel-league:hover {
+  background: rgba(74, 90, 108, 0.3);
+}
+
+/* Feedback messages for league operations (success/error) */
+.league-message {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.league-message-success {
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.league-message-error {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  white-space: normal;
+  max-width: 360px;
+}
+
+/* --- Help text and instructions inside the add-league form --- */
+
+/* Inline help block — shows step-by-step instructions for finding data */
+.field-help {
+  background: rgba(74, 144, 217, 0.08);
+  border: 1px solid rgba(74, 144, 217, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: #a0b0c0;
+  line-height: 1.5;
+}
+
+.field-help strong {
+  color: #c4ced4;
+}
+
+/* Numbered steps list inside the help block */
+.field-help ol {
+  margin: 6px 0 4px 0;
+  padding-left: 20px;
+}
+
+.field-help ol li {
+  margin-bottom: 3px;
+}
+
+/* Code/monospace text inside help (for keyboard shortcuts, URL parts) */
+.field-help code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.85em;
+  color: #e0e8f0;
+}
+
+/* Example URL display with highlighted part */
+.field-help-example {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.85em;
+  word-break: break-all;
+}
+
+.field-help-example strong {
+  color: #4a90d9;
+}
+
+/* Collapsible section for private league cookie instructions.
+   Uses the native HTML <details>/<summary> elements for no-JS toggling. */
+.private-league-details {
+  margin-top: 4px;
+  border: 1px solid rgba(74, 144, 217, 0.2);
+  border-radius: 8px;
+}
+
+/* The clickable header that expands/collapses the section */
+.private-league-details summary {
+  padding: 10px 14px;
+  background: rgba(74, 144, 217, 0.08);
+  color: #8899aa;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+  list-style: none;  /* Remove default triangle on some browsers */
+}
+
+/* Custom arrow indicator for the collapsible section */
+.private-league-details summary::before {
+  content: '\25B6  ';  /* Right-pointing triangle */
+  font-size: 0.7em;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.private-league-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.private-league-details summary:hover {
+  background: rgba(74, 144, 217, 0.15);
+  color: #c4ced4;
+}
+
+/* The expanded content area inside the collapsible section */
+.private-league-help {
+  padding: 12px 14px;
+}
+
+.private-league-help p {
+  margin: 0 0 10px 0;
+  font-size: 0.85rem;
+  color: #a0b0c0;
+  line-height: 1.5;
+}
+
+/* Space between the two help blocks (Chrome vs Firefox instructions) */
+.private-league-help .field-help + .field-help {
+  margin-top: 10px;
+}
+
+/* Space between the help blocks and the cookie input fields */
+.private-league-help .add-league-field {
+  margin-top: 10px;
+}
+
+/* ===========================================================================
+   11. PROVIDER TOGGLE + YAHOO WIZARD STYLES
+   ===========================================================================
+   Styles for the ESPN/Yahoo provider toggle and Yahoo's 2-step authorization
+   wizard inside the add-league form. The toggle buttons use the same pattern
+   as the time period selector (outlined → solid blue when active). */
+
+/* --- Provider Toggle Buttons --- */
+/* Container for the ESPN / Yahoo toggle — sits at the top of the add-league form */
+.provider-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  background: #0f1a2e;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+/* Individual toggle button — matches the time period button style */
+.provider-toggle-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: transparent;
+  color: #8899aa;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.provider-toggle-btn:hover:not(.active) {
+  color: #c4ced4;
+  background: rgba(74, 144, 217, 0.1);
+}
+
+/* Active state — solid Yankees blue to show which provider is selected */
+.provider-toggle-btn.active {
+  background: #4a90d9;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(74, 144, 217, 0.3);
+}
+
+/* --- Yahoo Step Indicator --- */
+/* Horizontal progress indicator showing Step 1 → Step 2 */
+.yahoo-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 0;
+}
+
+/* Each step (number + label) */
+.yahoo-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.4;
+  transition: opacity 0.3s ease;
+}
+
+/* Active step — fully visible */
+.yahoo-step.active {
+  opacity: 1;
+}
+
+/* Numbered circle badge for each step */
+.yahoo-step-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #2a3f5f;
+  color: #8899aa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Active step number — highlighted blue */
+.yahoo-step.active .yahoo-step-number {
+  background: #4a90d9;
+  color: #ffffff;
+}
+
+/* Step label text */
+.yahoo-step-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #8899aa;
+  white-space: nowrap;
+}
+
+.yahoo-step.active .yahoo-step-label {
+  color: #c4ced4;
+}
+
+/* Arrow/line connecting Step 1 to Step 2 */
+.yahoo-step-divider {
+  flex: 1;
+  height: 2px;
+  background: #2a3f5f;
+  min-width: 20px;
+}
+
+/* --- Yahoo Authorization Link Box --- */
+/* Highlighted box containing the "Open Yahoo Authorization Page" button */
+.yahoo-auth-link-box {
+  background: rgba(74, 144, 217, 0.08);
+  border: 1px solid rgba(74, 144, 217, 0.25);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+/* The link styled as a button */
+.btn-yahoo-auth-link {
+  display: inline-block;
+  padding: 10px 20px;
+  background: #4a90d9;
+  color: #ffffff;
+  text-decoration: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.2s ease;
+}
+
+.btn-yahoo-auth-link:hover {
+  background: #3a7bc8;
+}
+
+
+/* =============================================================================
+   PLAYER DETAIL MODAL
+   =============================================================================
+   Modal overlay that appears when clicking a player name in the stats tables.
+   Shows player headshot, ESPN news articles, and MLB transaction history.
+   Follows the existing dark navy theme with smooth entrance animations.
+*/
+
+/* --- Clickable player name in tables --- */
+.player-name-link {
+  color: #4a90d9;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.player-name-link:hover {
+  color: #6ba3e0;
+  text-decoration: underline;
+}
+
+.player-name-link:focus-visible {
+  outline: 2px solid #4a90d9;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* --- Modal backdrop (semi-transparent overlay) --- */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 26, 46, 0.85);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: modalFadeIn 0.2s ease;
+}
+
+/* --- Modal content card --- */
+.modal-content {
+  background: #1c2841;
+  border: 1px solid #2a3f5f;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 640px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 28px;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  animation: modalSlideUp 0.25s ease;
+}
+
+/* Custom scrollbar for modal content */
+.modal-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: #2a3f5f;
+  border-radius: 3px;
+}
+
+/* --- Close button (top-right X) --- */
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: #6b7f94;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: #e8ecf0;
+  background: rgba(74, 144, 217, 0.15);
+}
+
+/* --- Player header (headshot + name/team/position) --- */
+.modal-player-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #2a3f5f;
+}
+
+.modal-headshot {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #4a90d9;
+  background: #162236;
+  flex-shrink: 0;
+}
+
+.modal-player-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-player-name {
+  font-size: 1.5rem;
+  color: #ffffff;
+  margin: 0 0 4px 0;
+  font-weight: 700;
+  border: none;
+  padding: 0;
+  background: none;
+}
+
+.modal-player-meta {
+  color: #c4ced4;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+/* --- Tab navigation (News | Fantasy Blurbs | Transactions) --- */
+.modal-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #2a3f5f;
+}
+
+.modal-tab {
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  color: #6b7f94;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.modal-tab:hover {
+  color: #c4ced4;
+}
+
+.modal-tab.active {
+  color: #4a90d9;
+  border-bottom-color: #4a90d9;
+}
+
+/* --- Tab content area --- */
+.modal-tab-content {
+  min-height: 120px;
+}
+
+/* --- News items --- */
+.modal-news-item {
+  padding: 14px 0;
+  border-bottom: 1px solid #2a3f5f;
+}
+
+.modal-news-item:last-child {
+  border-bottom: none;
+}
+
+.modal-news-headline {
+  color: #4a90d9;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.modal-news-headline:hover {
+  text-decoration: underline;
+  color: #6ba3e0;
+}
+
+.modal-news-date {
+  color: #6b7f94;
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+.modal-news-desc {
+  color: #c4ced4;
+  font-size: 0.85rem;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* --- Transaction items --- */
+.modal-transaction-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #2a3f5f;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.modal-transaction-item:last-child {
+  border-bottom: none;
+}
+
+.modal-transaction-date {
+  color: #4a90d9;
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.modal-transaction-type {
+  color: #a8b8c8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.modal-transaction-desc {
+  color: #c4ced4;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+/* --- Loading, error, and empty states --- */
+.modal-loading {
+  text-align: center;
+  color: #6b7f94;
+  padding: 32px 24px;
+  font-size: 0.9rem;
+}
+
+.modal-loading-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid #2a3f5f;
+  border-top-color: #4a90d9;
+  border-radius: 50%;
+  animation: modalSpin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+.modal-error {
+  text-align: center;
+  color: #e07070;
+  padding: 24px;
+  font-size: 0.9rem;
+}
+
+.modal-no-data {
+  text-align: center;
+  color: #6b7f94;
+  padding: 24px;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+/* --- Animations --- */
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalSlideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes modalSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- RotoWire fantasy blurb (single card from ESPN athlete overview) --- */
+.modal-rotowire-blurb {
+  padding: 4px 0;
+}
+
+.modal-rotowire-headline {
+  color: #50c878;
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+
+.modal-rotowire-story {
+  color: #c4ced4;
+  font-size: 0.9rem;
+  margin-top: 10px;
+  line-height: 1.6;
+}
+
+.modal-rotowire-credit {
+  text-align: right;
+  color: #4a5568;
+  font-size: 0.75rem;
+  font-style: italic;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid #2a3f5f;
+}
+
+/* ---- Game Log Table ---- */
+
+/* Scrollable wrapper for narrow viewports */
+.modal-gamelog-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.modal-gamelog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.modal-gamelog-table thead tr {
+  background: #162438;
+  border-bottom: 2px solid #4a90d9;
+}
+
+.modal-gamelog-table th {
+  padding: 8px 10px;
+  text-align: center;
+  font-weight: 600;
+  color: #c4ced4;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  position: sticky;
+  top: 0;
+  background: #162438;
+}
+
+.modal-gamelog-table td {
+  padding: 7px 10px;
+  text-align: center;
+  color: #e8ecf0;
+  border-bottom: 1px solid #1e3050;
+}
+
+.modal-gamelog-table tbody tr:hover {
+  background: rgba(74, 144, 217, 0.08);
+}
+
+/* Date column — left-aligned, slightly muted */
+.modal-gamelog-table td.modal-gamelog-date {
+  text-align: left;
+  color: #8899aa;
+  font-size: 0.82rem;
+}
+
+/* Opponent column — left-aligned, team name style */
+.modal-gamelog-table td.modal-gamelog-opponent {
+  text-align: left;
+  color: #c4ced4;
+  font-weight: 500;
+}
+
+/* First two columns (Date, Opp) stay left-aligned in the header too */
+.modal-gamelog-table th:nth-child(1),
+.modal-gamelog-table th:nth-child(2) {
+  text-align: left;
+}
+
+/* Alternate row striping for readability */
+.modal-gamelog-table tbody tr:nth-child(even) {
+  background: rgba(30, 48, 80, 0.3);
+}
+
+.modal-gamelog-table tbody tr:nth-child(even):hover {
+  background: rgba(74, 144, 217, 0.12);
+}
+
+/* ===========================================================================
+   PLAYER COMPARISON STYLES
+   =========================================================================== */
+
+/* Container panel — matches .player-search card style */
+.comparison-panel {
+  background: #1e3050;
+  border-radius: 12px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+/* Clickable header bar — always visible (collapsed or expanded) */
+.comparison-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.comparison-header:hover {
+  background: rgba(74, 144, 217, 0.08);
+}
+
+.comparison-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.collapse-indicator {
+  font-size: 1rem;
+  color: #8899aa;
+  width: 16px;
+}
+
+.comparison-title {
+  font-size: 1.1rem;
+  color: #e8ecf0;
+  margin: 0;
+  border: none;
+  padding: 0;
+  display: inline;
+}
+
+.comparison-count {
+  color: #4a90d9;
+  font-weight: 400;
+}
+
+/* "Clear All" button in the header bar */
+.btn-clear-compare {
+  background: rgba(220, 80, 80, 0.15);
+  color: #e87070;
+  border: 1px solid rgba(220, 80, 80, 0.3);
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-clear-compare:hover {
+  background: rgba(220, 80, 80, 0.25);
+  border-color: rgba(220, 80, 80, 0.5);
+}
+
+/* Expanded body area */
+.comparison-body {
+  padding: 0 20px 20px;
+}
+
+/* Autocomplete search input inside the comparison panel */
+.comparison-search {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.comparison-search input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid #2a4a6b;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #162236;
+  color: #e8ecf0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.comparison-search input:focus {
+  outline: none;
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+}
+
+.comparison-search input::placeholder {
+  color: #6b7c8d;
+}
+
+/* Suggestions dropdown */
+.comparison-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1a2d45;
+  border: 1px solid #2a4a6b;
+  border-radius: 8px;
+  z-index: 100;
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.comparison-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.comparison-suggestion:hover {
+  background: rgba(74, 144, 217, 0.15);
+}
+
+.comparison-suggestion:not(:last-child) {
+  border-bottom: 1px solid rgba(42, 74, 107, 0.5);
+}
+
+.suggestion-name {
+  color: #e8ecf0;
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+
+.suggestion-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestion-team {
+  color: #8899aa;
+  font-size: 0.82rem;
+}
+
+.suggestion-type {
+  background: rgba(74, 144, 217, 0.2);
+  color: #4a90d9;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Max players reached notice */
+.comparison-cap {
+  text-align: center;
+  color: #8899aa;
+  font-size: 0.88rem;
+  padding: 8px 0;
+  font-style: italic;
+}
+
+/* Empty state — no players added yet */
+.comparison-empty {
+  text-align: center;
+  color: #6b7c8d;
+  font-size: 0.92rem;
+  padding: 16px 0;
+}
+
+/* Transposed comparison table wrapper (horizontal scroll on narrow screens) */
+.comparison-table-wrapper {
+  overflow-x: auto;
+  margin-top: 12px;
+  border-radius: 8px;
+  border: 1px solid #2a4a6b;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.comparison-table th {
+  background: #0f1a2e;
+  color: #c4ced4;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 2px solid #2a4a6b;
+}
+
+.comparison-table td {
+  padding: 8px 14px;
+  text-align: left;
+  color: #e8ecf0;
+  border-bottom: 1px solid rgba(42, 74, 107, 0.4);
+  white-space: nowrap;
+}
+
+/* Name column — player link style, sticky on horizontal scroll */
+.comparison-name-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.comparison-name-cell {
+  color: #4a90d9 !important;
+  font-weight: 600;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #1e3050;
+}
+
+/* Actions column — minimal width for the remove button */
+.comparison-actions-col {
+  width: 40px;
+}
+
+.comparison-actions-cell {
+  width: 40px;
+  text-align: center !important;
+}
+
+/* Alternating row stripes */
+.comparison-table tbody tr:nth-child(even) {
+  background: #162236;
+}
+
+.comparison-table tbody tr:nth-child(even) .comparison-name-cell {
+  background: #162236;
+}
+
+.comparison-table tbody tr:hover {
+  background: #1a3a5c;
+}
+
+.comparison-table tbody tr:hover .comparison-name-cell {
+  background: #1a3a5c;
+}
+
+/* Best value highlight */
+.comparison-best {
+  color: #4a90d9 !important;
+  font-weight: 700;
+}
+
+/* Remove button (✕) per row */
+.btn-remove-compare {
+  background: none;
+  border: none;
+  color: #6b7c8d;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-remove-compare:hover {
+  color: #e87070;
+  background: rgba(220, 80, 80, 0.15);
+}
+
+/* ---- Compare button on table rows ---- */
+.btn-compare {
+  background: rgba(74, 180, 120, 0.15);
+  color: #5cc985;
+  border: 1px solid rgba(74, 180, 120, 0.3);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+
+.btn-compare:hover:not(:disabled) {
+  background: rgba(74, 180, 120, 0.25);
+  border-color: rgba(74, 180, 120, 0.5);
+}
+
+/* Already added state — muted blue checkmark */
+.btn-compare.active {
+  background: rgba(74, 144, 217, 0.15);
+  color: #4a90d9;
+  border-color: rgba(74, 144, 217, 0.3);
+  cursor: default;
+}
+
+.btn-compare:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* ---- Responsive: comparison panel ---- */
+@media (max-width: 768px) {
+  .comparison-header {
+    padding: 12px 14px;
+  }
+
+  .comparison-body {
+    padding: 0 14px 14px;
+  }
+
+  .comparison-table th,
+  .comparison-table td {
+    padding: 6px 10px;
+    font-size: 0.82rem;
   }
 }

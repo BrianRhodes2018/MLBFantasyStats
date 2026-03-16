@@ -165,9 +165,25 @@ const COLUMNS = [
     tooltip: 'Home Runs per 9 Innings (HR/9)\n(Home Runs Allowed ÷ Innings Pitched) × 9\nMeasures how frequently a pitcher gives up home runs. Lower is better.\nAverage: 1.2 | Good: 0.9 | Elite: <0.7',
     isComputed: true
   },
+  {
+    key: 'fantasy_pts',
+    label: 'Fantasy Pts',
+    tooltip: 'Fantasy Points\nComputed based on the selected ESPN fantasy league\'s scoring settings.\nSelect a league in the header bar to see fantasy points.\nPoints = SUM(stat × league_point_value) for each scored category.',
+    format: (v) => v != null ? v.toFixed(1) : '—',
+    isComputed: true,   // Value comes from the fantasyPoints array, not the pitcher object
+    isFantasy: true,    // Special flag: column only shows when a league is selected
+  },
+  {
+    key: 'fantasy_pts_per_game',
+    label: 'Pts/G',
+    tooltip: 'Fantasy Points Per Game (Pts/G)\nTotal fantasy points ÷ games appeared.\nCompares per-game fantasy value across pitchers with different workloads.\nHigher = more valuable on a per-game basis.',
+    format: (v) => v != null ? v.toFixed(1) : '—',
+    isComputed: true,
+    isFantasy: true,
+  },
 ]
 
-function PitcherTable({ pitchers, computed, onPitcherUpdated, isRolling }) {
+function PitcherTable({ pitchers, computed, fantasyPoints, onPitcherUpdated, isRolling, onPitcherClick, comparisonIds, onAddToComparison }) {
   // Filter columns based on season vs rolling mode.
   // - rollingOnly columns (like 'games') only show in rolling mode
   // - In rolling mode, columns marked isComputed that DON'T exist in rolling
@@ -188,6 +204,8 @@ function PitcherTable({ pitchers, computed, onPitcherUpdated, isRolling }) {
   ]
   const activeColumns = COLUMNS.filter((col) => {
     if (col.rollingOnly && !isRolling) return false
+    // Hide the Fantasy Pts column when no league is selected
+    if (col.isFantasy && (!fantasyPoints || fantasyPoints.length === 0)) return false
     if (isRolling) {
       // In rolling mode, only show columns that exist in rolling data
       return rollingPitcherKeys.includes(col.key)
@@ -313,7 +331,9 @@ function PitcherTable({ pitchers, computed, onPitcherUpdated, isRolling }) {
   const mergedPitchers = pitchers.map((pitcher) => {
     if (isRolling) return pitcher  // Rolling data is already complete
     const comp = getComputedStats(pitcher.id)
-    return { ...pitcher, ...(comp || {}) }
+    // Merge fantasy points — same pattern as computed stats
+    const fantasyPt = fantasyPoints?.find((f) => f.id === pitcher.id)
+    return { ...pitcher, ...(comp || {}), ...(fantasyPt || {}) }
   })
 
   // Sort the merged data
@@ -416,7 +436,21 @@ function PitcherTable({ pitchers, computed, onPitcherUpdated, isRolling }) {
                       key={col.key}
                       className={col.isComputed ? 'computed-stat' : undefined}
                     >
-                      {displayValue}
+                      {/* Name column: render as a clickable link that opens the player detail modal.
+                          Other columns render as plain text. */}
+                      {col.key === 'name' && onPitcherClick ? (
+                        <span
+                          className="player-name-link"
+                          onClick={() => onPitcherClick(pitcher)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => e.key === 'Enter' && onPitcherClick(pitcher)}
+                        >
+                          {displayValue}
+                        </span>
+                      ) : (
+                        displayValue
+                      )}
                     </td>
                   )
                 })}
@@ -430,7 +464,19 @@ function PitcherTable({ pitchers, computed, onPitcherUpdated, isRolling }) {
                         <button className="btn-cancel" onClick={handleCancelEdit}>Cancel</button>
                       </>
                     ) : (
-                      <button className="btn-edit" onClick={() => handleEditClick(pitcher)}>Edit</button>
+                      <>
+                        <button className="btn-edit" onClick={() => handleEditClick(pitcher)}>Edit</button>
+                        {onAddToComparison && (
+                          <button
+                            className={`btn-compare ${comparisonIds?.has(pitcher.id) ? 'active' : ''}`}
+                            onClick={() => onAddToComparison(pitcher, 'pitcher')}
+                            disabled={comparisonIds?.has(pitcher.id)}
+                            title={comparisonIds?.has(pitcher.id) ? 'Already in comparison' : 'Add to comparison'}
+                          >
+                            {comparisonIds?.has(pitcher.id) ? '✓' : 'Compare'}
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 )}

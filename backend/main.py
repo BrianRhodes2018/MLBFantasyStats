@@ -34,10 +34,31 @@ from typing import Optional
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from database import database, engine, metadata
-from models import players, pitchers, batter_game_logs, pitcher_game_logs
-from schemas import PlayerIn, PlayerOut, PlayerUpdate, PitcherIn, PitcherOut, PitcherUpdate, ApiResponse
+from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues
+from schemas import (
+    PlayerIn, PlayerOut, PlayerUpdate,
+    PitcherIn, PitcherOut, PitcherUpdate,
+    FantasyLeagueIn, FantasyLeagueOut,
+    ApiResponse,
+)
+from espn_fantasy import (
+    fetch_league_settings,
+    compute_fantasy_points_batters,
+    compute_fantasy_points_pitchers,
+)
+from yahoo_fantasy import (
+    get_yahoo_auth_url,
+    exchange_yahoo_code,
+    refresh_yahoo_token,
+    fetch_yahoo_league_settings,
+    compute_yahoo_fantasy_points_batters,
+    compute_yahoo_fantasy_points_pitchers,
+)
+import json
 import polars as pl
+import statsapi
 from sqlalchemy import text, inspect
 
 # Create the FastAPI application instance.
@@ -129,6 +150,10 @@ def run_migrations():
             "walks": "INTEGER",           # BB - Bases on balls (needed for OBP calculation)
             "hit_by_pitch": "INTEGER",    # HBP - Hit by pitch (needed for OBP calculation)
             "sacrifice_flies": "INTEGER", # SF - Sacrifice flies (needed for OBP calculation)
+            "hits": "INTEGER",            # H - Total hits (needed for fantasy points)
+            "doubles": "INTEGER",         # 2B - Doubles (needed for fantasy points)
+            "triples": "INTEGER",         # 3B - Triples (needed for fantasy points)
+            "caught_stealing": "INTEGER", # CS - Caught stealing (needed for fantasy points)
         }
 
         with engine.connect() as conn:
@@ -150,6 +175,36 @@ def run_migrations():
                 if col_name not in existing_pitcher_cols:
                     conn.execute(text(f"ALTER TABLE pitchers ADD COLUMN {col_name} {col_type}"))
             conn.commit()
+
+    # --- Fantasy leagues table migrations ---
+    # Add Yahoo-specific columns for the Yahoo Fantasy integration.
+    # The provider column identifies whether a league is ESPN or Yahoo,
+    # and the yahoo_* columns store OAuth tokens and league keys.
+    # DEFAULT 'espn' ensures existing rows are tagged as ESPN leagues.
+    if inspector.has_table("fantasy_leagues"):
+        existing_fl_cols = [col["name"] for col in inspector.get_columns("fantasy_leagues")]
+        fl_missing = {
+            "provider": "VARCHAR(20) DEFAULT 'espn'",      # "espn" or "yahoo"
+            "yahoo_league_key": "VARCHAR(50)",              # e.g. "431.l.123456"
+            "yahoo_access_token": "VARCHAR(2000)",          # OAuth access token
+            "yahoo_refresh_token": "VARCHAR(2000)",         # OAuth refresh token
+            "yahoo_token_expires_at": "VARCHAR(30)",        # Token expiry timestamp
+        }
+
+        with engine.connect() as conn:
+            for col_name, col_type in fl_missing.items():
+                if col_name not in existing_fl_cols:
+                    conn.execute(text(f"ALTER TABLE fantasy_leagues ADD COLUMN {col_name} {col_type}"))
+            conn.commit()
+
+        # Also make league_id nullable for Yahoo leagues (they use yahoo_league_key instead).
+        # This ALTER only needs to run once; it's safe to re-run (no-op if already nullable).
+        with engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE fantasy_leagues ALTER COLUMN league_id DROP NOT NULL"))
+                conn.commit()
+            except Exception:
+                conn.rollback()  # Silently ignore if column is already nullable
 
 
 # Run migrations on import (before the server starts handling requests)
@@ -1714,3 +1769,806 @@ async def populate_sample_data():
         {"name": "Bryce Harper", "team": "Philadelphia Phillies", "position": "1B", "batting_average": 0.285, "home_runs": 30, "rbi": 87, "stolen_bases": 7, "ops": 0.898},
     ]
     await database.execute_many(query=players.insert(), values=sample_players)
+
+
+# =============================================================================
+# FANTASY LEAGUE ENDPOINTS
+# =============================================================================
+# These endpoints let users connect their ESPN fantasy leagues and compute
+# fantasy points for each player based on the league's scoring settings.
+#
+# Flow:
+# 1. POST /fantasy/leagues — User provides ESPN league ID → app fetches scoring
+#    settings from ESPN API and saves them to the fantasy_leagues table
+# 2. GET /fantasy/leagues — Frontend fetches saved leagues to populate dropdown
+# 3. GET /fantasy/points/batters/{id} — Compute fantasy points for all batters
+#    using a specific league's scoring rules (Polars expression)
+# 4. GET /fantasy/points/pitchers/{id} — Same for pitchers
+# 5. DELETE /fantasy/leagues/{id} — Remove a saved league
+
+
+@app.post("/fantasy/leagues", response_model=ApiResponse)
+async def add_fantasy_league(league_input: FantasyLeagueIn):
+    """
+    Connect a fantasy league (ESPN or Yahoo) by fetching its scoring settings.
+
+    Branches on the `provider` field:
+    - "espn" (default): Calls ESPN Fantasy API with league_id + optional cookies
+    - "yahoo": Uses Yahoo OAuth 2.0 — exchanges the authorization code for tokens,
+      then fetches league settings from the Yahoo Fantasy API
+
+    Both providers follow the same pattern:
+    1. Fetch scoring settings from the provider's API
+    2. Serialize scoring rules to JSON for database storage
+    3. Save everything to the fantasy_leagues table
+    4. Return the saved league data so the frontend can immediately use it
+
+    Args:
+        league_input: FantasyLeagueIn with provider-specific fields
+
+    Returns:
+        ApiResponse with code 201 and the saved league data (including scoring settings)
+    """
+    provider = (league_input.provider or "espn").lower()
+
+    if provider == "yahoo":
+        # ------- YAHOO FLOW -------
+        # Step 1: Exchange the authorization code for OAuth tokens
+        try:
+            token_data = await exchange_yahoo_code(
+                consumer_key=league_input.yahoo_consumer_key,
+                consumer_secret=league_input.yahoo_consumer_secret,
+                authorization_code=league_input.yahoo_authorization_code,
+            )
+        except Exception as e:
+            return ApiResponse(
+                code=400,
+                message=(
+                    f"Failed to exchange Yahoo authorization code: {str(e)}. "
+                    f"Make sure the code hasn't expired (they expire quickly) "
+                    f"and that your Consumer Key + Secret are correct."
+                ),
+                data=None,
+            )
+
+        access_token = token_data.get("access_token", "")
+        refresh_token = token_data.get("refresh_token", "")
+        expires_in = token_data.get("expires_in", 3600)
+        expires_at = (datetime.now() + timedelta(seconds=expires_in)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Step 2: Fetch league settings from Yahoo Fantasy API
+        try:
+            yahoo_data = await fetch_yahoo_league_settings(
+                access_token=access_token,
+                league_key=league_input.yahoo_league_key,
+            )
+        except Exception as e:
+            return ApiResponse(
+                code=400,
+                message=(
+                    f"Failed to fetch Yahoo league settings: {str(e)}. "
+                    f"Make sure your league key is correct (format: 458.l.12345)."
+                ),
+                data=None,
+            )
+
+        # Step 3: Save to database
+        scoring_json = json.dumps(yahoo_data["scoring_items"])
+        record = {
+            "provider": "yahoo",
+            "league_name": yahoo_data["league_name"],
+            "season_year": yahoo_data["season_year"],
+            "scoring_settings": scoring_json,
+            "yahoo_league_key": league_input.yahoo_league_key,
+            "yahoo_access_token": access_token,
+            "yahoo_refresh_token": refresh_token,
+            "yahoo_token_expires_at": expires_at,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        new_id = await database.execute(fantasy_leagues.insert().values(**record))
+
+        response_data = {
+            "id": new_id,
+            "provider": "yahoo",
+            "league_name": record["league_name"],
+            "yahoo_league_key": record["yahoo_league_key"],
+            "season_year": record["season_year"],
+            "scoring_settings": record["scoring_settings"],
+            "created_at": record["created_at"],
+        }
+
+        return ApiResponse(
+            code=201,
+            message=f"Yahoo league '{yahoo_data['league_name']}' connected successfully!",
+            data=response_data,
+        )
+
+    else:
+        # ------- ESPN FLOW (existing, unchanged) -------
+        try:
+            espn_data = await fetch_league_settings(
+                league_id=league_input.league_id,
+                season_year=league_input.season_year or 2025,
+                espn_s2=league_input.espn_s2,
+                swid=league_input.swid,
+            )
+        except Exception as e:
+            return ApiResponse(
+                code=400,
+                message=(
+                    f"Failed to fetch league from ESPN: {str(e)}. "
+                    f"If this is a private league, make sure espn_s2 and swid cookies are correct."
+                ),
+                data=None,
+            )
+
+        scoring_json = json.dumps(espn_data["scoring_items"])
+
+        record = {
+            "provider": "espn",
+            "league_id": league_input.league_id,
+            "league_name": espn_data["league_name"],
+            "season_year": espn_data["season_year"],
+            "scoring_settings": scoring_json,
+            "espn_s2": league_input.espn_s2,
+            "swid": league_input.swid,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        new_id = await database.execute(fantasy_leagues.insert().values(**record))
+
+        response_data = {
+            "id": new_id,
+            "provider": "espn",
+            "league_id": record["league_id"],
+            "league_name": record["league_name"],
+            "season_year": record["season_year"],
+            "scoring_settings": record["scoring_settings"],
+            "created_at": record["created_at"],
+        }
+
+        return ApiResponse(
+            code=201,
+            message=f"League '{espn_data['league_name']}' connected successfully!",
+            data=response_data,
+        )
+
+
+@app.get("/fantasy/leagues", response_model=ApiResponse)
+async def list_fantasy_leagues():
+    """
+    List all saved fantasy leagues.
+
+    Returns a list of connected ESPN leagues for the league selector dropdown.
+    Each league includes its scoring settings so the frontend knows which
+    stat categories are scored and their point values.
+
+    Sensitive authentication cookies (espn_s2, swid) are stripped from the
+    response — the frontend doesn't need them and they shouldn't be exposed.
+
+    Returns:
+        ApiResponse with a list of league objects (id, league_name, league_id, etc.)
+    """
+    rows = await database.fetch_all(fantasy_leagues.select())
+
+    # Convert database rows to plain dicts and strip sensitive auth data.
+    # The frontend doesn't need cookies or OAuth tokens — they're only
+    # used by the backend when communicating with ESPN/Yahoo APIs.
+    leagues = []
+    for r in rows:
+        league = dict(r._mapping)
+        # Remove ESPN cookies
+        league.pop("espn_s2", None)
+        league.pop("swid", None)
+        # Remove Yahoo OAuth tokens
+        league.pop("yahoo_access_token", None)
+        league.pop("yahoo_refresh_token", None)
+        league.pop("yahoo_token_expires_at", None)
+        leagues.append(league)
+
+    return ApiResponse(
+        code=200,
+        message=f"Found {len(leagues)} saved league(s)",
+        data=leagues,
+    )
+
+
+@app.delete("/fantasy/leagues/{league_db_id}", response_model=ApiResponse)
+async def delete_fantasy_league(league_db_id: int):
+    """
+    Remove a saved fantasy league.
+
+    This deletes the league configuration from the database. The user can
+    always re-connect it later by providing the ESPN league ID again.
+
+    Note: league_db_id is our database's auto-increment ID (NOT the ESPN league ID).
+    This avoids ambiguity when multiple leagues might share the same ESPN ID
+    (e.g., if the same league is connected for different seasons).
+
+    Args:
+        league_db_id: The database ID of the league to remove
+
+    Returns:
+        ApiResponse with code 200 on success, or 404 if not found
+    """
+    # Check if the league exists before attempting to delete
+    existing = await database.fetch_one(
+        fantasy_leagues.select().where(fantasy_leagues.c.id == league_db_id)
+    )
+    if not existing:
+        return ApiResponse(
+            code=404,
+            message=f"League with id {league_db_id} not found",
+            data=None,
+        )
+
+    # Delete the league from the database
+    await database.execute(
+        fantasy_leagues.delete().where(fantasy_leagues.c.id == league_db_id)
+    )
+
+    return ApiResponse(
+        code=200,
+        message=f"League '{existing._mapping['league_name']}' removed",
+        data=None,
+    )
+
+
+@app.get("/fantasy/points/batters/{league_db_id}")
+async def get_batter_fantasy_points(league_db_id: int):
+    """
+    Compute fantasy points for all batters using a specific league's scoring settings.
+
+    This endpoint follows the same pattern as /players/computed — it:
+    1. Fetches all batters from the database into a Polars DataFrame
+    2. Loads the league's scoring settings (stat_id → point_value)
+    3. Uses Polars expressions to compute a 'fantasy_pts' column
+    4. Returns a list of {id, name, fantasy_pts} objects
+
+    The frontend merges this data with the player list (same as it does for
+    computed stats like OBP and Power Index) so the 'Fantasy Pts' column
+    displays in the PlayerTable.
+
+    Fantasy points formula:
+        fantasy_pts = SUM(player_stat_value * league_point_value)
+        for each stat category that the league scores.
+
+    Example: If HR=5pts, RBI=1pt, K=-1pt, and a player has 40HR, 100RBI, 150K:
+        fantasy_pts = 40*5 + 100*1 + 150*(-1) = 200 + 100 - 150 = 150
+
+    Args:
+        league_db_id: The database ID of the league whose scoring rules to use
+
+    Returns:
+        JSON array of {id, name, fantasy_pts} objects, sorted by fantasy_pts descending
+    """
+    # Load the league's scoring settings from the database
+    league_row = await database.fetch_one(
+        fantasy_leagues.select().where(fantasy_leagues.c.id == league_db_id)
+    )
+    if not league_row:
+        return ApiResponse(
+            code=404,
+            message=f"League with id {league_db_id} not found",
+            data=None,
+        )
+
+    # Parse the JSON scoring settings back into a dict
+    scoring_items = json.loads(league_row._mapping["scoring_settings"])
+
+    # Determine which provider this league uses (default to "espn" for backward compat)
+    provider = league_row._mapping.get("provider") or "espn"
+
+    # Fetch all batters from the database and convert to Polars DataFrame
+    rows = await database.fetch_all(players.select())
+    df = rows_to_dataframe(rows)
+
+    if df.is_empty():
+        return []
+
+    # Compute fantasy points using the appropriate provider's compute function.
+    # Both functions follow the same pattern and produce the same output format
+    # (a "fantasy_pts" column) — only the stat mapping differs.
+    if provider == "yahoo":
+        df = compute_yahoo_fantasy_points_batters(df, scoring_items)
+    else:
+        df = compute_fantasy_points_batters(df, scoring_items)
+
+    # Return only the fields the frontend needs to merge with player data
+    # Sort by fantasy_pts descending so the best fantasy players are first
+    #
+    # IMPORTANT: .fill_nan(None) converts NaN → null before serialization.
+    # NaN can appear when stat columns contain null values that propagate
+    # through arithmetic. JSON does NOT support NaN (it's not valid JSON),
+    # so we convert to null which serializes as JSON null.
+    #
+    # fantasy_pts_per_game: total fantasy points ÷ games played.
+    # Uses pl.when() to avoid division by zero for players with 0 or null games.
+    result = df.select([
+        "id",
+        "name",
+        pl.col("fantasy_pts").fill_nan(None),
+        pl.when(pl.col("games_played").is_not_null() & (pl.col("games_played") > 0))
+          .then(pl.col("fantasy_pts") / pl.col("games_played"))
+          .otherwise(None)
+          .alias("fantasy_pts_per_game")
+          .fill_nan(None),
+    ]).sort("fantasy_pts", descending=True, nulls_last=True)
+    return result.to_dicts()
+
+
+@app.get("/fantasy/points/pitchers/{league_db_id}")
+async def get_pitcher_fantasy_points(league_db_id: int):
+    """
+    Compute fantasy points for all pitchers using a specific league's scoring settings.
+
+    Same pattern as the batter endpoint but uses the pitching stat map.
+    Branches on provider to use ESPN or Yahoo compute functions.
+
+    Args:
+        league_db_id: The database ID of the league whose scoring rules to use
+
+    Returns:
+        JSON array of {id, name, fantasy_pts} objects, sorted by fantasy_pts descending
+    """
+    league_row = await database.fetch_one(
+        fantasy_leagues.select().where(fantasy_leagues.c.id == league_db_id)
+    )
+    if not league_row:
+        return ApiResponse(
+            code=404,
+            message=f"League with id {league_db_id} not found",
+            data=None,
+        )
+
+    scoring_items = json.loads(league_row._mapping["scoring_settings"])
+    provider = league_row._mapping.get("provider") or "espn"
+
+    rows = await database.fetch_all(pitchers.select())
+    df = rows_to_dataframe(rows)
+
+    if df.is_empty():
+        return []
+
+    # Use the appropriate provider's compute function
+    if provider == "yahoo":
+        df = compute_yahoo_fantasy_points_pitchers(df, scoring_items)
+    else:
+        df = compute_fantasy_points_pitchers(df, scoring_items)
+
+    # .fill_nan(None) prevents JSON serialization errors — NaN is not valid JSON
+    # Pitchers already have a "games" column in the DB (games appeared).
+    result = df.select([
+        "id",
+        "name",
+        pl.col("fantasy_pts").fill_nan(None),
+        pl.when(pl.col("games").is_not_null() & (pl.col("games") > 0))
+          .then(pl.col("fantasy_pts") / pl.col("games"))
+          .otherwise(None)
+          .alias("fantasy_pts_per_game")
+          .fill_nan(None),
+    ]).sort("fantasy_pts", descending=True, nulls_last=True)
+    return result.to_dicts()
+
+
+# =============================================================================
+# PLAYER DETAIL ENDPOINTS (ESPN News + RotoWire Blurbs + MLB Transactions)
+# =============================================================================
+# These endpoints proxy external APIs to provide player-specific news and
+# transaction history for the Player Detail Modal. The backend acts as a proxy
+# to avoid CORS issues (ESPN's API doesn't allow browser-origin requests).
+#
+# Data sources:
+# - ESPN Athlete Overview API: Returns BOTH player-specific news articles AND
+#   the RotoWire fantasy blurb in a single call. This is the same data that
+#   powers ESPN.com player pages and the ESPN Fantasy app.
+# - MLB Stats API: Free, no key required, official transaction records
+#
+# The ESPN search API is used first to map a player name → ESPN athlete ID,
+# which is then cached in memory for the lifetime of the server process.
+
+# Module-level cache: maps lowercase player names → ESPN athlete IDs.
+# This avoids repeated search API calls for the same player.
+# Example: {"aaron judge": 33192, "shohei ohtani": 39832}
+_espn_id_cache: dict[str, int] = {}
+
+
+@app.get("/player-detail/news", response_model=ApiResponse)
+async def get_player_news(
+    name: str = Query(..., description="Player's full name for ESPN search"),
+    mlb_id: int = Query(..., description="MLB Stats API player ID"),
+):
+    """
+    Fetch ESPN news articles AND the RotoWire fantasy blurb for a specific player.
+
+    Uses ESPN's athlete overview endpoint which returns both player-specific
+    news articles and the RotoWire blurb in a single API call. This is the same
+    endpoint that powers ESPN.com player pages and the ESPN Fantasy app.
+
+    Two-step process:
+    1. Look up the ESPN athlete ID via the search API (cached after first lookup)
+    2. Fetch the athlete overview which includes news[] and rotowire{} data
+
+    Args:
+        name: Player's full name (e.g., "Aaron Judge")
+        mlb_id: MLB Stats API player ID (used as a fallback identifier)
+
+    Returns:
+        ApiResponse with:
+        - articles: list of ESPN news articles (headline, description, date, link)
+        - rotowire: RotoWire fantasy blurb object (headline, story, date) or null
+        - espn_id: the ESPN athlete ID used
+    """
+    player_name = name.strip()
+    cache_key = player_name.lower()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Step 1: Get ESPN athlete ID (check cache first)
+        espn_id = _espn_id_cache.get(cache_key)
+
+        if espn_id is None:
+            try:
+                search_url = "https://site.api.espn.com/apis/common/v3/search"
+                search_resp = await client.get(search_url, params={
+                    "query": player_name,
+                    "type": "player",
+                    "sport": "baseball",
+                    "limit": 5,
+                })
+                search_resp.raise_for_status()
+                search_data = search_resp.json()
+
+                # ESPN search returns a flat array of player objects:
+                # { "items": [{"id": "33192", "displayName": "Aaron Judge", ...}, ...] }
+                items = search_data.get("items", [])
+                athlete_id = None
+                for item in items:
+                    athlete_id = item.get("id")
+                    if athlete_id:
+                        break
+
+                if not athlete_id:
+                    return ApiResponse(
+                        code=404,
+                        message=f"Player '{player_name}' not found on ESPN",
+                        data={"espn_id": None, "articles": [], "rotowire": None},
+                    )
+
+                espn_id = int(athlete_id)
+                _espn_id_cache[cache_key] = espn_id
+
+            except httpx.HTTPError as e:
+                return ApiResponse(
+                    code=502,
+                    message=f"Failed to search ESPN: {str(e)}",
+                    data={"espn_id": None, "articles": [], "rotowire": None},
+                )
+
+        # Step 2: Fetch the athlete overview — includes both news AND rotowire
+        # This single endpoint returns player-specific news articles AND the
+        # RotoWire blurb, which is the same data the ESPN Fantasy app shows.
+        try:
+            overview_url = f"https://site.web.api.espn.com/apis/common/v3/sports/baseball/mlb/athletes/{espn_id}/overview"
+            overview_resp = await client.get(overview_url)
+            overview_resp.raise_for_status()
+            overview_data = overview_resp.json()
+
+            # Parse news articles — the overview returns a flat list of articles
+            articles = []
+            for article in overview_data.get("news", []):
+                # Get the best available link
+                links = article.get("links", {})
+                web_link = ""
+                if isinstance(links, dict) and "web" in links:
+                    web_link = links["web"].get("href", "")
+
+                # Get the first image URL if available
+                images = article.get("images", [])
+                image_url = images[0].get("url", "") if images else ""
+
+                articles.append({
+                    "headline": article.get("headline", ""),
+                    "description": article.get("description", ""),
+                    "published": article.get("published", ""),
+                    "link": web_link,
+                    "image_url": image_url,
+                })
+
+            # Parse RotoWire blurb — single object with headline, story, date
+            rotowire_raw = overview_data.get("rotowire", {})
+            rotowire_blurb = None
+            if rotowire_raw and rotowire_raw.get("headline"):
+                rotowire_blurb = {
+                    "headline": rotowire_raw.get("headline", ""),
+                    "story": rotowire_raw.get("story", ""),
+                    "published": rotowire_raw.get("published", ""),
+                }
+
+            return ApiResponse(
+                code=200,
+                message=f"Found {len(articles)} news item(s) for {player_name}",
+                data={
+                    "espn_id": espn_id,
+                    "articles": articles,
+                    "rotowire": rotowire_blurb,
+                },
+            )
+
+        except httpx.HTTPError as e:
+            return ApiResponse(
+                code=502,
+                message=f"Failed to fetch ESPN data: {str(e)}",
+                data={"espn_id": espn_id, "articles": [], "rotowire": None},
+            )
+
+
+@app.get("/player-detail/transactions/{mlb_id}", response_model=ApiResponse)
+async def get_player_transactions(mlb_id: int):
+    """
+    Fetch MLB transaction history for a specific player.
+
+    Queries the MLB Stats API for all transactions involving this player
+    in the past 365 days. Transactions include trades, IL placements,
+    callups, option assignments, free agent signings, etc.
+
+    Args:
+        mlb_id: MLB Stats API player ID (e.g., 592450 for Aaron Judge)
+
+    Returns:
+        ApiResponse with list of transactions containing:
+        - date, type description, and full transaction description
+    """
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=365)
+
+    # MLB Stats API requires MM/DD/YYYY format for date parameters
+    start_str = start_date.strftime("%m/%d/%Y")
+    end_str = end_date.strftime("%m/%d/%Y")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            url = "https://statsapi.mlb.com/api/v1/transactions"
+            resp = await client.get(url, params={
+                "playerId": mlb_id,
+                "startDate": start_str,
+                "endDate": end_str,
+            })
+            resp.raise_for_status()
+            data = resp.json()
+
+            transactions = []
+            for txn in data.get("transactions", []):
+                transactions.append({
+                    "date": txn.get("date", ""),
+                    "type": txn.get("typeDesc", ""),
+                    "description": txn.get("description", ""),
+                })
+
+            return ApiResponse(
+                code=200,
+                message=f"Found {len(transactions)} transaction(s) for player {mlb_id}",
+                data=transactions,
+            )
+
+    except httpx.HTTPError as e:
+        return ApiResponse(
+            code=502,
+            message=f"Failed to fetch MLB transactions: {str(e)}",
+            data=[],
+        )
+
+
+@app.get("/player-detail/gamelogs/batter/{mlb_id}", response_model=ApiResponse)
+async def get_batter_game_logs(mlb_id: int):
+    """
+    Fetch the last 10 game log entries for a specific batter — live from the
+    MLB Stats API, regardless of what's in the local database.
+
+    Tries the current year first. If no games are found (e.g., the new season
+    hasn't started yet), automatically falls back to the previous year so the
+    modal always shows meaningful data.
+
+    Args:
+        mlb_id: MLB Stats API player ID (e.g., 592450 for Aaron Judge).
+
+    Returns:
+        ApiResponse with a list of up to 10 game log objects, each containing:
+        game_date, opponent, at_bats, hits, doubles, triples, home_runs, rbi,
+        runs, stolen_bases, walks, strikeouts
+    """
+    try:
+        current_year = datetime.now().year
+        all_games = []
+        player_age = None
+
+        # Try current season first, then fall back to previous season
+        for season in [current_year, current_year - 1]:
+            data = statsapi.get('people', {
+                'personIds': mlb_id,
+                'hydrate': f'stats(group=[hitting],type=[gameLog],season={season})'
+            })
+
+            if not data.get('people'):
+                continue
+
+            person = data['people'][0]
+            if player_age is None:
+                player_age = person.get('currentAge')
+
+            for stat_group in person.get('stats', []):
+                if stat_group.get('group', {}).get('displayName') == 'hitting':
+                    for game in stat_group.get('splits', []):
+                        game_stat = game.get('stat', {})
+                        # opponent is {"id": 110, "name": "Baltimore Orioles", ...}
+                        opponent = game.get('opponent', {}).get('name', 'Unknown')
+                        opponent = opponent.replace('New York ', 'NY ').replace('Los Angeles ', 'LA ')
+
+                        all_games.append({
+                            "game_date": game.get('date', ''),
+                            "opponent": opponent,
+                            "at_bats": game_stat.get('atBats', 0),
+                            "hits": game_stat.get('hits', 0),
+                            "doubles": game_stat.get('doubles', 0),
+                            "triples": game_stat.get('triples', 0),
+                            "home_runs": game_stat.get('homeRuns', 0),
+                            "rbi": game_stat.get('rbi', 0),
+                            "runs": game_stat.get('runs', 0),
+                            "stolen_bases": game_stat.get('stolenBases', 0),
+                            "walks": game_stat.get('baseOnBalls', 0),
+                            "strikeouts": game_stat.get('strikeOuts', 0),
+                        })
+                    break  # Found hitting group
+
+            # If we got games from the current season, use those; otherwise loop
+            # to the previous season. If we already have games, stop.
+            if all_games:
+                break
+
+        # Sort by date descending and take the last 10 games
+        all_games.sort(key=lambda g: g['game_date'], reverse=True)
+        games = all_games[:10]
+
+        return ApiResponse(
+            code=200,
+            message=f"Found {len(games)} game log(s) for batter {mlb_id}",
+            data={"age": player_age, "games": games},
+        )
+
+    except Exception as e:
+        return ApiResponse(
+            code=502,
+            message=f"Failed to fetch batter game logs: {str(e)}",
+            data={"age": None, "games": []},
+        )
+
+
+@app.get("/player-detail/gamelogs/pitcher/{mlb_id}", response_model=ApiResponse)
+async def get_pitcher_game_logs(mlb_id: int):
+    """
+    Fetch the last 10 game log entries for a specific pitcher — live from the
+    MLB Stats API, regardless of what's in the local database.
+
+    Tries the current year first. If no games are found (e.g., the new season
+    hasn't started yet), automatically falls back to the previous year so the
+    modal always shows meaningful data.
+
+    Args:
+        mlb_id: MLB Stats API player ID (e.g., 669373 for a pitcher).
+
+    Returns:
+        ApiResponse with a list of up to 10 game log objects, each containing:
+        game_date, opponent, innings_pitched, hits_allowed, earned_runs, walks,
+        strikeouts, home_runs_allowed, wins, losses, saves, pitches
+    """
+    try:
+        current_year = datetime.now().year
+        all_games = []
+        player_age = None
+
+        # Try current season first, then fall back to previous season
+        for season in [current_year, current_year - 1]:
+            data = statsapi.get('people', {
+                'personIds': mlb_id,
+                'hydrate': f'stats(group=[pitching],type=[gameLog],season={season})'
+            })
+
+            if not data.get('people'):
+                continue
+
+            person = data['people'][0]
+            if player_age is None:
+                player_age = person.get('currentAge')
+
+            for stat_group in person.get('stats', []):
+                if stat_group.get('group', {}).get('displayName') == 'pitching':
+                    for game in stat_group.get('splits', []):
+                        game_stat = game.get('stat', {})
+                        # opponent is {"id": 110, "name": "Baltimore Orioles", ...}
+                        opponent = game.get('opponent', {}).get('name', 'Unknown')
+                        opponent = opponent.replace('New York ', 'NY ').replace('Los Angeles ', 'LA ')
+
+                        try:
+                            ip = float(game_stat.get('inningsPitched', '0'))
+                        except (ValueError, TypeError):
+                            ip = 0.0
+
+                        wins = 1 if game_stat.get('wins', 0) > 0 else 0
+                        losses = 1 if game_stat.get('losses', 0) > 0 else 0
+                        saves = 1 if game_stat.get('saves', 0) > 0 else 0
+
+                        all_games.append({
+                            "game_date": game.get('date', ''),
+                            "opponent": opponent,
+                            "innings_pitched": ip,
+                            "hits_allowed": game_stat.get('hits', 0),
+                            "earned_runs": game_stat.get('earnedRuns', 0),
+                            "walks": game_stat.get('baseOnBalls', 0),
+                            "strikeouts": game_stat.get('strikeOuts', 0),
+                            "home_runs_allowed": game_stat.get('homeRuns', 0),
+                            "wins": wins,
+                            "losses": losses,
+                            "saves": saves,
+                            "pitches": game_stat.get('numberOfPitches', 0),
+                        })
+                    break  # Found pitching group
+
+            if all_games:
+                break
+
+        # Sort by date descending and take the last 10 games
+        all_games.sort(key=lambda g: g['game_date'], reverse=True)
+        games = all_games[:10]
+
+        return ApiResponse(
+            code=200,
+            message=f"Found {len(games)} game log(s) for pitcher {mlb_id}",
+            data={"age": player_age, "games": games},
+        )
+
+    except Exception as e:
+        return ApiResponse(
+            code=502,
+            message=f"Failed to fetch pitcher game logs: {str(e)}",
+            data={"age": None, "games": []},
+        )
+
+
+# =============================================================================
+# YAHOO FANTASY OAUTH ENDPOINTS
+# =============================================================================
+# These endpoints handle the Yahoo OAuth 2.0 flow separately from the main
+# POST /fantasy/leagues endpoint. The flow has two steps:
+# 1. POST /fantasy/yahoo/auth-url → generates the authorization URL
+# 2. POST /fantasy/leagues with provider="yahoo" → exchanges code + saves league
+
+
+@app.post("/fantasy/yahoo/auth-url", response_model=ApiResponse)
+async def get_yahoo_authorization_url(body: dict):
+    """
+    Generate the Yahoo OAuth 2.0 authorization URL.
+
+    The frontend calls this with the user's Consumer Key, then opens the
+    returned URL in a new browser tab. The user logs into Yahoo and clicks
+    "Agree" to authorize the app, then receives a verification code.
+
+    Args:
+        body: dict with "consumer_key" field
+
+    Returns:
+        ApiResponse with the authorization URL in the data field
+    """
+    consumer_key = body.get("consumer_key", "").strip()
+    if not consumer_key:
+        return ApiResponse(
+            code=400,
+            message="Consumer Key is required",
+            data=None,
+        )
+
+    auth_url = get_yahoo_auth_url(consumer_key)
+    return ApiResponse(
+        code=200,
+        message="Authorization URL generated. Open it in your browser to authorize.",
+        data={"auth_url": auth_url},
+    )

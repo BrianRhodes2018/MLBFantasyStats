@@ -67,6 +67,10 @@ class PlayerIn(BaseModel):
     walks: Optional[int] = None              # BB - Bases on balls (needed for OBP)
     hit_by_pitch: Optional[int] = None       # HBP - Hit by pitch (needed for OBP)
     sacrifice_flies: Optional[int] = None    # SF - Sacrifice flies (needed for OBP)
+    hits: Optional[int] = None              # H - Total hits (needed for fantasy points)
+    doubles: Optional[int] = None           # 2B - Doubles (needed for fantasy points)
+    triples: Optional[int] = None           # 3B - Triples (needed for fantasy points)
+    caught_stealing: Optional[int] = None   # CS - Caught stealing (needed for fantasy points)
     mlb_id: Optional[int] = None             # MLB Stats API player ID
 
 
@@ -135,6 +139,10 @@ class PlayerUpdate(BaseModel):
     walks: Optional[int] = None
     hit_by_pitch: Optional[int] = None
     sacrifice_flies: Optional[int] = None
+    hits: Optional[int] = None
+    doubles: Optional[int] = None
+    triples: Optional[int] = None
+    caught_stealing: Optional[int] = None
     mlb_id: Optional[int] = None
 
 
@@ -254,3 +262,75 @@ class ApiResponse(BaseModel):
     code: int
     message: str
     data: Optional[dict | list] = None
+
+
+# =============================================================================
+# FANTASY LEAGUE SCHEMAS
+# =============================================================================
+
+class FantasyLeagueIn(BaseModel):
+    """
+    Schema for connecting a new fantasy league (POST request body).
+
+    Supports both ESPN and Yahoo providers. The `provider` field determines
+    which set of fields is relevant:
+
+    ESPN (provider="espn"):
+        - league_id: The ESPN fantasy league ID number (from the league URL)
+        - espn_s2 + swid: Optional cookies for private leagues
+
+    Yahoo (provider="yahoo"):
+        - yahoo_league_key: League key in format "458.l.12345"
+        - yahoo_consumer_key + yahoo_consumer_secret: From Yahoo Developer app
+        - yahoo_authorization_code: The verification code from Yahoo OAuth flow
+
+    Fields:
+        provider: "espn" or "yahoo" — determines which API/flow to use
+        league_id: ESPN league ID (required for ESPN, ignored for Yahoo)
+        season_year: The season year to fetch scoring for (default: current year)
+        espn_s2: ESPN cookie for private league access (optional)
+        swid: ESPN SWID cookie for private league access (optional)
+        yahoo_league_key: Yahoo league key like "458.l.12345" (required for Yahoo)
+        yahoo_consumer_key: Yahoo Developer app Consumer Key (required for Yahoo)
+        yahoo_consumer_secret: Yahoo Developer app Consumer Secret (required for Yahoo)
+        yahoo_authorization_code: OAuth verification code from Yahoo (required for Yahoo)
+    """
+    provider: Optional[str] = "espn"
+    league_id: Optional[int] = None
+    season_year: Optional[int] = 2025
+    espn_s2: Optional[str] = None
+    swid: Optional[str] = None
+    # Yahoo-specific fields:
+    yahoo_league_key: Optional[str] = None
+    yahoo_consumer_key: Optional[str] = None
+    yahoo_consumer_secret: Optional[str] = None
+    yahoo_authorization_code: Optional[str] = None
+
+
+class FantasyLeagueOut(BaseModel):
+    """
+    Schema for league responses — includes the database-generated ID
+    and the scoring settings fetched from ESPN or Yahoo.
+
+    This is what the frontend receives when listing saved leagues.
+    The scoring_settings field is a JSON string that the frontend can
+    parse to see the point values for each stat category.
+
+    Fields:
+        id: Database auto-increment ID (used in API calls like /fantasy/points/batters/{id})
+        provider: "espn" or "yahoo" — which fantasy platform this league is from
+        league_id: ESPN league ID (null for Yahoo leagues)
+        yahoo_league_key: Yahoo league key like "458.l.12345" (null for ESPN leagues)
+        league_name: Human-readable league name from ESPN/Yahoo
+        season_year: Season year for this scoring configuration
+        scoring_settings: JSON string of scoring rules
+        created_at: ISO timestamp of when the league was added
+    """
+    id: int
+    provider: Optional[str] = "espn"
+    league_id: Optional[int] = None
+    yahoo_league_key: Optional[str] = None
+    league_name: str
+    season_year: int
+    scoring_settings: str  # JSON string — frontend will parse it if needed
+    created_at: Optional[str] = None

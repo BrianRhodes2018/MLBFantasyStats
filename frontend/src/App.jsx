@@ -41,6 +41,10 @@ import PlayerForm from './components/PlayerForm'
 import PlayerSearch from './components/PlayerSearch'
 import PitcherSearch from './components/PitcherSearch'
 import StatsPanel from './components/StatsPanel'
+import LeagueSelector from './components/LeagueSelector'
+import PlayerModal from './components/PlayerModal'
+import PlayerComparison from './components/PlayerComparison'
+import { fuzzyNameMatch } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
 // time period toggle visually grouped with the stat filter panel.
@@ -49,103 +53,6 @@ import StatsPanel from './components/StatsPanel'
 // full URL in production (e.g., "https://your-app.onrender.com").
 // See config.js for details on how this works with Vite environment variables.
 import { API_BASE } from './config'
-
-// ---------------------------------------------------------------------------
-// FUZZY NAME SEARCH UTILITY
-// ---------------------------------------------------------------------------
-
-/**
- * Compute the Levenshtein distance between two strings.
- *
- * Levenshtein distance measures the minimum number of single-character edits
- * (insertions, deletions, or substitutions) needed to transform string `a`
- * into string `b`. This is the standard algorithm for fuzzy/approximate
- * string matching.
- *
- * Uses a dynamic programming matrix:
- * - Each cell matrix[i][j] = minimum edits to transform a[0..i] into b[0..j]
- * - Fill row by row, taking the minimum of insert, delete, or substitute
- *
- * Examples:
- *   levenshtein("judge", "juge")  = 1  (one deletion)
- *   levenshtein("ohtani", "otani") = 1 (one deletion)
- *   levenshtein("trout", "trout")  = 0 (identical)
- *
- * @param {string} a - First string
- * @param {string} b - Second string
- * @returns {number} The edit distance (0 = identical, higher = more different)
- */
-const levenshtein = (a, b) => {
-  if (a.length === 0) return b.length
-  if (b.length === 0) return a.length
-
-  // Build a (a.length+1) x (b.length+1) matrix.
-  // matrix[i][j] represents the distance between a[0..i-1] and b[0..j-1].
-  const matrix = []
-  for (let i = 0; i <= a.length; i++) matrix[i] = [i]
-  for (let j = 0; j <= b.length; j++) matrix[0][j] = j
-
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,       // deletion: remove char from a
-        matrix[i][j - 1] + 1,       // insertion: add char to a
-        matrix[i - 1][j - 1] + cost  // substitution: swap char in a
-      )
-    }
-  }
-  return matrix[a.length][b.length]
-}
-
-/**
- * Fuzzy match a search query against a player name.
- *
- * This function allows users to find players even with misspelled names.
- * It checks multiple matching strategies in priority order:
- *
- * 1. Exact substring — "judge" matches "Aaron Judge" (case-insensitive)
- * 2. Word-level Levenshtein — "juge" matches "Judge" (1 edit away)
- * 3. Prefix matching — "jud" matches "Judge" (typing partial name)
- *
- * The distance threshold scales with query length:
- * - Short queries (1-3 chars): allow 1 edit   (e.g., "jug" → "jud" is 1 edit)
- * - Medium queries (4-6 chars): allow 2 edits (e.g., "ottani" → "ohtani" is 1 edit)
- * - Long queries (7+ chars): allow 3 edits    (more room for typos)
- *
- * @param {string} query - The user's search text
- * @param {string} name - The player's full name
- * @returns {boolean} True if the name fuzzy-matches the query
- */
-const fuzzyNameMatch = (query, name) => {
-  const q = query.toLowerCase().trim()
-  const n = name.toLowerCase()
-
-  if (!q) return true  // Empty query matches everything
-
-  // 1. Exact substring — "judge" in "aaron judge"
-  if (n.includes(q)) return true
-
-  // 2. Check each word in the name against the query.
-  //    Split "Aaron Judge" into ["aaron", "judge"] and test each.
-  const nameWords = n.split(/\s+/)
-  // Scale the allowed edit distance based on query length
-  const maxDist = q.length <= 3 ? 1 : q.length <= 6 ? 2 : 3
-
-  for (const word of nameWords) {
-    // Full word comparison: "juge" vs "judge" = distance 1
-    if (levenshtein(q, word) <= maxDist) return true
-
-    // Prefix comparison: "jud" vs "jud(ge)" = distance 0
-    // Useful when the user is typing and hasn't finished the name yet
-    if (q.length < word.length) {
-      const prefix = word.substring(0, q.length)
-      if (levenshtein(q, prefix) <= Math.max(1, Math.floor(q.length / 3))) return true
-    }
-  }
-
-  return false
-}
 
 function App() {
   // ---------------------------------------------------------------------------
@@ -203,6 +110,34 @@ function App() {
   const [rollingPitchers, setRollingPitchers] = useState([])
   const [rollingLoading, setRollingLoading] = useState(false)
 
+  // --- Fantasy League State ---
+  // fantasyLeagues: Array of saved ESPN league objects from the database.
+  //   Each has: id, league_name, league_id, season_year, scoring_settings.
+  // activeLeagueId: The database ID of the currently selected league (null = none).
+  //   When set, fantasy points are fetched and displayed in the table.
+  // fantasyBatterPts: Array of {id, name, fantasy_pts} for all batters,
+  //   computed using the active league's scoring rules.
+  // fantasyPitcherPts: Same for pitchers.
+  const [fantasyLeagues, setFantasyLeagues] = useState([])
+  const [activeLeagueId, setActiveLeagueId] = useState(null)
+  const [fantasyBatterPts, setFantasyBatterPts] = useState([])
+  const [fantasyPitcherPts, setFantasyPitcherPts] = useState([])
+
+  // Player Detail Modal state
+  // null = no modal open, object = the player/pitcher whose detail modal is shown.
+  const [modalPlayer, setModalPlayer] = useState(null)
+  const [modalPlayerType, setModalPlayerType] = useState(null)  // 'batter' | 'pitcher'
+
+  // ---------------------------------------------------------------------------
+  // PLAYER COMPARISON STATE
+  // ---------------------------------------------------------------------------
+  const [comparisonPlayers, setComparisonPlayers] = useState([])
+  const [comparisonType, setComparisonType] = useState(null)   // 'batter' | 'pitcher' | null
+  const [comparisonOpen, setComparisonOpen] = useState(false)
+
+  // Derived set for O(1) lookups when rendering Compare buttons in table rows
+  const comparisonIds = new Set(comparisonPlayers.map(p => p.id ?? p.player_id))
+
   // ---------------------------------------------------------------------------
   // DATA FETCHING
   // ---------------------------------------------------------------------------
@@ -256,7 +191,7 @@ function App() {
       // so the PitcherSearch filter panel can render as soon as the page loads.
       // safeFetch returns null on failure instead of throwing, so one
       // broken endpoint won't take down the others.
-      const [playersData, statsData, computedData, teamStatsData, filterMetaData, pitchersData, pitcherComputedData, pitcherFilterMetaData] = await Promise.all([
+      const [playersData, statsData, computedData, teamStatsData, filterMetaData, pitchersData, pitcherComputedData, pitcherFilterMetaData, leaguesData] = await Promise.all([
         safeFetch('/players/'),
         safeFetch('/players/stats'),
         safeFetch('/players/computed'),
@@ -265,6 +200,7 @@ function App() {
         safeFetch('/pitchers/'),
         safeFetch('/pitchers/computed'),
         safeFetch('/pitchers/filterable-stats'),  // Metadata for pitcher search filters (stat names, min/max ranges, positions, teams)
+        safeFetch('/fantasy/leagues'),             // Saved ESPN fantasy leagues (for league selector dropdown)
       ])
 
       // Update state with whatever data we got. Each setter triggers a
@@ -281,6 +217,9 @@ function App() {
       setFilterMeta(filterMetaData?.data || null)
       // Same extraction for pitcher filter metadata — used by PitcherSearch component
       setPitcherFilterMeta(pitcherFilterMetaData?.data || null)
+      // Fantasy leagues — the leaguesData response is wrapped in ApiResponse
+      // so we extract .data to get the array of league objects.
+      setFantasyLeagues(leaguesData?.data || [])
 
       // If ALL fetches returned null, something is fundamentally wrong
       // (backend not running, proxy misconfigured, etc.)
@@ -308,6 +247,43 @@ function App() {
   useEffect(() => {
     fetchData()
   }, [])  // Empty array = run once on mount
+
+  /**
+   * Fetch fantasy points whenever the active league changes.
+   *
+   * This mirrors the pattern used for rolling stats: when the user selects
+   * a league from the dropdown, we fetch the computed fantasy points for
+   * all batters and pitchers in parallel from the backend.
+   *
+   * When activeLeagueId is null ("No League" selected), we clear the
+   * fantasy points arrays so the Fantasy Pts column disappears from the tables.
+   *
+   * The backend computes points using Polars expressions:
+   *   fantasy_pts = SUM(player_stat * league_point_value) per scored category
+   */
+  useEffect(() => {
+    const fetchFantasyPoints = async () => {
+      if (!activeLeagueId) {
+        // No league selected — clear fantasy points so the column disappears
+        setFantasyBatterPts([])
+        setFantasyPitcherPts([])
+        return
+      }
+
+      // Fetch fantasy points for batters and pitchers in parallel
+      const [batterPts, pitcherPts] = await Promise.all([
+        safeFetch(`/fantasy/points/batters/${activeLeagueId}`),
+        safeFetch(`/fantasy/points/pitchers/${activeLeagueId}`),
+      ])
+
+      // The response is a direct array of {id, name, fantasy_pts} objects
+      // (not wrapped in ApiResponse) — same pattern as /players/computed
+      setFantasyBatterPts(batterPts || [])
+      setFantasyPitcherPts(pitcherPts || [])
+    }
+
+    fetchFantasyPoints()
+  }, [activeLeagueId])  // Re-run whenever the selected league changes
 
   // ---------------------------------------------------------------------------
   // EVENT HANDLERS
@@ -366,6 +342,42 @@ function App() {
   const handlePitcherUpdated = () => {
     setPitcherSearchResults(null)  // Clear pitcher search results since data changed
     fetchData()
+  }
+
+  // --- Fantasy League Callbacks ---
+
+  /**
+   * Called when the user selects a different league in the LeagueSelector dropdown.
+   * Setting activeLeagueId triggers the useEffect above which fetches fantasy points.
+   * Setting to null (when "No League" is chosen) clears fantasy points.
+   *
+   * @param {number|null} leagueId - Database ID of the selected league, or null
+   */
+  const handleLeagueChange = (leagueId) => {
+    setActiveLeagueId(leagueId)
+  }
+
+  /**
+   * Called after a new ESPN league is successfully connected.
+   * Re-fetches the leagues list so the dropdown updates to include the new league.
+   */
+  const handleLeagueAdded = () => {
+    safeFetch('/fantasy/leagues').then(data => {
+      setFantasyLeagues(data?.data || [])
+    })
+  }
+
+  /**
+   * Called after a league is removed from the database.
+   * Clears the active selection and fantasy points, then refreshes the leagues list.
+   */
+  const handleLeagueRemoved = () => {
+    setActiveLeagueId(null)
+    setFantasyBatterPts([])
+    setFantasyPitcherPts([])
+    safeFetch('/fantasy/leagues').then(data => {
+      setFantasyLeagues(data?.data || [])
+    })
   }
 
   /**
@@ -453,6 +465,92 @@ function App() {
       // Fetch rolling stats for the selected number of days
       fetchRollingStats(period)
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PLAYER DETAIL MODAL HANDLERS
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Open the player detail modal for a batter.
+   * Called when a player name is clicked in PlayerTable.
+   * @param {Object} player - The full player object from the table row
+   */
+  const handlePlayerClick = (player) => {
+    setModalPlayer(player)
+    setModalPlayerType('batter')
+  }
+
+  /**
+   * Open the player detail modal for a pitcher.
+   * Called when a pitcher name is clicked in PitcherTable.
+   * @param {Object} pitcher - The full pitcher object from the table row
+   */
+  const handlePitcherClick = (pitcher) => {
+    setModalPlayer(pitcher)
+    setModalPlayerType('pitcher')
+  }
+
+  /**
+   * Close the player detail modal.
+   * Resets both modal state variables to null.
+   */
+  const handleModalClose = () => {
+    setModalPlayer(null)
+    setModalPlayerType(null)
+  }
+
+  // ---------------------------------------------------------------------------
+  // COMPARISON HANDLERS
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Add a player to the comparison set. Merges computed stats and fantasy
+   * points into the player object so the comparison table has all data.
+   * Fantasy points are also merged at render time in PlayerComparison
+   * (so league changes update the comparison without re-adding players),
+   * but we merge here too for immediate availability.
+   */
+  const handleAddToComparison = (player, type) => {
+    if (comparisonPlayers.length >= 5) return
+    const playerId = player.id ?? player.player_id
+    if (comparisonPlayers.some(p => (p.id ?? p.player_id) === playerId)) return
+    if (comparisonType && comparisonType !== type) return
+
+    // Merge computed stats + fantasy points
+    let augmented = { ...player }
+    if (type === 'batter') {
+      const comp = computed.find(c => c.id === player.id)
+      if (comp) augmented = { ...augmented, ...comp }
+      const fp = fantasyBatterPts.find(f => f.id === player.id)
+      if (fp) augmented = { ...augmented, fantasy_pts: fp.fantasy_pts, fantasy_pts_per_game: fp.fantasy_pts_per_game }
+    } else {
+      const comp = pitcherComputed.find(c => c.id === player.id)
+      if (comp) augmented = { ...augmented, ...comp }
+      const fp = fantasyPitcherPts.find(f => f.id === player.id)
+      if (fp) augmented = { ...augmented, fantasy_pts: fp.fantasy_pts, fantasy_pts_per_game: fp.fantasy_pts_per_game }
+    }
+
+    setComparisonPlayers(prev => [...prev, augmented])
+    setComparisonType(type)
+    setComparisonOpen(true)
+  }
+
+  const handleRemoveFromComparison = (playerId) => {
+    setComparisonPlayers(prev => {
+      const updated = prev.filter(p => (p.id ?? p.player_id) !== playerId)
+      if (updated.length === 0) setComparisonType(null)
+      return updated
+    })
+  }
+
+  const handleClearComparison = () => {
+    setComparisonPlayers([])
+    setComparisonType(null)
+  }
+
+  const handleToggleComparison = () => {
+    setComparisonOpen(prev => !prev)
   }
 
   // ---------------------------------------------------------------------------
@@ -693,6 +791,18 @@ function App() {
               ))}
             </select>
           </div>
+
+          {/* Fantasy League selector — choose which ESPN league's scoring to apply.
+              Sits alongside Position and Team dropdowns so all filters are grouped.
+              When a league is selected, a "Fantasy Pts" column appears in the tables.
+              The "+ League" button opens an inline form to connect a new ESPN league. */}
+          <LeagueSelector
+            leagues={fantasyLeagues}
+            activeLeagueId={activeLeagueId}
+            onLeagueChange={handleLeagueChange}
+            onLeagueAdded={handleLeagueAdded}
+            onLeagueRemoved={handleLeagueRemoved}
+          />
         </div>
       </div>
 
@@ -725,6 +835,24 @@ function App() {
         )}
       </div>
 
+      {/* Player Comparison Panel — collapsible panel for side-by-side stat comparison.
+          Players can be added via the autocomplete search or the Compare buttons in table rows. */}
+      <PlayerComparison
+        comparisonPlayers={comparisonPlayers}
+        comparisonType={comparisonType}
+        isOpen={comparisonOpen}
+        onToggle={handleToggleComparison}
+        onRemovePlayer={handleRemoveFromComparison}
+        onClearAll={handleClearComparison}
+        onAddPlayer={handleAddToComparison}
+        allBatters={players}
+        allPitchers={pitchers}
+        computed={computed}
+        pitcherComputed={pitcherComputed}
+        fantasyBatterPts={fantasyBatterPts}
+        fantasyPitcherPts={fantasyPitcherPts}
+      />
+
       {/* Conditionally render PlayerTable or PitcherTable based on position filter.
           In rolling mode, we pass isRolling=true so the table can hide the
           edit/actions column (rolling data isn't editable — it's aggregated). */}
@@ -732,15 +860,33 @@ function App() {
         <PitcherTable
           pitchers={displayData}
           computed={isRolling ? [] : pitcherComputed}
+          fantasyPoints={fantasyPitcherPts}
           onPitcherUpdated={handlePitcherUpdated}
           isRolling={isRolling}
+          onPitcherClick={handlePitcherClick}
+          comparisonIds={comparisonIds}
+          onAddToComparison={handleAddToComparison}
         />
       ) : (
         <PlayerTable
           players={displayData}
           computed={isRolling ? [] : computed}
+          fantasyPoints={fantasyBatterPts}
           onPlayerUpdated={handlePlayerUpdated}
           isRolling={isRolling}
+          onPlayerClick={handlePlayerClick}
+          comparisonIds={comparisonIds}
+          onAddToComparison={handleAddToComparison}
+        />
+      )}
+
+      {/* Player Detail Modal — shown when a player/pitcher name is clicked.
+          Displays headshot, ESPN news articles, and MLB transaction history. */}
+      {modalPlayer && (
+        <PlayerModal
+          player={modalPlayer}
+          playerType={modalPlayerType}
+          onClose={handleModalClose}
         />
       )}
     </div>

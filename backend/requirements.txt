@@ -78,3 +78,22 @@ python-dotenv
 # fetch real player stats and populate/update the database.
 # Documentation: https://pypi.org/project/MLB-StatsAPI/
 MLB-StatsAPI
+
+# --- Fantasy League Integration (ESPN + Yahoo) ---
+# httpx: Modern async HTTP client for Python. Used to call the ESPN Fantasy
+# API to fetch league scoring settings. Unlike the standard `requests` library,
+# httpx supports async/await which is needed for FastAPI's async endpoints.
+# We use it in espn_fantasy.py to fetch league data from:
+# https://lm-api-reads.fantasy.espn.com/apis/v3/games/flb/...
+httpx
+
+# requests-oauthlib: OAuth 2.0 support for the Yahoo Fantasy Sports API.
+# Yahoo Fantasy uses OAuth 2.0 with an authorization code flow.
+# This package wraps the 'requests' library with OAuth session management,
+# handling token exchange, refresh, and Bearer token injection.
+# Used in yahoo_fantasy.py for:
+#   1. Generating the Yahoo authorization URL (user opens in browser)
+#   2. Exchanging the authorization code for access/refresh tokens
+#   3. Auto-refreshing expired tokens and making authenticated API calls
+# Also installs 'requests' and 'oauthlib' as dependencies automatically.
+requests-oauthlib
