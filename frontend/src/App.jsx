@@ -845,6 +845,10 @@ function App() {
         onRemovePlayer={handleRemoveFromComparison}
         onClearAll={handleClearComparison}
         onAddPlayer={handleAddToComparison}
+        onPlayerClick={(player, type) => {
+          if (type === 'pitcher') handlePitcherClick(player)
+          else handlePlayerClick(player)
+        }}
         allBatters={players}
         allPitchers={pitchers}
         computed={computed}

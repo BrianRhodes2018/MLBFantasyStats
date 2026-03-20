@@ -2042,12 +2042,22 @@ h2 {
 }
 
 .comparison-name-cell {
-  color: #4a90d9 !important;
   font-weight: 600;
   position: sticky;
   left: 0;
   z-index: 1;
   background: #1e3050;
+}
+
+.comparison-name-cell .clickable-name {
+  color: #4a90d9;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.comparison-name-cell .clickable-name:hover {
+  color: #6bb5ff;
+  text-decoration: underline;
 }
 
 /* Actions column — minimal width for the remove button */

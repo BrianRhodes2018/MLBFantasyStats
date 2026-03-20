@@ -86,6 +86,7 @@ function PlayerComparison({
   onRemovePlayer,
   onClearAll,
   onAddPlayer,
+  onPlayerClick,
   allBatters,
   allPitchers,
   computed,
@@ -279,7 +280,15 @@ function PlayerComparison({
                 <tbody>
                   {displayPlayers.map((player) => (
                     <tr key={player.id ?? player.player_id}>
-                      <td className="comparison-name-cell">{player.name}</td>
+                      <td className="comparison-name-cell">
+                        <span
+                          className="clickable-name"
+                          onClick={() => onPlayerClick && onPlayerClick(player, comparisonType)}
+                          title="Click to view player details"
+                        >
+                          {player.name}
+                        </span>
+                      </td>
                       {stats.map((statDef) => {
                         const raw = player[statDef.key]
                         // Use formatRow (receives full player) for composite display (H/AB),
