@@ -30,6 +30,7 @@ API docs are auto-generated at http://localhost:8000/docs (Swagger UI).
 """
 
 import os
+import asyncio
 from typing import Optional
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Query, Request
@@ -218,6 +219,35 @@ run_migrations()
 # On startup: connect to the database and seed sample data if the table is empty.
 # On shutdown: cleanly disconnect from the database.
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint — used by keep-alive pings to prevent Render cold starts."""
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Keep-Alive Background Task
+# ---------------------------------------------------------------------------
+# Render free tier spins down the server after ~15 minutes of inactivity.
+# This background task pings our own /health endpoint every 14 minutes
+# to prevent cold starts. Only runs when RENDER_EXTERNAL_URL is set
+# (i.e., on Render, not during local development).
+
+async def keep_alive():
+    """Ping our own health endpoint every 14 minutes to prevent Render cold starts."""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not render_url:
+        return  # Not on Render, skip
+    health_url = f"{render_url}/health"
+    async with httpx.AsyncClient() as client:
+        while True:
+            await asyncio.sleep(14 * 60)  # 14 minutes
+            try:
+                await client.get(health_url, timeout=10)
+            except Exception:
+                pass  # Best-effort, don't crash on network blips
+
+
 @app.on_event("startup")
 async def startup():
     """Connect to the database on server startup and seed sample data if empty."""
@@ -226,6 +256,8 @@ async def startup():
     existing = await database.fetch_all(players.select())
     if not existing:
         await populate_sample_data()
+    # Start keep-alive background task (only active on Render)
+    asyncio.create_task(keep_alive())
 
 
 @app.on_event("shutdown")
