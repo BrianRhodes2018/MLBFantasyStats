@@ -37,6 +37,44 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MLB Player Stats</title>
+
+    <!-- ===================================================================
+         PWA (Progressive Web App) Meta Tags
+         ===================================================================
+         These tags tell mobile browsers how to display our app when
+         "installed" to the home screen. Without these, it opens as a
+         regular website with browser bars. WITH these, it goes full-screen.
+         =================================================================== -->
+
+    <!-- theme-color: Sets the color of the browser's address bar (Android)
+         and the status bar area (iOS) to match our dark theme.
+         This is purely cosmetic — it makes the transition from browser
+         to app feel seamless by matching the surrounding UI chrome. -->
+    <meta name="theme-color" content="#0a1929" />
+
+    <!-- description: A short summary shown when sharing the link on social
+         media, in search results, and in some app listings. -->
+    <meta name="description" content="MLB player stats with fantasy league scoring" />
+
+    <!-- apple-mobile-web-app-capable: This is the iOS-specific tag that tells
+         Safari "yes, this website CAN run as a standalone app."
+         Without this, even with a manifest, iOS Safari won't go full-screen. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <!-- apple-mobile-web-app-status-bar-style: Controls how the iPhone's
+         status bar (time, battery, signal) looks when the app is open.
+         Options:
+           "default"          = black text on white background
+           "black"            = white text on black background
+           "black-translucent" = white text, status bar overlays the app content
+         We use "black-translucent" so the dark theme extends to the very top. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- apple-touch-icon: The icon that appears on the iPhone home screen.
+         iOS ignores the manifest icons and looks specifically for this tag.
+         The recommended size is 180x180 pixels (used for modern iPhones).
+         iOS will automatically round the corners — no need to do it yourself. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
   </head>
   <body>
     <!-- React mounts the entire application inside this div.
