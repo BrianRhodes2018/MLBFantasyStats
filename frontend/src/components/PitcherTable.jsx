@@ -97,21 +97,24 @@ const COLUMNS = [
     label: 'H',
     tooltip: 'Hits Allowed (H)\nThe number of hits given up by the pitcher.\nAverage: 150 | Good: <130 | Elite: <100',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,
   },
   {
     key: 'earned_runs',
     label: 'ER',
     tooltip: 'Earned Runs (ER)\nRuns that score without the benefit of an error or passed ball. Used to calculate ERA.\nAverage: 70 | Good: <55 | Elite: <40',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,
   },
   {
     key: 'walks',
     label: 'BB',
     tooltip: 'Walks / Bases on Balls (BB)\nWhen a pitcher throws four balls outside the strike zone, the batter advances to first base.\nAverage: 50 | Good: <40 | Elite: <30',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,
   },
   {
     key: 'strikeouts',
@@ -125,45 +128,52 @@ const COLUMNS = [
     label: 'HR',
     tooltip: 'Home Runs Allowed (HR)\nThe number of home runs given up by the pitcher. Lower is better.\nAverage: 25 | Good: <18 | Elite: <12',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,
   },
   {
     key: 'saves',
     label: 'SV',
     tooltip: 'Saves (SV)\nAwarded to a relief pitcher who finishes a game won by their team under specific circumstances (usually protecting a lead of 3 runs or less).\nAverage: 0 (starters) | Good: 25 | Elite: 40+',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,
   },
   {
     key: 'quality_starts',
     label: 'QS',
     tooltip: 'Quality Starts (QS)\nA start where the pitcher goes 6+ innings and allows 3 or fewer earned runs.\nKey fantasy stat measuring pitcher reliability.\nAverage: 10 | Good: 18 | Elite: 24+',
     format: (v) => v ?? '—',
-    editable: false
+    editable: false,
+    mobileHide: true,
   },
   {
     key: 'k_per_9',
     label: 'K/9',
     tooltip: 'Strikeouts per 9 Innings (K/9)\n(Strikeouts ÷ Innings Pitched) × 9\nMeasures a pitcher\'s ability to record strikeouts. Higher is better.\nAverage: 8.0 | Good: 9.5 | Elite: 11.0+',
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,
   },
   {
     key: 'bb_per_9',
     label: 'BB/9',
     tooltip: 'Walks per 9 Innings (BB/9)\n(Walks ÷ Innings Pitched) × 9\nMeasures a pitcher\'s control. Lower is better.\nAverage: 3.0 | Good: 2.5 | Elite: <2.0',
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,
   },
   {
     key: 'k_bb_ratio',
     label: 'K/BB',
     tooltip: 'Strikeout-to-Walk Ratio (K/BB)\nStrikeouts ÷ Walks\nMeasures a pitcher\'s command — strikeout ability relative to walks allowed. Higher is better.\nAverage: 2.5 | Good: 3.5 | Elite: 5.0+',
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,
   },
   {
     key: 'hr_per_9',
     label: 'HR/9',
     tooltip: 'Home Runs per 9 Innings (HR/9)\n(Home Runs Allowed ÷ Innings Pitched) × 9\nMeasures how frequently a pitcher gives up home runs. Lower is better.\nAverage: 1.2 | Good: 0.9 | Elite: <0.7',
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,
   },
   {
     key: 'fantasy_pts',
@@ -383,7 +393,7 @@ function PitcherTable({ pitchers, computed, fantasyPoints, onPitcherUpdated, isR
             {activeColumns.map((col) => (
               <th
                 key={col.key}
-                className="sortable-th has-tooltip"
+                className={`sortable-th has-tooltip${col.key === 'name' ? ' sticky-name' : ''}${col.mobileHide ? ' mobile-hide' : ''}`}
                 onClick={() => handleSort(col.key)}
               >
                 <span className="column-header-content">
@@ -411,7 +421,7 @@ function PitcherTable({ pitchers, computed, fantasyPoints, onPitcherUpdated, isR
                 {activeColumns.map((col) => {
                   if (isEditing && col.editable) {
                     return (
-                      <td key={col.key}>
+                      <td key={col.key} className={col.mobileHide ? 'mobile-hide' : undefined}>
                         <input
                           className="edit-input"
                           name={col.key}
@@ -434,7 +444,11 @@ function PitcherTable({ pitchers, computed, fantasyPoints, onPitcherUpdated, isR
                   return (
                     <td
                       key={col.key}
-                      className={col.isComputed ? 'computed-stat' : undefined}
+                      className={[
+                        col.isComputed ? 'computed-stat' : '',
+                        col.mobileHide ? 'mobile-hide' : '',
+                        col.key === 'name' ? 'sticky-name' : '',
+                      ].filter(Boolean).join(' ') || undefined}
                     >
                       {/* Name column: render as a clickable link that opens the player detail modal.
                           Other columns render as plain text. */}

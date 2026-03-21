@@ -99,7 +99,8 @@ const COLUMNS = [
     label: 'Pos',
     tooltip: 'Primary defensive position.\nC=Catcher, 1B=First Base, 2B=Second Base, 3B=Third Base, SS=Shortstop, LF=Left Field, CF=Center Field, RF=Right Field, DH=Designated Hitter',
     format: (v) => v ?? '—',
-    editable: true
+    editable: true,
+    mobileHide: true,    // Hidden on phones — saves horizontal space
   },
   {
     key: 'games',
@@ -148,28 +149,32 @@ const COLUMNS = [
     label: 'SB',
     tooltip: 'Stolen Bases (SB)\nWhen a baserunner advances to the next base during a pitch without the ball being put in play.\nAverage: 5 | Good: 20 | Elite: 40+',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,    // Hidden on phones — less critical for quick view
   },
   {
     key: 'runs',
     label: 'R',
     tooltip: 'Runs (R)\nThe number of times a player crosses home plate to score.\nAverage: 60 | Good: 90 | Elite: 110+',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,    // Hidden on phones — less critical for quick view
   },
   {
     key: 'strikeouts',
     label: 'K',
     tooltip: 'Strikeouts (K)\nWhen a batter accumulates three strikes during an at-bat, resulting in an out. Lower is better for batters.\nAverage: 120 | Good: 80 | Elite: <60',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,    // Hidden on phones — less critical for quick view
   },
   {
     key: 'total_bases',
     label: 'TB',
     tooltip: 'Total Bases (TB)\nThe total number of bases gained on hits: 1 for single, 2 for double, 3 for triple, 4 for home run.\nAverage: 200 | Good: 280 | Elite: 340+',
     editable: true,
-    inputType: 'number'
+    inputType: 'number',
+    mobileHide: true,    // Hidden on phones — less critical for quick view
   },
   {
     key: 'obp',
@@ -181,7 +186,8 @@ const COLUMNS = [
     //   1. The /players/computed endpoint (merged into player data by PlayerTable)
     //   2. The /players/search results (included directly in search response)
     //   3. The /players/rolling-stats endpoint (computed from game logs)
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,    // Hidden on phones — OPS covers this
   },
   {
     key: 'ops',
@@ -196,13 +202,15 @@ const COLUMNS = [
     key: 'power_index',
     label: 'Power Idx',
     tooltip: 'Power Index (Custom)\nHR × OPS\nCombines home run volume with overall hitting efficiency.\nAverage: 20 | Good: 35 | Elite: 50+',
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,    // Hidden on phones — advanced stat, tap player for detail
   },
   {
     key: 'speed_score',
     label: 'Speed',
     tooltip: 'Speed Score (Custom)\nSB / (SB + 10) × 100\nNormalized 0-100 scale with diminishing returns at high SB counts.\nAverage: 30 | Good: 60 | Elite: 80+',
-    isComputed: true
+    isComputed: true,
+    mobileHide: true,    // Hidden on phones — advanced stat, tap player for detail
   },
   {
     key: 'fantasy_pts',
@@ -676,7 +684,7 @@ function PlayerTable({ players, computed, fantasyPoints, onPlayerUpdated, isRoll
             {activeColumns.map((col) => (
               <th
                 key={col.key}
-                className="sortable-th has-tooltip"
+                className={`sortable-th has-tooltip${col.key === 'name' ? ' sticky-name' : ''}${col.mobileHide ? ' mobile-hide' : ''}`}
                 onClick={() => handleSort(col.key)}
               >
                 <span className="column-header-content">
@@ -726,7 +734,7 @@ function PlayerTable({ players, computed, fantasyPoints, onPlayerUpdated, isRoll
                   // they're derived from other stats by Polars on the backend.
                   if (isEditing && col.editable) {
                     return (
-                      <td key={col.key}>
+                      <td key={col.key} className={col.mobileHide ? 'mobile-hide' : undefined}>
                         <input
                           className="edit-input"
                           name={col.key}           // Matches the key in editForm state
@@ -757,7 +765,13 @@ function PlayerTable({ players, computed, fantasyPoints, onPlayerUpdated, isRoll
                     <td
                       key={col.key}
                       // Add "computed-stat" class for purple styling on computed columns
-                      className={col.isComputed ? 'computed-stat' : undefined}
+                      // Add "mobile-hide" class for columns hidden on small screens
+                      // Add "sticky-name" class for the Name column so it stays visible while scrolling
+                      className={[
+                        col.isComputed ? 'computed-stat' : '',
+                        col.mobileHide ? 'mobile-hide' : '',
+                        col.key === 'name' ? 'sticky-name' : '',
+                      ].filter(Boolean).join(' ') || undefined}
                     >
                       {/* Name column: render as a clickable link that opens the player detail modal.
                           Other columns render as plain text. */}

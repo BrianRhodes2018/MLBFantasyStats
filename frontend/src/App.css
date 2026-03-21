@@ -2159,3 +2159,160 @@ h2 {
     font-size: 0.82rem;
   }
 }
+
+
+/* ===========================================================================
+   12. MOBILE TABLE OPTIMIZATION (iPhone / Small Screens)
+   ===========================================================================
+
+   Problem: Tables have 18-23 columns. On a 375px-wide iPhone screen, that's
+   way too much horizontal scrolling to be usable.
+
+   Solution — three strategies working together:
+
+   1. HIDE less-critical columns on mobile
+      Columns marked with `mobileHide: true` in the COLUMNS array get the
+      CSS class "mobile-hide". On screens under 768px, these are hidden with
+      display:none. The user can still see ALL stats by tapping a player name
+      to open the detail modal.
+
+   2. STICKY player name column
+      The Name column gets position:sticky so it stays pinned to the left edge
+      while the user scrolls horizontally through the remaining stats. This way
+      you always know WHOSE stats you're looking at.
+
+   3. COMPACT everything
+      Reduce padding, font sizes, and spacing so more data fits on screen.
+      The table also gets smooth momentum scrolling (-webkit-overflow-scrolling)
+      for that native iOS feel.
+
+   What stats stay VISIBLE on mobile?
+
+   Batters: Name, Team, H/AB, AVG, HR, RBI, OPS, Fantasy Pts, Pts/G
+   Hidden:  Pos, SB, R, K, TB, OBP, Power Idx, Speed
+
+   Pitchers: Name, Team, W, L, ERA, WHIP, IP, K, Fantasy Pts, Pts/G
+   Hidden:   H, ER, BB, HR, SV, QS, K/9, BB/9, K/BB, HR/9
+
+   Users can tap any player name to see ALL their stats in the modal.
+   =========================================================================== */
+
+@media (max-width: 768px) {
+  /* --- Hide non-essential columns on mobile --- */
+  /* The .mobile-hide class is applied by PlayerTable.jsx and PitcherTable.jsx
+     to <th> and <td> elements for columns marked with mobileHide: true.
+     display:none completely removes them from the layout (not just invisible). */
+  .mobile-hide {
+    display: none !important;
+  }
+
+  /* --- Compact table styling --- */
+  /* Reduce padding to squeeze more columns into the viewport.
+     On desktop: 12px/14px padding. On mobile: 6px/8px — almost half. */
+  .player-table {
+    padding: 8px;                          /* Reduce wrapper padding */
+    border-radius: 0 0 8px 8px;           /* Slightly smaller corner radius */
+    -webkit-overflow-scrolling: touch;     /* Smooth momentum scrolling on iOS */
+  }
+
+  .player-table table {
+    font-size: 0.78rem;                    /* Smaller text (desktop: 0.9rem) */
+  }
+
+  .player-table th {
+    padding: 8px 6px;                      /* Tighter header cells */
+    font-size: 0.72rem;                    /* Smaller header text */
+  }
+
+  .player-table td {
+    padding: 7px 6px;                      /* Tighter data cells */
+  }
+
+  /* --- Sticky Name Column --- */
+  /* position:sticky makes the element stay in place while its parent scrolls.
+     left:0 pins it to the left edge. z-index ensures it renders ON TOP of
+     other cells that scroll underneath it.
+
+     The background-color MUST be set (not transparent) so the sticky cell
+     doesn't show other content bleeding through behind it. */
+  .player-table th.sticky-name {
+    position: sticky;
+    left: 0;
+    z-index: 2;                            /* Above other headers */
+    background: #0f1a2e;                   /* Must be opaque — matches header bg */
+    min-width: 100px;                      /* Ensure name column has enough width */
+    max-width: 130px;                      /* Don't let long names take too much space */
+    overflow: hidden;
+    text-overflow: ellipsis;               /* Show "..." for names that overflow */
+  }
+
+  .player-table td.sticky-name {
+    position: sticky;
+    left: 0;
+    z-index: 1;                            /* Above regular cells, below headers */
+    background: #1e3050;                   /* Matches default row background */
+    min-width: 100px;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Add a subtle right border to visually separate the sticky column */
+    border-right: 2px solid #2a3f5f;
+  }
+
+  /* Even rows have a different background — sticky cells need to match */
+  .player-table tr:nth-child(even) td.sticky-name {
+    background: #162236;                   /* Matches even-row striping color */
+  }
+
+  /* Hover state also needs matching background */
+  .player-table tr:hover td.sticky-name {
+    background: #1a3a5c;                   /* Matches row hover color */
+  }
+
+  /* --- Scroll hint gradient --- */
+  /* A subtle gradient on the right edge of the table that tells the user
+     "there's more content to the right, keep scrolling."
+     Uses ::after pseudo-element so no extra HTML is needed. */
+  .player-table::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 20px;
+    background: linear-gradient(to left, rgba(15, 26, 46, 0.6), transparent);
+    pointer-events: none;                  /* Don't block touch/click events */
+    z-index: 3;
+  }
+
+  /* Make the table wrapper position:relative so the ::after gradient
+     positions itself relative to the table container */
+  .player-table {
+    position: relative;
+  }
+
+  /* --- Hide Actions column on mobile --- */
+  /* Edit/Compare buttons take up too much space on mobile.
+     Users can interact via the player detail modal instead. */
+  .actions-cell {
+    display: none;
+  }
+
+  /* Also hide the Actions header */
+  .player-table th:last-child:not(.sortable-th) {
+    display: none;
+  }
+
+  /* --- Mobile pagination --- */
+  .pagination-btn {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+
+  /* --- Edit inputs on mobile --- */
+  .edit-input {
+    width: 50px;
+    font-size: 0.75rem;
+    padding: 3px 4px;
+  }
+}
