@@ -512,7 +512,7 @@ function App() {
    * but we merge here too for immediate availability.
    */
   const handleAddToComparison = (player, type) => {
-    if (comparisonPlayers.length >= 5) return
+    if (comparisonPlayers.length >= 10) return
     const playerId = player.id ?? player.player_id
     if (comparisonPlayers.some(p => (p.id ?? p.player_id) === playerId)) return
     if (comparisonType && comparisonType !== type) return

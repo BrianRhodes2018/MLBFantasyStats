@@ -219,7 +219,7 @@ function PlayerComparison({
       {isOpen && (
         <div className="comparison-body">
           {/* Autocomplete search input */}
-          {comparisonPlayers.length < 5 && (
+          {comparisonPlayers.length < 10 && (
             <div className="comparison-search" ref={searchRef}>
               <input
                 type="text"
@@ -253,8 +253,8 @@ function PlayerComparison({
               )}
             </div>
           )}
-          {comparisonPlayers.length >= 5 && (
-            <div className="comparison-cap">Maximum of 5 players reached</div>
+          {comparisonPlayers.length >= 10 && (
+            <div className="comparison-cap">Maximum of 10 players reached</div>
           )}
 
           {/* Empty state */}
