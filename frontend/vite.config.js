@@ -174,31 +174,31 @@ export default defineConfig({
 
   server: {
     // The proxy configuration: intercept requests and forward them
-    // to the FastAPI backend running on port 8000.
+    // to the FastAPI backend running on port 8001.
     proxy: {
       // Any request path starting with "/players" will be forwarded.
       // This covers: /players/, /players/stats, /players/computed, /players/team-stats,
       // /players/rolling-stats, /players/search, /players/filterable-stats
       '/players': {
-        target: 'http://localhost:8000',  // Where to forward the request
+        target: 'http://localhost:8001',  // Where to forward the request
         changeOrigin: true,               // Changes the Origin header to match the target
       },
       // Forward pitcher routes too — same pattern as players.
       // Covers: /pitchers/, /pitchers/stats, /pitchers/computed, /pitchers/rolling-stats
       '/pitchers': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
       },
       // Forward fantasy league routes — ESPN fantasy league integration.
       // Covers: /fantasy/leagues, /fantasy/points/batters/{id}, /fantasy/points/pitchers/{id}
       '/fantasy': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
       },
       // Forward player detail routes — ESPN news proxy + MLB transactions.
       // Covers: /player-detail/news, /player-detail/transactions/{mlb_id}
       '/player-detail': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
       },
     },
