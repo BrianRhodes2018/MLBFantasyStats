@@ -15,7 +15,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react'
-import { fuzzyNameMatch } from '../utils/fuzzyMatch'
+import { fuzzyNameMatch, fuzzyMatchScore } from '../utils/fuzzyMatch'
 
 // ---------------------------------------------------------------------------
 // STAT DEFINITIONS — which stats to show for each player type
@@ -124,28 +124,30 @@ function PlayerComparison({
     if (!comparisonType || comparisonType === 'batter') {
       for (const p of allBatters) {
         if (existingIds.has(p.id)) continue
-        if (fuzzyNameMatch(searchQuery, p.name)) {
+        const score = fuzzyMatchScore(searchQuery, p.name)
+        if (score < Infinity) {
           // Merge computed stats
           const comp = computed?.find(c => c.id === p.id)
-          results.push({ ...p, ...(comp || {}), _type: 'batter' })
+          results.push({ ...p, ...(comp || {}), _type: 'batter', _matchScore: score })
         }
-        if (results.length >= 8) break
       }
     }
 
     // Search pitchers (if type is null or 'pitcher')
-    if ((!comparisonType || comparisonType === 'pitcher') && results.length < 8) {
+    if (!comparisonType || comparisonType === 'pitcher') {
       for (const p of allPitchers) {
         if (existingIds.has(p.id)) continue
-        if (fuzzyNameMatch(searchQuery, p.name)) {
+        const score = fuzzyMatchScore(searchQuery, p.name)
+        if (score < Infinity) {
           const comp = pitcherComputed?.find(c => c.id === p.id)
-          results.push({ ...p, ...(comp || {}), _type: 'pitcher' })
+          results.push({ ...p, ...(comp || {}), _type: 'pitcher', _matchScore: score })
         }
-        if (results.length >= 8) break
       }
     }
 
-    setSuggestions(results)
+    // Sort by match quality (lower score = better match) and take top 8
+    results.sort((a, b) => a._matchScore - b._matchScore)
+    setSuggestions(results.slice(0, 8))
     setShowSuggestions(results.length > 0)
   }, [searchQuery, comparisonType, comparisonPlayers, allBatters, allPitchers, computed, pitcherComputed])
 

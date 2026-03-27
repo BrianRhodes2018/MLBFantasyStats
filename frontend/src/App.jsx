@@ -44,7 +44,7 @@ import StatsPanel from './components/StatsPanel'
 import LeagueSelector from './components/LeagueSelector'
 import PlayerModal from './components/PlayerModal'
 import PlayerComparison from './components/PlayerComparison'
-import { fuzzyNameMatch } from './utils/fuzzyMatch'
+import { fuzzyNameMatch, fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
 // time period toggle visually grouped with the stat filter panel.
@@ -224,7 +224,7 @@ function App() {
       // If ALL fetches returned null, something is fundamentally wrong
       // (backend not running, proxy misconfigured, etc.)
       if (!playersData && !statsData && !filterMetaData) {
-        setFetchError('Could not connect to the backend API. Make sure the FastAPI server is running on port 8000.')
+        setFetchError('Could not connect to the backend API. Make sure the FastAPI server is running on port 8001.')
       } else {
         setFetchError(null)
       }
@@ -642,7 +642,10 @@ function App() {
     // work on top of all other filters. Uses the fuzzyNameMatch()
     // utility function defined above the component.
     if (nameSearch.trim()) {
-      data = data.filter(p => fuzzyNameMatch(nameSearch, p.name))
+      data = data
+        .map(p => ({ ...p, _matchScore: fuzzyMatchScore(nameSearch, p.name) }))
+        .filter(p => p._matchScore < Infinity)
+        .sort((a, b) => a._matchScore - b._matchScore)
     }
 
     return data

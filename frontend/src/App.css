@@ -1831,7 +1831,6 @@ h2 {
   border-radius: 12px;
   margin-bottom: 28px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
 }
 
 /* Clickable header bar — always visible (collapsed or expanded) */
