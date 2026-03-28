@@ -89,12 +89,22 @@ def is_mlb_season() -> bool:
         return False
 
 
-async def run_daily_update():
+async def run_daily_update(skip_gamelogs: bool = False):
     """
     Execute the daily stats update.
 
     Fetches current season stats from the MLB API and updates the database.
     Only runs during the baseball season to avoid unnecessary API calls.
+
+    Runs in 4 phases:
+      1. Update batter season stats (incremental, ~5-10 sec)
+      2. Update pitcher season stats (incremental, ~5-10 sec)
+      3. Refresh batter game logs (clear + reload, ~3-7 min)
+      4. Refresh pitcher game logs (clear + reload, ~3-7 min)
+
+    Args:
+        skip_gamelogs: If True, skip phases 3 and 4 (game log refresh).
+                       Useful for quick manual runs.
     """
     logger.info("=" * 60)
     logger.info("Starting MLB Stats Daily Update")
@@ -107,16 +117,34 @@ async def run_daily_update():
         return
 
     current_year = datetime.now().year
-    logger.info(f"Updating stats for {current_year} season")
+    total_phases = 2 if skip_gamelogs else 4
+    logger.info(f"Updating stats for {current_year} season ({total_phases} phases)")
 
     try:
-        # Import here to avoid circular imports
-        from mlb_data_fetcher import update_player_stats
+        from mlb_data_fetcher import update_player_stats, update_pitcher_stats, populate_game_logs
 
-        # Run the update
+        # Phase 1: Update batter season stats
+        logger.info(f"Phase 1/{total_phases}: Updating batter season stats...")
         await update_player_stats(season=current_year)
+        logger.info("Batter stats updated successfully")
 
-        logger.info("Daily update completed successfully!")
+        # Phase 2: Update pitcher season stats
+        logger.info(f"Phase 2/{total_phases}: Updating pitcher season stats...")
+        await update_pitcher_stats(season=current_year)
+        logger.info("Pitcher stats updated successfully")
+
+        if not skip_gamelogs:
+            # Phase 3: Refresh batter game logs
+            logger.info(f"Phase 3/{total_phases}: Refreshing batter game logs...")
+            await populate_game_logs(season=current_year, player_type='batters', clear_existing=True)
+            logger.info("Batter game logs refreshed successfully")
+
+            # Phase 4: Refresh pitcher game logs
+            logger.info(f"Phase 4/{total_phases}: Refreshing pitcher game logs...")
+            await populate_game_logs(season=current_year, player_type='pitchers', clear_existing=True)
+            logger.info("Pitcher game logs refreshed successfully")
+
+        logger.info(f"Daily update completed successfully! (all {total_phases} phases)")
 
     except Exception as e:
         logger.error(f"Error during daily update: {e}", exc_info=True)
@@ -168,11 +196,12 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python daily_update.py                       # Run daily update (qualified batters only)
-  python daily_update.py --all                 # Run daily update (ALL active players)
-  python daily_update.py --force               # Force update even in offseason
-  python daily_update.py --refresh             # Full refresh with qualified batters
-  python daily_update.py --refresh --all       # Full refresh with ALL active players (~1200+)
+  python daily_update.py                          # Full daily update (stats + game logs)
+  python daily_update.py --skip-gamelogs          # Quick update (stats only, ~10 sec)
+  python daily_update.py --all                    # Full update with ALL active players
+  python daily_update.py --force                  # Force update even in offseason
+  python daily_update.py --refresh                # Full refresh with qualified batters
+  python daily_update.py --refresh --all          # Full refresh with ALL active players (~1200+)
   python daily_update.py --refresh --season 2024  # Refresh with specific season
         """
     )
@@ -184,6 +213,8 @@ Examples:
                         help='Season year for refresh (default: current year)')
     parser.add_argument('--all', action='store_true',
                         help='Fetch ALL active players (~1200) instead of just qualified batters (~129)')
+    parser.add_argument('--skip-gamelogs', action='store_true',
+                        help='Skip game log refresh (phases 3-4) for a quick stats-only update')
 
     args = parser.parse_args()
 
@@ -193,8 +224,10 @@ Examples:
     elif args.force:
         # Force update (bypass season check)
         logger.info("Force flag set - bypassing season check")
-        from mlb_data_fetcher import update_player_stats
-        asyncio.run(update_player_stats(args.season or datetime.now().year, all_players=args.all))
+        from mlb_data_fetcher import update_player_stats, update_pitcher_stats
+        season = args.season or datetime.now().year
+        asyncio.run(update_player_stats(season, all_players=args.all))
+        asyncio.run(update_pitcher_stats(season, all_pitchers=args.all))
     else:
-        # Normal daily update
-        asyncio.run(run_daily_update())
+        # Normal daily update (all 4 phases unless --skip-gamelogs)
+        asyncio.run(run_daily_update(skip_gamelogs=args.skip_gamelogs))

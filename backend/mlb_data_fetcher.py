@@ -1096,6 +1096,73 @@ async def update_player_stats(season: Optional[int] = None, all_players: bool = 
         await database.disconnect()
 
 
+async def update_pitcher_stats(season: Optional[int] = None, all_pitchers: bool = False):
+    """
+    Update existing pitchers with fresh stats from the MLB API.
+
+    This is designed for daily updates during the season:
+    - Pitchers that exist in the DB get their stats updated
+    - New pitchers get added (anyone with innings this season)
+    - Pitchers no longer active are kept (historical data)
+
+    Mirrors update_player_stats() but for the pitchers table.
+
+    Args:
+        season: The season to fetch. Defaults to current year.
+        all_pitchers: If True, use roster-based fetch for ALL pitchers (~400+).
+                      If False, use stats API for all pitchers with innings (~300-400).
+    """
+    from database import database
+    from models import pitchers
+
+    if season is None:
+        season = datetime.now().year
+
+    await database.connect()
+
+    try:
+        if all_pitchers:
+            df = get_all_pitchers(season)
+        else:
+            df = get_qualified_pitchers(season)
+
+        if df.is_empty():
+            print("No pitcher data to update")
+            return
+
+        updated_count = 0
+        inserted_count = 0
+
+        for pitcher_record in df.to_dicts():
+            # Check if pitcher exists (by name and team)
+            existing = await database.fetch_one(
+                pitchers.select().where(
+                    (pitchers.c.name == pitcher_record['name']) &
+                    (pitchers.c.team == pitcher_record['team'])
+                )
+            )
+
+            if existing:
+                # Update existing pitcher
+                await database.execute(
+                    pitchers.update()
+                    .where(pitchers.c.id == existing._mapping['id'])
+                    .values(**pitcher_record)
+                )
+                updated_count += 1
+            else:
+                # Insert new pitcher
+                await database.execute(
+                    pitchers.insert().values(**pitcher_record)
+                )
+                inserted_count += 1
+
+        print(f"Pitcher update complete: {updated_count} updated, {inserted_count} new pitchers added")
+
+    finally:
+        await database.disconnect()
+
+
 def preview_stats(season: int = 2024, pitchers: bool = False):
     """
     Fetch and display stats without saving to database.
