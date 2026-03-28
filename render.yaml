@@ -152,9 +152,9 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    # 7:00 UTC = 2:00 AM EDT. MLB season runs April-October (all EDT),
+    # 6:00 UTC = 2:00 AM EDT. MLB season runs April-October (all EDT),
     # so this timing ensures most games have finished.
-    schedule: "0 7 * * *"
+    schedule: "0 6 * * *"
     startCommand: python daily_update.py
     envVars:
       - key: DATABASE_URL
