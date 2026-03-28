@@ -201,6 +201,11 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward season metadata route — returns available season snapshots.
+      '/seasons': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
 })

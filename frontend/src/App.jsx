@@ -129,6 +129,15 @@ function App() {
   const [modalPlayerType, setModalPlayerType] = useState(null)  // 'batter' | 'pitcher'
 
   // ---------------------------------------------------------------------------
+  // SEASON TOGGLE STATE
+  // ---------------------------------------------------------------------------
+  // Controls which season's data is displayed. null = current season (default).
+  // When set to a year string (e.g., "2025"), all API calls include ?season=2025
+  // to query the historical snapshot database.
+  const [season, setSeason] = useState(null)
+  const [availableSeasons, setAvailableSeasons] = useState([])
+
+  // ---------------------------------------------------------------------------
   // PLAYER COMPARISON STATE
   // ---------------------------------------------------------------------------
   const [comparisonPlayers, setComparisonPlayers] = useState([])
@@ -156,9 +165,17 @@ function App() {
    * @param {string} url - The endpoint path (e.g., "/players/")
    * @returns {Promise<any|null>} The parsed JSON data, or null if the fetch failed
    */
-  const safeFetch = async (url) => {
+  const safeFetch = async (url, { includeSeason = true } = {}) => {
     try {
-      const res = await fetch(`${API_BASE}${url}`)
+      // Append ?season=XXXX to route queries to the historical snapshot database.
+      // The includeSeason flag lets callers opt out (e.g., /seasons, /fantasy/leagues
+      // which should always query the primary database).
+      let fullUrl = `${API_BASE}${url}`
+      if (includeSeason && season) {
+        const separator = url.includes('?') ? '&' : '?'
+        fullUrl += `${separator}season=${season}`
+      }
+      const res = await fetch(fullUrl)
       if (!res.ok) {
         console.error(`Fetch ${url} returned HTTP ${res.status}`)
         return null
@@ -200,7 +217,7 @@ function App() {
         safeFetch('/pitchers/'),
         safeFetch('/pitchers/computed'),
         safeFetch('/pitchers/filterable-stats'),  // Metadata for pitcher search filters (stat names, min/max ranges, positions, teams)
-        safeFetch('/fantasy/leagues'),             // Saved ESPN fantasy leagues (for league selector dropdown)
+        safeFetch('/fantasy/leagues', { includeSeason: false }),  // Saved ESPN fantasy leagues (always from primary DB)
       ])
 
       // Update state with whatever data we got. Each setter triggers a
@@ -244,9 +261,30 @@ function App() {
    * useEffect with an empty dependency array [] runs ONCE after the component
    * first renders (mounts). This is the React equivalent of "on page load".
    */
+  // Fetch available seasons on mount (once, from primary DB)
   useEffect(() => {
+    const loadSeasons = async () => {
+      const data = await safeFetch('/seasons', { includeSeason: false })
+      if (data?.available) {
+        setAvailableSeasons(data.available)
+      }
+    }
+    loadSeasons()
+  }, [])
+
+  // Fetch all data on mount AND when the season changes.
+  // When switching seasons, we re-fetch everything from the appropriate database.
+  useEffect(() => {
+    // Reset search results and rolling stats when switching seasons
+    setSearchResults(null)
+    setPitcherSearchResults(null)
+    setActivePeriod('season')
+    setRollingBatters([])
+    setRollingPitchers([])
+    setNameSearch('')
+    setLoading(true)
     fetchData()
-  }, [])  // Empty array = run once on mount
+  }, [season])  // Re-run when season changes
 
   /**
    * Fetch fantasy points whenever the active league changes.
@@ -702,6 +740,21 @@ function App() {
         </div>
       )}
 
+      {/* Season banner — visual indicator when viewing historical data.
+          Prevents confusion about which dataset the user is looking at. */}
+      {season && (
+        <div className="season-banner">
+          📊 Viewing <strong>{season} Season</strong> — Historical Snapshot
+          <button
+            className="season-banner-close"
+            onClick={() => setSeason(null)}
+            title="Switch to current season"
+          >
+            Return to Live Stats →
+          </button>
+        </div>
+      )}
+
       {/* StatsPanel shows league averages, team breakdowns, and computed stat explanations.
           Only visible in season mode — rolling stats don't have league averages. */}
       {!isRolling && <StatsPanel stats={stats} teamStats={teamStats} />}
@@ -730,6 +783,7 @@ function App() {
           onPeriodChange={handlePeriodChange}
           rollingLoading={rollingLoading}
           isRolling={isRolling}
+          season={season}
         />
       )}
 
@@ -742,6 +796,7 @@ function App() {
           onPeriodChange={handlePeriodChange}
           rollingLoading={rollingLoading}
           isRolling={isRolling}
+          season={season}
         />
       )}
 
@@ -794,6 +849,27 @@ function App() {
               ))}
             </select>
           </div>
+
+          {/* Season toggle — switch between current season and historical snapshots.
+              Only shown when snapshot databases are configured (e.g., DATABASE_URL_2025).
+              Changing the season re-fetches all data from the selected database. */}
+          {availableSeasons.length > 1 && (
+            <div className="table-header-filter season-toggle">
+              <label htmlFor="season-select">Season:</label>
+              <select
+                id="season-select"
+                value={season || ''}
+                onChange={(e) => setSeason(e.target.value || null)}
+              >
+                {/* Current season (live data) — value="" maps to season=null */}
+                <option value="">{availableSeasons[availableSeasons.length - 1]} (Live)</option>
+                {/* Historical snapshots — all seasons except the latest (current) */}
+                {availableSeasons.slice(0, -1).map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Fantasy League selector — choose which ESPN league's scoring to apply.
               Sits alongside Position and Team dropdowns so all filters are grouped.

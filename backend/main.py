@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from database import database, engine, metadata
+from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
 from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues
 from schemas import (
     PlayerIn, PlayerOut, PlayerUpdate,
@@ -225,6 +225,23 @@ async def health_check():
     return {"status": "ok"}
 
 
+@app.get("/seasons")
+async def get_available_seasons():
+    """
+    Return available season snapshots for the frontend season toggle.
+
+    The current season is always available (it's the primary database).
+    Additional seasons are available if their DATABASE_URL_<YEAR> env var is set,
+    pointing to a frozen Neon branch with historical data.
+    """
+    from datetime import datetime
+    current_year = str(datetime.now().year)
+    return {
+        "current": current_year,
+        "available": sorted(available_seasons + [current_year]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Keep-Alive Background Task
 # ---------------------------------------------------------------------------
@@ -250,8 +267,14 @@ async def keep_alive():
 
 @app.on_event("startup")
 async def startup():
-    """Connect to the database on server startup and seed sample data if empty."""
-    await database.connect()
+    """Connect to all databases on server startup and seed sample data if empty."""
+    # Connect primary database + any snapshot databases in parallel
+    import asyncio
+    connect_tasks = [database.connect()]
+    for db in snapshot_databases.values():
+        connect_tasks.append(db.connect())
+    await asyncio.gather(*connect_tasks)
+
     # Check if any players exist — if not, populate with sample data
     existing = await database.fetch_all(players.select())
     if not existing:
@@ -262,8 +285,12 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    """Disconnect from the database when the server shuts down."""
-    await database.disconnect()
+    """Disconnect from all databases when the server shuts down."""
+    import asyncio
+    disconnect_tasks = [database.disconnect()]
+    for db in snapshot_databases.values():
+        disconnect_tasks.append(db.disconnect())
+    await asyncio.gather(*disconnect_tasks)
 
 
 # ===========================================================================
@@ -487,7 +514,7 @@ async def update_player(player_id: int, player: PlayerUpdate):
 
 
 @app.get("/players/", response_model=list[PlayerOut])
-async def get_players():
+async def get_players(season: Optional[str] = None):
     """
     Retrieve all players from the database.
 
@@ -497,11 +524,15 @@ async def get_players():
     3. FastAPI serializes each row using the PlayerOut schema.
     4. response_model=list[PlayerOut] tells FastAPI the response is a JSON array.
 
+    Args:
+        season: Optional season year (e.g., "2025") to query historical snapshot.
+
     Returns:
         A JSON array of all players with their stats.
     """
+    db = get_db(season)
     query = players.select()
-    results = await database.fetch_all(query)
+    results = await db.fetch_all(query)
     return results
 
 
@@ -518,6 +549,7 @@ async def search_players(
     request: Request,
     team: Optional[str] = Query(None, description="Filter by team name (case-insensitive partial match)"),
     position: Optional[str] = Query(None, description="Filter by position (case-insensitive, e.g. 'RF', 'DH')"),
+    season: Optional[str] = Query(None, description="Season year for historical snapshot (e.g., '2025')"),
 ):
     """
     Search and filter players using Polars DataFrame operations.
@@ -546,8 +578,9 @@ async def search_players(
         ApiResponse with code 200 and a "results" list of matching players,
         plus a "count" showing how many matched.
     """
+    db = get_db(season)
     query = players.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -676,7 +709,7 @@ async def search_players(
 
 
 @app.get("/players/stats")
-async def get_aggregated_stats():
+async def get_aggregated_stats(season: Optional[str] = None):
     """
     Compute league-wide average statistics using Polars.
 
@@ -695,8 +728,9 @@ async def get_aggregated_stats():
         Note: Values are arrays because Polars' to_dict(as_series=False) wraps
         each column's values in a list — even single values.
     """
+    db = get_db(season)
     query = players.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
 
     # Create a Polars DataFrame from the database rows.
     # Polars can accept a list of dict-like objects (which database Row objects are).
@@ -733,7 +767,7 @@ async def get_aggregated_stats():
 
 
 @app.get("/players/computed")
-async def get_computed_stats():
+async def get_computed_stats(season: Optional[str] = None):
     """
     Compute per-player derived statistics using Polars expressions.
 
@@ -755,8 +789,9 @@ async def get_computed_stats():
     Returns:
         A JSON array of objects, each with player name, team, and computed stats.
     """
+    db = get_db(season)
     query = players.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -825,7 +860,7 @@ async def get_computed_stats():
 
 
 @app.get("/players/team-stats")
-async def get_team_stats():
+async def get_team_stats(season: Optional[str] = None):
     """
     Compute team-level aggregated statistics using Polars group_by.
 
@@ -840,8 +875,9 @@ async def get_team_stats():
     Returns:
         A JSON array of team stat objects, sorted by team OPS (best first).
     """
+    db = get_db(season)
     query = players.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -866,7 +902,7 @@ async def get_team_stats():
 
 
 @app.get("/players/filterable-stats")
-async def get_filterable_stats():
+async def get_filterable_stats(season: Optional[str] = None):
     """
     Return metadata about which stats can be filtered, with their min/max ranges.
 
@@ -889,8 +925,9 @@ async def get_filterable_stats():
         ApiResponse with a list of stat metadata objects:
         [{"name": "batting_average", "type": "float", "min": 0.258, "max": 0.331}, ...]
     """
+    db = get_db(season)
     query = players.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -977,15 +1014,19 @@ async def get_filterable_stats():
 # ===========================================================================
 
 @app.get("/pitchers/", response_model=list[PitcherOut])
-async def get_pitchers():
+async def get_pitchers(season: Optional[str] = None):
     """
     Retrieve all pitchers from the database.
+
+    Args:
+        season: Optional season year (e.g., "2025") to query historical snapshot.
 
     Returns:
         A JSON array of all pitchers with their stats.
     """
+    db = get_db(season)
     query = pitchers.select()
-    results = await database.fetch_all(query)
+    results = await db.fetch_all(query)
     return results
 
 
@@ -1048,15 +1089,16 @@ async def update_pitcher(pitcher_id: int, pitcher: PitcherUpdate):
 
 
 @app.get("/pitchers/stats")
-async def get_pitcher_aggregated_stats():
+async def get_pitcher_aggregated_stats(season: Optional[str] = None):
     """
     Compute league-wide average pitching statistics using Polars.
 
     Returns:
         A JSON object with averaged pitcher stats.
     """
+    db = get_db(season)
     query = pitchers.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -1077,7 +1119,7 @@ async def get_pitcher_aggregated_stats():
 
 
 @app.get("/pitchers/computed")
-async def get_pitcher_computed_stats():
+async def get_pitcher_computed_stats(season: Optional[str] = None):
     """
     Compute per-pitcher derived statistics using Polars expressions.
 
@@ -1090,8 +1132,9 @@ async def get_pitcher_computed_stats():
     Returns:
         A JSON array of objects with pitcher name, team, and computed stats.
     """
+    db = get_db(season)
     query = pitchers.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -1131,15 +1174,16 @@ async def get_pitcher_computed_stats():
 
 
 @app.get("/pitchers/team-stats")
-async def get_pitcher_team_stats():
+async def get_pitcher_team_stats(season: Optional[str] = None):
     """
     Compute team-level aggregated pitching statistics using Polars group_by.
 
     Returns:
         A JSON array of team pitching stat objects, sorted by team ERA (best first).
     """
+    db = get_db(season)
     query = pitchers.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -1181,7 +1225,7 @@ def get_numeric_pitcher_stat_columns():
 
 
 @app.get("/pitchers/filterable-stats")
-async def get_pitcher_filterable_stats():
+async def get_pitcher_filterable_stats(season: Optional[str] = None):
     """
     Return metadata about which pitcher stats can be filtered, with their min/max ranges.
 
@@ -1201,8 +1245,9 @@ async def get_pitcher_filterable_stats():
     Returns:
         ApiResponse with a list of stat metadata objects and available positions/teams.
     """
+    db = get_db(season)
     query = pitchers.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -1319,6 +1364,7 @@ async def search_pitchers(
     request: Request,
     team: Optional[str] = Query(None, description="Filter by team name (case-insensitive partial match)"),
     position: Optional[str] = Query(None, description="Filter by position (SP or RP)"),
+    season: Optional[str] = Query(None, description="Season year for historical snapshot (e.g., '2025')"),
 ):
     """
     Search and filter pitchers using Polars DataFrame operations.
@@ -1342,8 +1388,9 @@ async def search_pitchers(
         ApiResponse with code 200 and a "results" list of matching pitchers,
         plus a "count" showing how many matched.
     """
+    db = get_db(season)
     query = pitchers.select()
-    rows = await database.fetch_all(query)
+    rows = await db.fetch_all(query)
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -1497,7 +1544,8 @@ async def search_pitchers(
 
 @app.get("/players/rolling-stats")
 async def get_batter_rolling_stats(
-    days: int = Query(15, description="Number of days to look back (5, 10, 15, or 30)")
+    days: int = Query(15, description="Number of days to look back (5, 10, 15, or 30)"),
+    season: Optional[str] = Query(None, description="Season year for historical snapshot (e.g., '2025')"),
 ):
     """
     Compute batting stats over a rolling time window using game log data.
@@ -1525,7 +1573,8 @@ async def get_batter_rolling_stats(
         JSON array of player objects with rolling stats, sorted by OPS descending.
     """
     # Fetch all batter game logs from the database
-    rows = await database.fetch_all(batter_game_logs.select())
+    db = get_db(season)
+    rows = await db.fetch_all(batter_game_logs.select())
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -1652,7 +1701,8 @@ async def get_batter_rolling_stats(
 
 @app.get("/pitchers/rolling-stats")
 async def get_pitcher_rolling_stats(
-    days: int = Query(15, description="Number of days to look back (5, 10, 15, or 30)")
+    days: int = Query(15, description="Number of days to look back (5, 10, 15, or 30)"),
+    season: Optional[str] = Query(None, description="Season year for historical snapshot (e.g., '2025')"),
 ):
     """
     Compute pitching stats over a rolling time window using game log data.
@@ -1668,11 +1718,13 @@ async def get_pitcher_rolling_stats(
 
     Args:
         days: How many days back to look (default 15).
+        season: Optional season year for historical snapshot.
 
     Returns:
         JSON array of pitcher objects with rolling stats, sorted by ERA ascending (best first).
     """
-    rows = await database.fetch_all(pitcher_game_logs.select())
+    db = get_db(season)
+    rows = await db.fetch_all(pitcher_game_logs.select())
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -2048,7 +2100,7 @@ async def delete_fantasy_league(league_db_id: int):
 
 
 @app.get("/fantasy/points/batters/{league_db_id}")
-async def get_batter_fantasy_points(league_db_id: int):
+async def get_batter_fantasy_points(league_db_id: int, season: Optional[str] = None):
     """
     Compute fantasy points for all batters using a specific league's scoring settings.
 
@@ -2092,8 +2144,9 @@ async def get_batter_fantasy_points(league_db_id: int):
     # Determine which provider this league uses (default to "espn" for backward compat)
     provider = league_row._mapping.get("provider") or "espn"
 
-    # Fetch all batters from the database and convert to Polars DataFrame
-    rows = await database.fetch_all(players.select())
+    # Fetch all batters from the appropriate season database
+    db = get_db(season)
+    rows = await db.fetch_all(players.select())
     df = rows_to_dataframe(rows)
 
     if df.is_empty():
@@ -2131,7 +2184,7 @@ async def get_batter_fantasy_points(league_db_id: int):
 
 
 @app.get("/fantasy/points/pitchers/{league_db_id}")
-async def get_pitcher_fantasy_points(league_db_id: int):
+async def get_pitcher_fantasy_points(league_db_id: int, season: Optional[str] = None):
     """
     Compute fantasy points for all pitchers using a specific league's scoring settings.
 
@@ -2157,7 +2210,8 @@ async def get_pitcher_fantasy_points(league_db_id: int):
     scoring_items = json.loads(league_row._mapping["scoring_settings"])
     provider = league_row._mapping.get("provider") or "espn"
 
-    rows = await database.fetch_all(pitchers.select())
+    db = get_db(season)
+    rows = await db.fetch_all(pitchers.select())
     df = rows_to_dataframe(rows)
 
     if df.is_empty():

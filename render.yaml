@@ -130,6 +130,11 @@ services:
       - key: CORS_ORIGINS
         sync: false  # Don't auto-sync — you'll set this manually
 
+      # DATABASE_URL_2025: Neon branch connection string for the 2025 historical snapshot.
+      # Enables the season toggle in the frontend so users can view 2025 data.
+      - key: DATABASE_URL_2025
+        sync: false
+
   # ---------------------------------------------------------------------------
   # CRON JOB — Daily MLB Stats Update (2am PT / 9am UTC)
   # ---------------------------------------------------------------------------

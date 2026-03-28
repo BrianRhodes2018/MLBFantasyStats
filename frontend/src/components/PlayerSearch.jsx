@@ -90,7 +90,7 @@ const formatStatName = (name) => {
     .join(' ')
 }
 
-function PlayerSearch({ onSearchResults, onClearSearch, filterMeta, activePeriod, onPeriodChange, rollingLoading, isRolling }) {
+function PlayerSearch({ onSearchResults, onClearSearch, filterMeta, activePeriod, onPeriodChange, rollingLoading, isRolling, season }) {
   // State for the position and team dropdown selections
   const [position, setPosition] = useState('')
   const [team, setTeam] = useState('')
@@ -200,6 +200,8 @@ function PlayerSearch({ onSearchResults, onClearSearch, filterMeta, activePeriod
 
     // Build the full URL with query string
     // params.toString() produces something like "position=RF&min_home_runs=30"
+    // Include season param for historical snapshot queries
+    if (season) params.append('season', season)
     const queryString = params.toString()
     const url = queryString ? `${API_BASE}/players/search?${queryString}` : `${API_BASE}/players/search`
 

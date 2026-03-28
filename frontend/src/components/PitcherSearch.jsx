@@ -73,7 +73,7 @@ const formatStatName = (name) => {
     .join(' ')
 }
 
-function PitcherSearch({ onSearchResults, onClearSearch, filterMeta, activePeriod, onPeriodChange, rollingLoading, isRolling }) {
+function PitcherSearch({ onSearchResults, onClearSearch, filterMeta, activePeriod, onPeriodChange, rollingLoading, isRolling, season }) {
   // State for the position and team dropdown selections.
   // '' means "no filter" (show all).
   const [position, setPosition] = useState('')
@@ -172,6 +172,8 @@ function PitcherSearch({ onSearchResults, onClearSearch, filterMeta, activePerio
       }
     })
 
+    // Include season param for historical snapshot queries
+    if (season) params.append('season', season)
     // Build the full URL. If no filters, still call search (returns all pitchers).
     const queryString = params.toString()
     const url = queryString ? `${API_BASE}/pitchers/search?${queryString}` : `${API_BASE}/pitchers/search`

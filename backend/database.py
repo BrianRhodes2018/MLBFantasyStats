@@ -2,7 +2,7 @@
 database.py - Database Connection Configuration
 ================================================
 
-This module sets up the async database connection for our FastAPI application.
+This module sets up the async database connections for our FastAPI application.
 
 Key concepts:
 - We use the `databases` library for ASYNC database access (non-blocking I/O).
@@ -14,9 +14,19 @@ Key concepts:
 - `MetaData()` is SQLAlchemy's container for table definitions. Tables defined
   elsewhere (models.py) register themselves with this metadata object.
 
+Multi-Season Support:
+  The app supports multiple database connections for different seasons.
+  The primary database (DATABASE_URL) holds the current season's live data,
+  while optional snapshot databases (DATABASE_URL_2025, etc.) hold frozen
+  historical data from previous seasons.
+
+  The get_db(season) helper routes queries to the correct connection:
+    - get_db(None)    → current season (default)
+    - get_db("2025")  → 2025 historical snapshot
+
 Environment Variables:
-- DATABASE_URL: Full PostgreSQL connection string. Falls back to a local default
-  if not set. Format: postgresql+asyncpg://user:password@host:port/dbname
+- DATABASE_URL: Primary database (current season). Falls back to local default.
+- DATABASE_URL_2025: Optional Neon branch with frozen 2025 season data.
 
 Production URL Handling:
   Cloud database providers (Neon, Render, Supabase, etc.) typically give you a
@@ -43,142 +53,75 @@ load_dotenv()
 from databases import Database           # Async database interface
 from sqlalchemy import create_engine, MetaData  # Sync engine + metadata registry
 
+
 # ---------------------------------------------------------------------------
-# READ THE DATABASE URL FROM ENVIRONMENT
+# URL NORMALIZATION HELPER
 # ---------------------------------------------------------------------------
-# os.environ.get() tries to read DATABASE_URL from environment variables.
-# If it's not set, we fall back to a default local PostgreSQL URL.
-# The "+asyncpg" part tells SQLAlchemy/databases to use the asyncpg driver.
+# Extracted into a reusable function since we need to normalize URLs for
+# both the primary database and any snapshot databases (2025, etc.).
+
+def normalize_database_url(raw_url):
+    """
+    Convert any PostgreSQL connection string into the two formats we need:
+      - async_url: postgresql+asyncpg://... (for the `databases` library)
+      - sync_url:  postgresql://...         (for SQLAlchemy create_engine)
+
+    Also cleans up query parameters for each driver (asyncpg vs psycopg2
+    understand different SSL parameter names).
+
+    Returns: (async_url, sync_url) tuple
+    """
+    # Step 1: Normalize to async format (postgresql+asyncpg://)
+    if raw_url.startswith("postgresql+asyncpg://"):
+        async_url = raw_url
+    elif raw_url.startswith("postgresql://"):
+        async_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif raw_url.startswith("postgres://"):
+        async_url = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    else:
+        async_url = raw_url
+
+    # Step 2: Create sync URL by stripping the async driver
+    sync_url = async_url.replace("+asyncpg", "")
+
+    # Step 3: Fix query parameters for remote databases
+    is_remote = "localhost" not in async_url and "127.0.0.1" not in async_url
+
+    if is_remote:
+        # Fix ASYNC_URL for asyncpg — remove sslmode/channel_binding, add ssl=require
+        parsed = urlparse(async_url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        params.pop("sslmode", None)
+        params.pop("channel_binding", None)
+        params["ssl"] = ["require"]
+        async_url = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+
+        # Fix SYNC_URL for psycopg2 — ensure sslmode=require is present
+        parsed_sync = urlparse(sync_url)
+        sync_params = parse_qs(parsed_sync.query, keep_blank_values=True)
+        if "sslmode" not in sync_params:
+            sync_params["sslmode"] = ["require"]
+        sync_url = urlunparse(parsed_sync._replace(query=urlencode(sync_params, doseq=True)))
+
+    return async_url, sync_url
+
+
+# ---------------------------------------------------------------------------
+# PRIMARY DATABASE (Current Season)
+# ---------------------------------------------------------------------------
+# This is the main database that gets daily updates during the season.
+# Falls back to a local PostgreSQL URL for development.
+
 raw_url = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://postgres:admin123@localhost:5432/mlb_db"
 )
 
-# ---------------------------------------------------------------------------
-# NORMALIZE THE URL FOR DIFFERENT DRIVERS
-# ---------------------------------------------------------------------------
-# Cloud providers give URLs in different formats. We need to handle them all:
-#
-#   What you might get from Neon/Render/Supabase:
-#     "postgres://user:pass@host/db"          ← shorthand prefix
-#     "postgresql://user:pass@host/db"        ← full prefix, no driver
-#     "postgresql+asyncpg://user:pass@host/db" ← already correct for async
-#
-#   What we need:
-#     ASYNC_URL  = "postgresql+asyncpg://user:pass@host/db"  (for the `databases` library)
-#     SYNC_URL   = "postgresql://user:pass@host/db"          (for SQLAlchemy create_all)
-#
-# Step 1: Normalize to the async format (postgresql+asyncpg://)
-# We check for the most specific prefix first to avoid double-replacing.
-
-if raw_url.startswith("postgresql+asyncpg://"):
-    # Already in the correct async format — no conversion needed.
-    ASYNC_URL = raw_url
-elif raw_url.startswith("postgresql://"):
-    # Has the full "postgresql://" prefix but no driver specified.
-    # Add "+asyncpg" to tell the databases library which driver to use.
-    ASYNC_URL = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-elif raw_url.startswith("postgres://"):
-    # Shorthand "postgres://" (common from Heroku, Render, Neon).
-    # Replace with the full async prefix.
-    ASYNC_URL = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
-else:
-    # Unknown format — use as-is and hope for the best.
-    # This shouldn't happen with standard PostgreSQL URLs.
-    ASYNC_URL = raw_url
-
-# Step 2: Create the sync URL for SQLAlchemy's create_engine().
-# Just strip "+asyncpg" so we get plain "postgresql://" which uses psycopg2.
-SYNC_URL = ASYNC_URL.replace("+asyncpg", "")
-
-# ---------------------------------------------------------------------------
-# CLEAN UP QUERY PARAMETERS FOR EACH DRIVER
-# ---------------------------------------------------------------------------
-# Cloud databases like Neon include query parameters in their URLs, e.g.:
-#   ?sslmode=require&channel_binding=require
-#
-# THE PROBLEM: asyncpg and psycopg2 support DIFFERENT parameter names!
-#
-#   asyncpg (async driver) understands:
-#     - ssl=require        (NOT sslmode — that's a libpq/psycopg2 thing)
-#
-#   psycopg2 (sync driver) understands:
-#     - sslmode=require    (standard libpq parameter)
-#     - channel_binding=require  (libpq parameter for extra security)
-#
-#   If we pass "sslmode" or "channel_binding" to asyncpg, it crashes with
-#   "unrecognized parameter" error. So we need to:
-#     1. For ASYNC_URL: remove sslmode & channel_binding, add ssl=require
-#     2. For SYNC_URL: keep sslmode & channel_binding as-is (psycopg2 handles them)
-#
-# We use Python's urllib.parse to properly parse and rebuild the URLs.
-# This is safer than string manipulation because it handles edge cases
-# (encoded characters, multiple params, etc.).
-
-is_remote = "localhost" not in ASYNC_URL and "127.0.0.1" not in ASYNC_URL
-
-if is_remote:
-    # --- Fix ASYNC_URL for asyncpg ---
-    # Parse the URL into its components (scheme, host, path, query, etc.)
-    parsed = urlparse(ASYNC_URL)
-
-    # Parse the query string into a dictionary.
-    # parse_qs returns {'sslmode': ['require'], 'channel_binding': ['require']}
-    # keep_blank_values=True preserves params like "?foo=" with empty values.
-    params = parse_qs(parsed.query, keep_blank_values=True)
-
-    # Remove parameters that asyncpg doesn't understand.
-    # These are libpq-specific params that psycopg2 supports but asyncpg doesn't.
-    params.pop("sslmode", None)          # asyncpg uses "ssl" instead
-    params.pop("channel_binding", None)  # libpq-only, asyncpg doesn't support this
-
-    # Add the asyncpg-compatible SSL parameter.
-    # "ssl=require" tells asyncpg to use an encrypted connection.
-    params["ssl"] = ["require"]
-
-    # Rebuild the query string from the cleaned parameters.
-    # doseq=True handles list values (parse_qs returns lists).
-    new_query = urlencode(params, doseq=True)
-
-    # Reassemble the full URL with the cleaned query string.
-    # urlunparse takes a tuple: (scheme, netloc, path, params, query, fragment)
-    # parsed._replace() creates a copy with just the query part changed.
-    ASYNC_URL = urlunparse(parsed._replace(query=new_query))
-
-    # --- Fix SYNC_URL for psycopg2 ---
-    # psycopg2 understands sslmode and channel_binding natively, so we just
-    # need to make sure sslmode is present. Parse and check.
-    parsed_sync = urlparse(SYNC_URL)
-    sync_params = parse_qs(parsed_sync.query, keep_blank_values=True)
-
-    # Ensure sslmode=require is present (psycopg2's SSL parameter)
-    if "sslmode" not in sync_params:
-        sync_params["sslmode"] = ["require"]
-
-    new_sync_query = urlencode(sync_params, doseq=True)
-    SYNC_URL = urlunparse(parsed_sync._replace(query=new_sync_query))
-
-# For reference, here's what the final URLs look like:
-#
-#   LOCAL DEVELOPMENT (no changes, no SSL):
-#     ASYNC_URL = "postgresql+asyncpg://postgres:admin123@localhost:5432/mlb_db"
-#     SYNC_URL  = "postgresql://postgres:admin123@localhost:5432/mlb_db"
-#
-#   PRODUCTION with Neon URL like:
-#     postgresql://user:pass@ep-cool.neon.tech/neondb?sslmode=require&channel_binding=require
-#
-#     ASYNC_URL = "postgresql+asyncpg://user:pass@ep-cool.neon.tech/neondb?ssl=require"
-#                 (sslmode → ssl, channel_binding removed — asyncpg compatible)
-#     SYNC_URL  = "postgresql://user:pass@ep-cool.neon.tech/neondb?sslmode=require&channel_binding=require"
-#                 (kept as-is — psycopg2 compatible)
+ASYNC_URL, SYNC_URL = normalize_database_url(raw_url)
 
 # Keep DATABASE_URL pointing to the async version for backward compatibility
 # (main.py and other modules import DATABASE_URL from this file).
 DATABASE_URL = ASYNC_URL
-
-# ---------------------------------------------------------------------------
-# CREATE DATABASE OBJECTS
-# ---------------------------------------------------------------------------
 
 # The async Database object — this is what we use for all queries in our endpoints.
 # It manages a connection pool internally and supports await-based queries.
@@ -193,3 +136,50 @@ metadata = MetaData()
 # Uses the SYNC_URL (postgresql:// with psycopg2 driver) because create_all()
 # is a synchronous operation that doesn't support async.
 engine = create_engine(SYNC_URL)
+
+
+# ---------------------------------------------------------------------------
+# SNAPSHOT DATABASES (Historical Seasons)
+# ---------------------------------------------------------------------------
+# Optional connections to frozen Neon branches containing historical data.
+# Each snapshot is a read-only copy-on-write branch created from main at a
+# point in time. They have their own connection strings.
+#
+# To add a new season snapshot:
+#   1. Create a Neon branch from main (freezes current data)
+#   2. Set DATABASE_URL_<YEAR> in your environment / Render dashboard
+#   3. Add it to the snapshot_databases dict below
+#
+# If the env var isn't set, that season simply won't be available.
+
+snapshot_databases = {}
+
+# 2025 season snapshot — frozen historical data from the 2025 season
+raw_url_2025 = os.environ.get("DATABASE_URL_2025")
+if raw_url_2025:
+    async_url_2025, _ = normalize_database_url(raw_url_2025)
+    snapshot_databases["2025"] = Database(async_url_2025)
+
+
+def get_db(season=None):
+    """
+    Route queries to the correct database connection based on season.
+
+    Args:
+        season: Season year as string (e.g., "2025") or None for current season.
+
+    Returns:
+        The appropriate async Database object.
+
+    Examples:
+        db = get_db()          # Current season (2026)
+        db = get_db("2025")    # 2025 historical snapshot
+        db = get_db(None)      # Same as get_db() — current season
+    """
+    if season and season in snapshot_databases:
+        return snapshot_databases[season]
+    return database
+
+
+# List of available seasons (for the frontend to know what's available)
+available_seasons = sorted(snapshot_databases.keys())

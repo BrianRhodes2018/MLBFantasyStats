@@ -546,6 +546,43 @@ h2 {
   border: 1px solid #5a2a2a;
 }
 
+/* --- Season Banner --- */
+/* Shown when viewing historical data to prevent confusion about which dataset */
+.season-banner {
+  background: linear-gradient(135deg, #2a3a5a, #1e3050);
+  color: #7eb8e0;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #3a5a8a;
+  text-align: center;
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.season-banner strong {
+  color: #a0d0ff;
+}
+
+.season-banner-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #7eb8e0;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+
+.season-banner-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #a0d0ff;
+}
+
 /* ===========================================================================
    6. PLAYER SEARCH STYLES
    =========================================================================== */
