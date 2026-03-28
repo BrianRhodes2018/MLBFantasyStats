@@ -136,7 +136,7 @@ services:
         sync: false
 
   # ---------------------------------------------------------------------------
-  # CRON JOB — Daily MLB Stats Update (2am PT / 9am UTC)
+  # CRON JOB — Daily MLB Stats Update (2am ET / 7am UTC)
   # ---------------------------------------------------------------------------
   # Runs daily_update.py on a schedule to keep stats fresh during the season.
   # The script updates batter/pitcher season stats and refreshes game logs
@@ -152,9 +152,9 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    # 9:00 UTC = 2:00 AM PDT. MLB season runs April-October (all PDT),
-    # so this timing ensures west coast games have finished.
-    schedule: "0 9 * * *"
+    # 7:00 UTC = 2:00 AM EDT. MLB season runs April-October (all EDT),
+    # so this timing ensures most games have finished.
+    schedule: "0 7 * * *"
     startCommand: python daily_update.py
     envVars:
       - key: DATABASE_URL
