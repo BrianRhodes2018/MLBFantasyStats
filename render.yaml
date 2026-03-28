@@ -136,26 +136,9 @@ services:
         sync: false
 
   # ---------------------------------------------------------------------------
-  # CRON JOB — Daily MLB Stats Update (2am ET / 7am UTC)
+  # DAILY STATS UPDATE — Now handled by GitHub Actions
   # ---------------------------------------------------------------------------
-  # Runs daily_update.py on a schedule to keep stats fresh during the season.
-  # The script updates batter/pitcher season stats and refreshes game logs
-  # (for rolling stats like "Last 15 Days"). Takes ~8-15 minutes per run.
-  #
-  # During the offseason (Nov-Feb), the script detects this and exits
-  # immediately — no wasted compute.
-  #
-  # After deploying, set DATABASE_URL in the Render dashboard for this
-  # cron service (same Neon connection string as the web service).
-  - type: cron
-    name: mlb-daily-update
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    # 6:00 UTC = 2:00 AM EDT. MLB season runs April-October (all EDT),
-    # so this timing ensures most games have finished.
-    schedule: "0 6 * * *"
-    startCommand: python daily_update.py
-    envVars:
-      - key: DATABASE_URL
-        sync: false
+  # The daily update cron job has been moved to .github/workflows/daily-update.yml
+  # because Render cron jobs require a paid plan. GitHub Actions is free for
+  # public repos and runs the same daily_update.py script on a schedule.
+  # See the workflow file for configuration details.

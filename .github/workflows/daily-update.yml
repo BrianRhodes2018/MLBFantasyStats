@@ -1,0 +1,56 @@
+# ===========================================================================
+# GitHub Actions — Daily MLB Stats Update
+# ===========================================================================
+#
+# Runs daily_update.py on a schedule to keep player/pitcher stats fresh
+# during the MLB season. This replaces a Render cron job (which requires
+# a paid plan) with GitHub Actions (free for public repos).
+#
+# How it works:
+#   1. GitHub spins up an Ubuntu runner at the scheduled time
+#   2. Checks out the repo and installs Python + dependencies
+#   3. Runs daily_update.py which connects to the Neon database
+#   4. The script updates batter/pitcher stats and refreshes game logs
+#   5. Runner shuts down — no server to maintain
+#
+# The DATABASE_URL secret must be set in GitHub repo settings:
+#   Settings → Secrets and variables → Actions → New repository secret
+#   Name: DATABASE_URL
+#   Value: your Neon main branch connection string
+#
+# ===========================================================================
+
+name: Daily MLB Stats Update
+
+on:
+  schedule:
+    # 6:00 UTC = 2:00 AM EDT (during MLB season April-October)
+    - cron: '0 6 * * *'
+
+  # Allow manual triggering from the Actions tab — useful for testing
+  # or forcing an update without waiting for the schedule.
+  workflow_dispatch:
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run daily update
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        working-directory: backend
+        run: python daily_update.py
