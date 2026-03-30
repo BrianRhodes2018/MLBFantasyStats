@@ -44,6 +44,7 @@ import StatsPanel from './components/StatsPanel'
 import LeagueSelector from './components/LeagueSelector'
 import PlayerModal from './components/PlayerModal'
 import PlayerComparison from './components/PlayerComparison'
+import MatchupsPage from './components/MatchupsPage'
 import { fuzzyNameMatch, fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
@@ -60,6 +61,15 @@ function App() {
   // ---------------------------------------------------------------------------
   // useState returns [currentValue, setterFunction].
   // When you call the setter, React re-renders this component with the new value.
+
+  // ---------------------------------------------------------------------------
+  // PAGE NAVIGATION STATE
+  // ---------------------------------------------------------------------------
+  // Controls which page is shown. Instead of a full router library (like
+  // React Router), we use a simple state variable. When currentView changes,
+  // React re-renders and shows the matching page content.
+  // Options: 'dashboard' (default stats tables) or 'matchups' (pitcher vs lineup page)
+  const [currentView, setCurrentView] = useState('dashboard')
 
   const [players, setPlayers] = useState([])         // Array of all player objects from the DB
   const [stats, setStats] = useState(null)            // League average stats (Polars)
@@ -731,6 +741,27 @@ function App() {
     <div className="app">
       <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
 
+      {/* -----------------------------------------------------------------------
+          NAVIGATION TABS
+          -----------------------------------------------------------------------
+          Simple tab bar for switching between pages. We use a state variable
+          (currentView) instead of a router library — keeps things simple.
+          The active tab gets a highlighted style via the 'active' CSS class. */}
+      <nav className="nav-tabs">
+        <button
+          className={`nav-tab${currentView === 'dashboard' ? ' active' : ''}`}
+          onClick={() => setCurrentView('dashboard')}
+        >
+          Dashboard
+        </button>
+        <button
+          className={`nav-tab${currentView === 'matchups' ? ' active' : ''}`}
+          onClick={() => setCurrentView('matchups')}
+        >
+          Today's Matchups
+        </button>
+      </nav>
+
       {/* Show a visible error banner if the backend connection failed.
           This helps with debugging — without it, a backend failure would
           just show an empty page with no indication of what went wrong. */}
@@ -739,6 +770,21 @@ function App() {
           {fetchError}
         </div>
       )}
+
+      {/* -----------------------------------------------------------------------
+          MATCHUPS PAGE
+          -----------------------------------------------------------------------
+          Shown when the "Today's Matchups" tab is active.
+          MatchupsPage is self-contained — it manages its own data fetching
+          and state internally, so we don't need to pass any props from App. */}
+      {currentView === 'matchups' && <MatchupsPage />}
+
+      {/* -----------------------------------------------------------------------
+          DASHBOARD (existing content below)
+          -----------------------------------------------------------------------
+          All the original dashboard content is wrapped in this conditional.
+          It only renders when currentView === 'dashboard'. */}
+      {currentView === 'dashboard' && <>
 
       {/* Season banner — visual indicator when viewing historical data.
           Prevents confusion about which dataset the user is looking at. */}
@@ -962,6 +1008,9 @@ function App() {
           onAddToComparison={handleAddToComparison}
         />
       )}
+
+      </>}
+      {/* End of dashboard conditional */}
 
       {/* Player Detail Modal — shown when a player/pitcher name is clicked.
           Displays headshot, ESPN news articles, and MLB transaction history. */}

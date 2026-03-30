@@ -206,6 +206,12 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward matchup routes — today's games, lineups, and vs-pitcher stats.
+      // Covers: /matchups/today, /matchups/lineup/{game_id}, /matchups/vs-pitcher
+      '/matchups': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
 })

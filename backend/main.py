@@ -2658,3 +2658,470 @@ async def get_yahoo_authorization_url(body: dict):
         message="Authorization URL generated. Open it in your browser to authorize.",
         data={"auth_url": auth_url},
     )
+
+
+# =============================================================================
+# MATCHUPS ENDPOINTS — Starting Pitchers vs Projected Lineups
+# =============================================================================
+# These endpoints power the "Today's Matchups" page, which shows each day's
+# starting pitchers alongside the lineups they'll face.
+#
+# All data comes from the free MLB Stats API (no authentication required).
+# The key API calls used:
+#   - statsapi.schedule()        → today's games + probable pitchers
+#   - statsapi.get('game', ...)  → boxscore with batting orders + season stats
+#   - statsapi.get('people', ...) → career stats (supports batch via comma-separated IDs)
+#
+# Since the statsapi library is synchronous (blocking), we wrap each call in
+# asyncio.to_thread() so it runs in a thread pool without blocking FastAPI's
+# async event loop. asyncio.gather() then runs multiple calls concurrently.
+
+
+def _extract_pitcher_stats(stats_list, group_name):
+    """
+    Helper: Extract career and season stats from the MLB Stats API 'people' response.
+
+    The MLB API returns stats as a list of objects, each with a 'type' and 'splits'.
+    For example:
+        [
+            {"type": {"displayName": "career"}, "splits": [{"stat": {...}}]},
+            {"type": {"displayName": "season"}, "splits": [{"stat": {...}}]},
+        ]
+
+    This function finds the career and season entries and returns their stat dicts.
+
+    Args:
+        stats_list: The 'stats' array from a player in the MLB API response.
+        group_name: Either "pitching" or "hitting" — determines which stat fields to expect.
+
+    Returns:
+        dict with 'career' and 'season' keys, each containing the relevant stats dict
+        (or None if that stat type wasn't found).
+    """
+    result = {"career": None, "season": None}
+    for stat_group in stats_list:
+        display_name = stat_group.get("type", {}).get("displayName", "")
+        splits = stat_group.get("splits", [])
+        if splits:
+            # The last split contains the most recent data (for season stats,
+            # there may be multiple splits if the player changed teams mid-season).
+            stat = splits[-1].get("stat", {})
+            if display_name == "career":
+                result["career"] = stat
+            elif display_name == "season":
+                result["season"] = stat
+    return result
+
+
+def _format_pitcher_stats(raw_stats):
+    """
+    Helper: Format raw MLB API pitcher stats into a clean, frontend-friendly dict.
+
+    The MLB API returns stats as strings (e.g., era="3.18") and uses verbose key
+    names. This function normalizes them into a consistent format with the fields
+    the frontend needs.
+
+    Args:
+        raw_stats: The 'stat' dict from an MLB API splits entry, or None.
+
+    Returns:
+        dict with formatted pitcher stats, or a dict of dashes if no data.
+    """
+    if not raw_stats:
+        return {
+            "wins": "-", "losses": "-", "era": "-", "whip": "-",
+            "innings_pitched": "-", "strikeouts": "-", "games": "-",
+            "saves": "-", "holds": "-",
+        }
+    return {
+        "wins": raw_stats.get("wins", 0),
+        "losses": raw_stats.get("losses", 0),
+        "era": raw_stats.get("era", "-"),
+        "whip": raw_stats.get("whip", "-"),
+        "innings_pitched": raw_stats.get("inningsPitched", "-"),
+        "strikeouts": raw_stats.get("strikeOuts", 0),
+        "games": raw_stats.get("gamesPlayed", 0),
+        "saves": raw_stats.get("saves", 0),
+        "holds": raw_stats.get("holds", 0),
+    }
+
+
+def _format_batter_stats(raw_stats):
+    """
+    Helper: Format raw MLB API batter stats into a clean, frontend-friendly dict.
+
+    Similar to _format_pitcher_stats but for hitting statistics.
+
+    Args:
+        raw_stats: The 'stat' dict from an MLB API splits entry, or None.
+
+    Returns:
+        dict with formatted batter stats, or a dict of dashes if no data.
+    """
+    if not raw_stats:
+        return {
+            "avg": "-", "home_runs": "-", "rbi": "-", "ops": "-",
+            "at_bats": "-", "hits": "-", "walks": "-", "strikeouts": "-",
+            "obp": "-", "slg": "-", "stolen_bases": "-", "games": "-",
+        }
+    return {
+        "avg": raw_stats.get("avg", "-"),
+        "home_runs": raw_stats.get("homeRuns", 0),
+        "rbi": raw_stats.get("rbi", 0),
+        "ops": raw_stats.get("ops", "-"),
+        "at_bats": raw_stats.get("atBats", 0),
+        "hits": raw_stats.get("hits", 0),
+        "walks": raw_stats.get("baseOnBalls", 0),
+        "strikeouts": raw_stats.get("strikeOuts", 0),
+        "obp": raw_stats.get("obp", "-"),
+        "slg": raw_stats.get("slg", "-"),
+        "stolen_bases": raw_stats.get("stolenBases", 0),
+        "games": raw_stats.get("gamesPlayed", 0),
+    }
+
+
+@app.get("/matchups/today", response_model=ApiResponse)
+async def get_todays_matchups():
+    """
+    Get today's MLB schedule with starting pitcher career and season stats.
+
+    This is the main endpoint for the Matchups page. It returns every game
+    scheduled for today along with each team's probable starting pitcher and
+    their career + current season pitching statistics.
+
+    The flow:
+    1. Fetch today's schedule from the MLB Stats API
+    2. Collect all probable pitcher IDs from the game data
+    3. Batch-fetch career + season stats for all pitchers in parallel
+    4. Assemble the response with games and pitcher stats
+
+    Returns:
+        ApiResponse with a list of today's games, each including home/away
+        pitcher objects with career and season stats.
+    """
+    try:
+        # Step 1: Get today's schedule.
+        # statsapi.schedule() returns a list of game dicts with keys like
+        # 'game_id', 'home_name', 'away_name', 'home_probable_pitcher', etc.
+        today_str = datetime.now().strftime("%m/%d/%Y")
+        schedule = await asyncio.to_thread(statsapi.schedule, date=today_str)
+
+        if not schedule:
+            return ApiResponse(
+                code=200,
+                message=f"No MLB games scheduled for today ({today_str})",
+                data={"date": today_str, "games": []},
+            )
+
+        # Step 2: Get probable pitcher IDs from each game's detailed data.
+        # The schedule() call gives us pitcher NAMES but not IDs.
+        # We need IDs to fetch their stats, so we pull them from the game endpoint.
+        # Each statsapi.get('game', ...) call is synchronous, so we run them
+        # all concurrently in thread pools using asyncio.gather().
+        async def fetch_game_data(game_id):
+            """Fetch detailed game data (boxscore, probable pitchers) for one game."""
+            return await asyncio.to_thread(
+                statsapi.get, 'game', {'gamePk': game_id}
+            )
+
+        # Launch all game data fetches concurrently — this is MUCH faster than
+        # fetching them one-by-one (15 games × ~0.5s each = ~7.5s serial vs ~1s parallel).
+        game_data_results = await asyncio.gather(
+            *[fetch_game_data(g['game_id']) for g in schedule],
+            return_exceptions=True  # Don't let one failed game crash the whole request
+        )
+
+        # Step 3: Collect all pitcher IDs and build game objects.
+        pitcher_ids = set()
+        games = []
+        for sched_game, game_data in zip(schedule, game_data_results):
+            # Skip games where the API call failed
+            if isinstance(game_data, Exception):
+                continue
+
+            # Extract probable pitcher info from gameData.probablePitchers
+            prob_pitchers = game_data.get("gameData", {}).get("probablePitchers", {})
+            home_pitcher_info = prob_pitchers.get("home", {})
+            away_pitcher_info = prob_pitchers.get("away", {})
+
+            home_pid = home_pitcher_info.get("id")
+            away_pid = away_pitcher_info.get("id")
+
+            if home_pid:
+                pitcher_ids.add(home_pid)
+            if away_pid:
+                pitcher_ids.add(away_pid)
+
+            # Build the game object with basic info + pitcher IDs
+            games.append({
+                "game_id": sched_game["game_id"],
+                "game_time": sched_game.get("game_datetime", ""),
+                "status": sched_game.get("status", ""),
+                "home_team": sched_game.get("home_name", ""),
+                "away_team": sched_game.get("away_name", ""),
+                "home_pitcher": {
+                    "mlb_id": home_pid,
+                    "name": home_pitcher_info.get("fullName", "TBD"),
+                },
+                "away_pitcher": {
+                    "mlb_id": away_pid,
+                    "name": away_pitcher_info.get("fullName", "TBD"),
+                },
+                "venue": sched_game.get("venue_name", ""),
+            })
+
+        # Step 4: Batch-fetch pitcher career + season stats.
+        # The MLB API supports comma-separated personIds, so we can fetch
+        # all pitchers in a single request instead of one per pitcher.
+        pitcher_stats_map = {}  # mlb_id -> {"career": {...}, "season": {...}}
+
+        if pitcher_ids:
+            ids_str = ",".join(str(pid) for pid in pitcher_ids)
+
+            def fetch_pitcher_stats():
+                """Fetch career + season pitching stats for all probable pitchers at once."""
+                return statsapi.get('people', {
+                    'personIds': ids_str,
+                    'hydrate': 'stats(group=[pitching],type=[career,season])',
+                })
+
+            pitcher_data = await asyncio.to_thread(fetch_pitcher_stats)
+
+            # Parse the response — each person has a 'stats' array with career/season entries
+            for person in pitcher_data.get("people", []):
+                pid = person.get("id")
+                stats_list = person.get("stats", [])
+                extracted = _extract_pitcher_stats(stats_list, "pitching")
+                pitcher_stats_map[pid] = {
+                    "career": _format_pitcher_stats(extracted["career"]),
+                    "season": _format_pitcher_stats(extracted["season"]),
+                }
+
+        # Step 5: Attach pitcher stats to each game object.
+        for game in games:
+            for side in ["home_pitcher", "away_pitcher"]:
+                pid = game[side]["mlb_id"]
+                if pid and pid in pitcher_stats_map:
+                    game[side]["career_stats"] = pitcher_stats_map[pid]["career"]
+                    game[side]["season_stats"] = pitcher_stats_map[pid]["season"]
+                else:
+                    # Pitcher TBD or stats not found
+                    game[side]["career_stats"] = _format_pitcher_stats(None)
+                    game[side]["season_stats"] = _format_pitcher_stats(None)
+
+        return ApiResponse(
+            code=200,
+            message=f"Found {len(games)} games for {today_str}",
+            data={"date": today_str, "games": games},
+        )
+
+    except Exception as e:
+        return ApiResponse(
+            code=500,
+            message=f"Error fetching today's matchups: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/matchups/lineup/{game_id}", response_model=ApiResponse)
+async def get_game_lineup(game_id: int):
+    """
+    Get the batting lineups for a specific game with batter career stats.
+
+    When a user expands a game card on the Matchups page, this endpoint is
+    called to fetch the announced batting lineups. MLB teams typically announce
+    their lineups 1-3 hours before game time.
+
+    The flow:
+    1. Fetch the game's boxscore data (includes battingOrder + season stats)
+    2. If lineups are announced, batch-fetch career stats for all batters
+    3. Return both lineups with each batter's position, season stats, and career stats
+
+    Args:
+        game_id: The MLB gamePk identifier (from the /matchups/today response).
+
+    Returns:
+        ApiResponse with home_lineup and away_lineup arrays, plus
+        home_lineup_announced / away_lineup_announced booleans.
+    """
+    try:
+        # Step 1: Fetch game data which includes the boxscore.
+        # The boxscore contains battingOrder (list of player IDs in batting order)
+        # and players dict with each player's seasonStats.
+        game_data = await asyncio.to_thread(
+            statsapi.get, 'game', {'gamePk': game_id}
+        )
+
+        boxscore = game_data.get("liveData", {}).get("boxscore", {})
+        teams = boxscore.get("teams", {})
+
+        # Also grab pitcher IDs so the frontend knows who's pitching
+        prob_pitchers = game_data.get("gameData", {}).get("probablePitchers", {})
+        home_pitcher_id = prob_pitchers.get("home", {}).get("id")
+        away_pitcher_id = prob_pitchers.get("away", {}).get("id")
+
+        # Step 2: Extract batting orders for both teams.
+        # battingOrder is an array of 9 MLB player IDs in lineup order.
+        # It's empty ([]) if the lineup hasn't been announced yet.
+        result = {
+            "game_id": game_id,
+            "home_pitcher_id": home_pitcher_id,
+            "away_pitcher_id": away_pitcher_id,
+        }
+
+        all_batter_ids = []
+
+        for side in ["home", "away"]:
+            team_data = teams.get(side, {})
+            batting_order = team_data.get("battingOrder", [])
+            result[f"{side}_lineup_announced"] = len(batting_order) > 0
+
+            if batting_order:
+                all_batter_ids.extend(batting_order)
+
+        # Step 3: Batch-fetch career stats for all batters across both lineups.
+        # We use comma-separated IDs to get everyone in one API call.
+        career_stats_map = {}
+
+        if all_batter_ids:
+            ids_str = ",".join(str(bid) for bid in all_batter_ids)
+
+            def fetch_batter_careers():
+                """Fetch career hitting stats for all batters in both lineups."""
+                return statsapi.get('people', {
+                    'personIds': ids_str,
+                    'hydrate': 'stats(group=[hitting],type=[career])',
+                })
+
+            career_data = await asyncio.to_thread(fetch_batter_careers)
+
+            for person in career_data.get("people", []):
+                pid = person.get("id")
+                stats_list = person.get("stats", [])
+                extracted = _extract_pitcher_stats(stats_list, "hitting")
+                career_stats_map[pid] = _format_batter_stats(extracted.get("career"))
+
+        # Step 4: Build lineup arrays with season stats (from boxscore) + career stats.
+        for side in ["home", "away"]:
+            team_data = teams.get(side, {})
+            batting_order = team_data.get("battingOrder", [])
+            players_dict = team_data.get("players", {})
+            lineup = []
+
+            for order_num, pid in enumerate(batting_order, start=1):
+                # Player data is keyed as "ID{player_id}" in the boxscore
+                player = players_dict.get(f"ID{pid}", {})
+                person = player.get("person", {})
+                position = player.get("position", {})
+
+                # Season stats come free from the boxscore — no extra API call needed
+                season_batting = player.get("seasonStats", {}).get("batting", {})
+
+                lineup.append({
+                    "mlb_id": pid,
+                    "name": person.get("fullName", "Unknown"),
+                    "position": position.get("abbreviation", "?"),
+                    "batting_order": order_num,
+                    "season_stats": _format_batter_stats(season_batting),
+                    "career_stats": career_stats_map.get(pid, _format_batter_stats(None)),
+                })
+
+            result[f"{side}_lineup"] = lineup
+
+        return ApiResponse(
+            code=200,
+            message=f"Lineup data for game {game_id}",
+            data=result,
+        )
+
+    except Exception as e:
+        return ApiResponse(
+            code=500,
+            message=f"Error fetching lineup for game {game_id}: {str(e)}",
+            data=None,
+        )
+
+
+@app.get("/matchups/vs-pitcher", response_model=ApiResponse)
+async def get_vs_pitcher_stats(
+    batter_ids: str = Query(..., description="Comma-separated MLB batter IDs"),
+    pitcher_id: int = Query(..., description="MLB pitcher ID to compare against"),
+):
+    """
+    Get career batter-vs-pitcher matchup stats for multiple batters.
+
+    This powers the "vs Pitcher" toggle on the Matchups page. When enabled,
+    it shows how each batter in a lineup has historically performed against
+    the opposing starting pitcher.
+
+    The MLB API provides vsPlayer splits — career stats for a specific
+    batter against a specific pitcher. Many matchups (especially between
+    players in different leagues) will have no data, in which case
+    has_data=False is returned for that batter.
+
+    NOTE: Each batter requires a separate API call because the vsPlayer
+    hydration only works for one opposing player at a time. We run all
+    calls concurrently with asyncio.gather() to keep it fast.
+
+    Args:
+        batter_ids: Comma-separated string of MLB player IDs (e.g., "592450,660271,665742")
+        pitcher_id: The MLB ID of the pitcher to check matchups against
+
+    Returns:
+        ApiResponse with an array of {mlb_id, stats, has_data} for each batter.
+    """
+    try:
+        # Parse the comma-separated batter IDs
+        batter_id_list = [int(bid.strip()) for bid in batter_ids.split(",") if bid.strip()]
+
+        async def fetch_one_matchup(batter_id):
+            """
+            Fetch career hitting stats for one batter vs the specified pitcher.
+
+            The vsPlayer hydration returns splits broken down by season.
+            vsPlayerTotal gives the combined career totals (which is what we want).
+            """
+            try:
+                data = await asyncio.to_thread(
+                    statsapi.get, 'people', {
+                        'personIds': batter_id,
+                        'hydrate': f'stats(group=[hitting],type=[vsPlayerTotal],opposingPlayerId={pitcher_id})',
+                    }
+                )
+                stats_list = data.get("people", [{}])[0].get("stats", [])
+
+                # Look for the vsPlayerTotal entry
+                for stat_group in stats_list:
+                    display_name = stat_group.get("type", {}).get("displayName", "")
+                    if "vsPlayerTotal" in display_name or "vsPlayer" in display_name:
+                        splits = stat_group.get("splits", [])
+                        if splits:
+                            raw = splits[0].get("stat", {})
+                            return {
+                                "mlb_id": batter_id,
+                                "has_data": True,
+                                "stats": _format_batter_stats(raw),
+                            }
+
+                return {"mlb_id": batter_id, "has_data": False, "stats": None}
+
+            except Exception:
+                return {"mlb_id": batter_id, "has_data": False, "stats": None}
+
+        # Run all batter lookups concurrently — much faster than sequential
+        results = await asyncio.gather(
+            *[fetch_one_matchup(bid) for bid in batter_id_list]
+        )
+
+        return ApiResponse(
+            code=200,
+            message=f"Matchup stats for {len(batter_id_list)} batters vs pitcher {pitcher_id}",
+            data={"matchups": list(results)},
+        )
+
+    except Exception as e:
+        return ApiResponse(
+            code=500,
+            message=f"Error fetching vs-pitcher stats: {str(e)}",
+            data=None,
+        )
