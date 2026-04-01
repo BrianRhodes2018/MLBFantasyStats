@@ -8,12 +8,12 @@
  * Key concept here: the PROXY configuration.
  *
  * Problem: Our React app runs on http://localhost:5173 (Vite's default port),
- * but our FastAPI backend runs on http://localhost:8000. When the React app
+ * but our FastAPI backend runs on http://localhost:8001. When the React app
  * makes a fetch("/players/") call, the browser sends it to localhost:5173
  * (the current origin), which doesn't have that endpoint.
  *
  * Solution: The proxy tells Vite's dev server to intercept any request
- * that starts with "/players" and forward it to http://localhost:8000.
+ * that starts with "/players" and forward it to http://localhost:8001.
  * The React code can use simple relative URLs like fetch("/players/")
  * without knowing about the backend's actual address.
  *
@@ -198,6 +198,12 @@ export default defineConfig({
       // Forward player detail routes — ESPN news proxy + MLB transactions.
       // Covers: /player-detail/news, /player-detail/transactions/{mlb_id}
       '/player-detail': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
+      // Forward matchup routes — today's pitching matchups with live MLB data.
+      // Covers: /matchups/today
+      '/matchups': {
         target: 'http://localhost:8001',
         changeOrigin: true,
       },

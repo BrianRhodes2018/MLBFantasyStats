@@ -465,7 +465,7 @@ function PlayerTable({ players, computed, fantasyPoints, onPlayerUpdated, isRoll
    * 5. On error: show error message but KEEP edit mode open so user can fix.
    *
    * The PUT request goes through Vite's proxy (defined in vite.config.js):
-   *   fetch('/players/3') → Vite forwards to → http://localhost:8000/players/3
+   *   fetch('/players/3') → Vite forwards to → http://localhost:8001/players/3
    *
    * @param {Object} player - The original player object (used for player.id)
    */

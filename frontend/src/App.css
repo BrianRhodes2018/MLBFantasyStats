@@ -2355,114 +2355,140 @@ h2 {
 
 
 /* ===========================================================================
-   11. NAVIGATION TABS
-   ===========================================================================
-   Simple tab bar for switching between Dashboard and Matchups pages.
-   Sits below the page title and above the content area.
-   Uses the same color palette as the rest of the app. */
-
-.nav-tabs {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin-bottom: 24px;
-  /* A subtle bottom border gives the tab bar visual weight */
-  border-bottom: 2px solid #1e3050;
-  padding-bottom: 0;
-}
-
-.nav-tab {
-  background: transparent;
-  color: #8899aa;
-  border: none;
-  padding: 10px 24px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  /* The bottom border on individual tabs creates the "active tab" indicator.
-     We use a transparent border on inactive tabs so the layout doesn't shift
-     when switching between tabs. */
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;  /* Overlap with the nav-tabs border */
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.nav-tab:hover {
-  color: #c4ced4;
-}
-
-.nav-tab.active {
-  color: #ffffff;
-  border-bottom-color: #4a90d9;  /* Yankees blue accent for the active tab */
-}
-
-
-/* ===========================================================================
    12. MATCHUPS PAGE STYLES
    ===========================================================================
-   Styles for the "Today's Matchups" page — game cards, pitcher panels,
-   lineup tables, and all related sub-components. */
+   Styles for the "Today's Pitching Matchups" page. Uses CSS Grid for the
+   card layout, which automatically adjusts the number of columns based on
+   available space (no media queries needed for the grid itself).
 
+   The color palette matches the rest of the app (Navy/Dark/Card/Accent).
+   =========================================================================== */
+
+/* --- Page container --- */
 .matchups-page {
-  max-width: 1200px;
+  max-width: 1540px;
   margin: 0 auto;
 }
 
-/* --- Page Header --- */
+/* --- Header bar with back button and title --- */
 .matchups-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.matchups-back-btn {
+  background: #1e3050;
+  color: #4a90d9;
+  border: 2px solid #4a90d9;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.matchups-back-btn:hover {
+  background: #4a90d9;
+  color: #0f1a2e;
 }
 
 .matchups-title {
-  font-size: 1.3rem;
-  color: #e8ecf0;
   margin: 0;
-}
-
-.matchups-refresh-btn {
-  background: #4a90d9;
-  color: #fff;
+  padding: 0;
   border: none;
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
+  font-size: 1.5rem;
 }
 
-.matchups-refresh-btn:hover {
-  background: #5a9ee6;
+.matchups-count {
+  font-weight: 400;
+  color: #c4ced4;
+  font-size: 1rem;
+  margin-left: 8px;
 }
 
-.matchups-refresh-btn:disabled {
-  background: #2a5080;
-  cursor: not-allowed;
-}
-
-/* --- Loading / Empty States --- */
+/* --- Loading & empty states --- */
 .matchups-loading,
-.matchups-no-games {
+.matchups-empty {
   text-align: center;
-  color: #8899aa;
-  padding: 48px 20px;
+  color: #c4ced4;
   font-size: 1.1rem;
+  padding: 40px 0;
 }
 
-/* --- Game Cards Grid --- */
-.matchups-grid {
+/* --- Nav link in the main header --- */
+.matchups-nav-link {
+  color: #4a90d9;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.matchups-nav-link:hover {
+  border-color: #4a90d9;
+  background: rgba(74, 144, 217, 0.1);
+}
+
+/* --- Stat period toggle bar --- */
+.matchups-period-bar {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  background: #1e3050;
+  padding: 10px 20px;
+  border-radius: 10px;
 }
 
-/* --- Individual Game Card --- */
-.game-card {
+.matchups-period-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #c4ced4;
+  margin-right: 4px;
+}
+
+.matchups-period-btn {
+  background: #162236;
+  color: #c4ced4;
+  border: 2px solid #2a3f5f;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.matchups-period-btn:hover {
+  border-color: #4a90d9;
+  color: #e8ecf0;
+}
+
+.matchups-period-btn.active {
+  background: #4a90d9;
+  color: #0f1a2e;
+  border-color: #4a90d9;
+}
+
+/* --- Card grid layout ---
+   CSS Grid with auto-fill creates a responsive grid WITHOUT media queries.
+   Each card is at least 480px wide; if the screen is wider, Grid adds more columns.
+   This is more maintainable than writing breakpoints for each screen size. */
+.matchups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  gap: 20px;
+}
+
+/* --- Individual matchup card --- */
+.matchup-card {
   background: #1e3050;
   border-radius: 12px;
   overflow: hidden;
@@ -2470,378 +2496,219 @@ h2 {
   transition: box-shadow 0.2s;
 }
 
-.game-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+.matchup-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
-.game-card.expanded {
-  box-shadow: 0 4px 20px rgba(74, 144, 217, 0.15);
-}
-
-/* --- Game Card Header (clickable to expand/collapse) --- */
-.game-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 20px;
-  cursor: pointer;
-  background: #243b5c;
-  transition: background 0.2s;
-}
-
-.game-card-header:hover {
-  background: #2a4368;
-}
-
-.game-teams {
+/* --- Card header: game time & venue --- */
+.matchup-card-header {
+  background: #162236;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 1.05rem;
-  font-weight: 600;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-bottom: 2px solid #4a90d9;
 }
 
-.team-name {
+.matchup-time {
+  font-weight: 700;
   color: #e8ecf0;
-}
-
-.game-at {
-  color: #6688aa;
-  font-weight: 400;
   font-size: 0.9rem;
 }
 
-.game-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #8899aa;
-  font-size: 0.85rem;
-}
-
-.game-time {
+.matchup-venue {
   color: #c4ced4;
-  font-weight: 500;
-}
-
-.game-status {
-  color: #6688aa;
-}
-
-/* Expand/collapse arrow — rotates when the card is expanded.
-   CSS transform + transition creates a smooth rotation animation. */
-.expand-arrow {
-  color: #4a90d9;
-  font-size: 0.7rem;
-  transition: transform 0.3s;
-  display: inline-block;
-}
-
-.expand-arrow.expanded {
-  transform: rotate(180deg);
-}
-
-/* --- Pitcher Panels (side-by-side) --- */
-.pitcher-panels {
-  display: flex;
-  align-items: stretch;
-  padding: 16px 20px;
-  gap: 12px;
-  border-top: 1px solid #2a4060;
-}
-
-.pitcher-panel {
-  flex: 1;
-  padding: 12px;
-  background: #162540;
-  border-radius: 8px;
-}
-
-.pitcher-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: #6688aa;
-  margin-bottom: 8px;
-}
-
-.pitcher-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.pitcher-headshot {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  object-fit: cover;
-  background: #1e3050;
-}
-
-.pitcher-name {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: #e8ecf0;
-}
-
-.pitcher-tbd {
-  color: #6688aa;
   font-size: 0.85rem;
+}
+
+.matchup-description {
+  color: #4a90d9;
+  font-size: 0.8rem;
   font-style: italic;
-  padding: 8px 0;
 }
 
-/* The "VS" divider between pitcher panels */
-.pitcher-vs {
+/* --- Pitcher VS section --- */
+.matchup-pitchers {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #4a90d9;
-  font-weight: 700;
-  font-size: 0.85rem;
-  min-width: 32px;
-}
-
-/* --- Pitcher Stat Rows --- */
-.pitcher-stats-section {
-  margin-top: 8px;
-}
-
-.pitcher-stats-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #4a90d9;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-
-.pitcher-stat-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-}
-
-.stat-item {
-  font-size: 0.85rem;
-  color: #c4ced4;
-}
-
-.stat-key {
-  color: #6688aa;
-  font-size: 0.75rem;
-  margin-right: 3px;
-}
-
-/* --- Expanded Game Lineups Section --- */
-.game-lineups {
-  padding: 8px 20px 20px;
-  border-top: 1px solid #2a4060;
-}
-
-.lineup-loading {
-  text-align: center;
-  color: #6688aa;
-  padding: 24px;
-  font-size: 0.95rem;
-}
-
-/* --- Lineup Section (one per team per game) --- */
-.lineup-section {
-  margin-top: 16px;
-}
-
-.lineup-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
+  padding: 16px;
   gap: 8px;
 }
 
-.lineup-title {
-  font-size: 0.95rem;
-  color: #e8ecf0;
-  margin: 0;
-  font-weight: 600;
-}
-
-/* "vs Pitcher" toggle button */
-.vs-pitcher-toggle {
-  background: transparent;
-  color: #4a90d9;
-  border: 1px solid #4a90d9;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-
-.vs-pitcher-toggle:hover {
-  background: rgba(74, 144, 217, 0.1);
-}
-
-.vs-pitcher-toggle.active {
-  background: #4a90d9;
-  color: #fff;
-}
-
-.vs-pitcher-toggle:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Lineup TBD message */
-.lineup-tbd {
-  color: #6688aa;
-  font-size: 0.9rem;
-  font-style: italic;
-  padding: 16px;
+.matchup-pitcher-card {
+  flex: 1;
   text-align: center;
-  background: #162540;
-  border-radius: 6px;
 }
 
-/* --- Lineup Table --- */
-.lineup-table-wrapper {
-  overflow-x: auto;  /* Horizontal scroll on small screens */
-  -webkit-overflow-scrolling: touch;
+.matchup-pitcher-card.away {
+  text-align: right;
 }
 
-.lineup-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
+.matchup-pitcher-card.home {
+  text-align: left;
 }
 
-.lineup-table thead th {
-  background: #162540;
-  color: #6688aa;
-  font-size: 0.75rem;
+.matchup-team-name {
+  font-size: 0.8rem;
+  color: #c4ced4;
+  font-weight: 600;
+  margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 8px 10px;
-  text-align: left;
-  font-weight: 600;
-  border-bottom: 2px solid #2a4060;
-  /* Sticky header — stays visible when scrolling the table */
-  position: sticky;
-  top: 0;
-  z-index: 1;
 }
 
-.lineup-table tbody tr {
-  border-bottom: 1px solid #1e3050;
-  transition: background 0.15s;
-}
-
-.lineup-table tbody tr:hover {
-  background: rgba(74, 144, 217, 0.08);
-}
-
-.lineup-table td {
-  padding: 8px 10px;
-  color: #c4ced4;
-}
-
-/* Batting order number — subtle styling */
-.lineup-order {
-  color: #6688aa;
-  font-weight: 600;
-  width: 24px;
-}
-
-.lineup-name {
+.matchup-pitcher-name {
+  font-size: 1.1rem;
+  font-weight: 700;
   color: #e8ecf0;
-  font-weight: 500;
-  white-space: nowrap;
+  margin-bottom: 4px;
 }
 
-.lineup-pos {
+.matchup-pitcher-name.clickable {
   color: #4a90d9;
-  font-weight: 600;
-  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color 0.2s;
 }
 
-/* vs Pitcher column divider — visual separator between career and vs-pitcher stats */
-.vs-divider {
-  border-left: 2px solid #4a90d9 !important;
-  padding-left: 12px !important;
+.matchup-pitcher-name.clickable:hover {
+  color: #6ba3e0;
+  text-decoration: underline;
 }
 
-.vs-no-data {
-  color: #556677;
+.matchup-pitcher-name.tbd {
+  color: #5a6a7a;
   font-style: italic;
-  font-size: 0.8rem;
-  text-align: center;
 }
 
+.matchup-pitcher-meta {
+  font-size: 0.8rem;
+  color: #8a9ab0;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
 
-/* ===========================================================================
-   13. MATCHUPS PAGE — RESPONSIVE BREAKPOINTS
-   =========================================================================== */
+.matchup-pitcher-card.away .matchup-pitcher-meta {
+  justify-content: flex-end;
+}
 
-@media (max-width: 768px) {
-  /* Stack pitcher panels vertically on mobile */
-  .pitcher-panels {
+.matchup-pitcher-card.home .matchup-pitcher-meta {
+  justify-content: flex-start;
+}
+
+/* --- VS divider between pitchers --- */
+.matchup-vs {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #4a90d9;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+/* --- Stats comparison table --- */
+.matchup-stats-table {
+  padding: 0 16px 16px;
+}
+
+.matchup-stats-header-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #2a3f5f;
+  margin-bottom: 2px;
+}
+
+.matchup-stat-away-header,
+.matchup-stat-home-header {
+  flex: 1;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4a90d9;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.matchup-stat-away-header {
+  text-align: right;
+  padding-right: 12px;
+}
+
+.matchup-stat-home-header {
+  text-align: left;
+  padding-left: 12px;
+}
+
+.matchup-stat-name-header {
+  width: 50px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #c4ced4;
+  text-transform: uppercase;
+}
+
+.matchup-stat-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(42, 63, 95, 0.4);
+}
+
+.matchup-stat-row:last-child {
+  border-bottom: none;
+}
+
+.matchup-stat-away,
+.matchup-stat-home {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #c4ced4;
+  font-variant-numeric: tabular-nums;  /* Aligns digits in columns for readability */
+}
+
+.matchup-stat-away {
+  text-align: right;
+  padding-right: 12px;
+}
+
+.matchup-stat-home {
+  text-align: left;
+  padding-left: 12px;
+}
+
+/* Highlight the "better" stat value — makes it easy to visually scan
+   which pitcher has the edge in each category */
+.stat-better {
+  color: #5cb85c;
+  font-weight: 700;
+}
+
+.matchup-stat-name {
+  width: 50px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #8a9ab0;
+}
+
+/* --- Responsive: single column on narrow screens --- */
+@media (max-width: 540px) {
+  .matchups-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .matchup-pitchers {
     flex-direction: column;
-    padding: 12px;
   }
 
-  .pitcher-vs {
-    padding: 4px 0;
-    min-width: auto;
-  }
-
-  /* Game card header stacks on very small screens */
-  .game-card-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 12px 16px;
-  }
-
-  .game-info {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  /* Lineup table font sizes */
-  .lineup-table {
-    font-size: 0.78rem;
-  }
-
-  .lineup-table thead th {
-    padding: 6px 6px;
-    font-size: 0.68rem;
-  }
-
-  .lineup-table td {
-    padding: 6px 6px;
-  }
-
-  /* Nav tabs take full width on mobile */
-  .nav-tabs {
-    gap: 0;
-  }
-
-  .nav-tab {
-    flex: 1;
+  .matchup-pitcher-card.away,
+  .matchup-pitcher-card.home {
     text-align: center;
-    padding: 10px 12px;
-    font-size: 0.9rem;
   }
 
-  .matchups-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .matchups-refresh-btn {
-    width: 100%;
+  .matchup-pitcher-card.away .matchup-pitcher-meta,
+  .matchup-pitcher-card.home .matchup-pitcher-meta {
+    justify-content: center;
   }
 }

@@ -62,15 +62,6 @@ function App() {
   // useState returns [currentValue, setterFunction].
   // When you call the setter, React re-renders this component with the new value.
 
-  // ---------------------------------------------------------------------------
-  // PAGE NAVIGATION STATE
-  // ---------------------------------------------------------------------------
-  // Controls which page is shown. Instead of a full router library (like
-  // React Router), we use a simple state variable. When currentView changes,
-  // React re-renders and shows the matching page content.
-  // Options: 'dashboard' (default stats tables) or 'matchups' (pitcher vs lineup page)
-  const [currentView, setCurrentView] = useState('dashboard')
-
   const [players, setPlayers] = useState([])         // Array of all player objects from the DB
   const [stats, setStats] = useState(null)            // League average stats (Polars)
   const [computed, setComputed] = useState([])         // Per-player computed stats (Polars)
@@ -154,6 +145,18 @@ function App() {
   const [comparisonType, setComparisonType] = useState(null)   // 'batter' | 'pitcher' | null
   const [comparisonOpen, setComparisonOpen] = useState(false)
 
+  // ---------------------------------------------------------------------------
+  // PAGE VIEW STATE
+  // ---------------------------------------------------------------------------
+  // Controls which "page" is currently visible. Since this app doesn't use
+  // react-router (a third-party routing library), we manage page navigation
+  // with a simple state variable. When currentView changes, React re-renders
+  // and shows the appropriate page component.
+  //
+  // 'dashboard' = the main stats tables (default)
+  // 'matchups'  = today's pitching matchups page
+  const [currentView, setCurrentView] = useState('dashboard')
+
   // Derived set for O(1) lookups when rendering Compare buttons in table rows
   const comparisonIds = new Set(comparisonPlayers.map(p => p.id ?? p.player_id))
 
@@ -169,7 +172,7 @@ function App() {
    * and logs the error to the console for debugging.
    *
    * Prepends API_BASE to the URL so this works in both environments:
-   * - Dev: API_BASE="" → fetch("/players/") → Vite proxy → localhost:8000
+   * - Dev: API_BASE="" → fetch("/players/") → Vite proxy → localhost:8001
    * - Prod: API_BASE="https://..." → fetch("https://.../players/")
    *
    * @param {string} url - The endpoint path (e.g., "/players/")
@@ -210,7 +213,7 @@ function App() {
    * search panel will still work.
    *
    * The fetch() calls use relative URLs (e.g., "/players/") which work because
-   * the Vite proxy forwards them to http://localhost:8000. See vite.config.js.
+   * the Vite proxy forwards them to http://localhost:8001. See vite.config.js.
    */
   const fetchData = async () => {
     try {
@@ -611,6 +614,41 @@ function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // MATCHUPS PAGE VIEW
+  // ---------------------------------------------------------------------------
+  // When currentView is 'matchups', render the MatchupsPage instead of the
+  // main dashboard. This is a simple form of "routing" without react-router:
+  // instead of URL-based navigation, we use state to swap which component tree
+  // is rendered. The trade-off is simpler code but no browser back/forward
+  // support (which would require react-router or the History API).
+  if (currentView === 'matchups') {
+    return (
+      <div className="app">
+        <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+        <MatchupsPage
+          onBack={() => setCurrentView('dashboard')}
+          onPitcherClick={(pitcher) => {
+            // Open the same PlayerModal used on the main page.
+            // The pitcher object from the matchups page has { name, mlb_id, team }
+            // which is enough for the modal to fetch full details from ESPN/MLB.
+            setModalPlayer(pitcher)
+            setModalPlayerType('pitcher')
+          }}
+        />
+        {/* Reuse the same modal component so clicking a pitcher name
+            on the matchups page opens the same detail view as the main page. */}
+        {modalPlayer && (
+          <PlayerModal
+            player={modalPlayer}
+            playerType={modalPlayerType}
+            onClose={handleModalClose}
+          />
+        )}
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // POSITION FILTERING
   // ---------------------------------------------------------------------------
   // Position filter groups for the dropdown
@@ -741,26 +779,18 @@ function App() {
     <div className="app">
       <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
 
-      {/* -----------------------------------------------------------------------
-          NAVIGATION TABS
-          -----------------------------------------------------------------------
-          Simple tab bar for switching between pages. We use a state variable
-          (currentView) instead of a router library — keeps things simple.
-          The active tab gets a highlighted style via the 'active' CSS class. */}
-      <nav className="nav-tabs">
-        <button
-          className={`nav-tab${currentView === 'dashboard' ? ' active' : ''}`}
-          onClick={() => setCurrentView('dashboard')}
-        >
-          Dashboard
-        </button>
-        <button
-          className={`nav-tab${currentView === 'matchups' ? ' active' : ''}`}
+      {/* Navigation link to the Matchups page.
+          This sits just below the main title as a simple text link.
+          Clicking it sets currentView='matchups', which triggers a re-render
+          that swaps the entire dashboard for the MatchupsPage component. */}
+      <div style={{ textAlign: 'center', marginTop: '-20px', marginBottom: '20px' }}>
+        <span
+          className="matchups-nav-link"
           onClick={() => setCurrentView('matchups')}
         >
-          Today's Matchups
-        </button>
-      </nav>
+          Today's Pitching Matchups &rarr;
+        </span>
+      </div>
 
       {/* Show a visible error banner if the backend connection failed.
           This helps with debugging — without it, a backend failure would
@@ -770,21 +800,6 @@ function App() {
           {fetchError}
         </div>
       )}
-
-      {/* -----------------------------------------------------------------------
-          MATCHUPS PAGE
-          -----------------------------------------------------------------------
-          Shown when the "Today's Matchups" tab is active.
-          MatchupsPage is self-contained — it manages its own data fetching
-          and state internally, so we don't need to pass any props from App. */}
-      {currentView === 'matchups' && <MatchupsPage />}
-
-      {/* -----------------------------------------------------------------------
-          DASHBOARD (existing content below)
-          -----------------------------------------------------------------------
-          All the original dashboard content is wrapped in this conditional.
-          It only renders when currentView === 'dashboard'. */}
-      {currentView === 'dashboard' && <>
 
       {/* Season banner — visual indicator when viewing historical data.
           Prevents confusion about which dataset the user is looking at. */}
@@ -1008,9 +1023,6 @@ function App() {
           onAddToComparison={handleAddToComparison}
         />
       )}
-
-      </>}
-      {/* End of dashboard conditional */}
 
       {/* Player Detail Modal — shown when a player/pitcher name is clicked.
           Displays headshot, ESPN news articles, and MLB transaction history. */}

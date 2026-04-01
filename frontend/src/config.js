@@ -16,7 +16,7 @@
  *   - No VITE_API_URL is set, so API_BASE defaults to "" (empty string)
  *   - This means fetch("/players/") stays as a relative URL
  *   - The Vite proxy (configured in vite.config.js) intercepts it and
- *     forwards to http://localhost:8000
+ *     forwards to http://localhost:8001
  *
  * PRODUCTION (Vercel):
  *   - Set VITE_API_URL in Vercel's Environment Variables settings
