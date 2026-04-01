@@ -3346,6 +3346,92 @@ async def get_game_lineup(game_id: int):
         )
 
 
+@app.get("/matchups/lineup-stats/{game_id}", response_model=ApiResponse)
+async def get_lineup_range_stats(
+    game_id: int,
+    range: str = Query(
+        "season",
+        description="Stat range: 'season', '5day', '10day', or '15day'",
+    ),
+):
+    """
+    Get batter stats for a specific game's lineup filtered by a date range.
+
+    Supports full season stats (default) or rolling windows of 5, 10, or 15 days.
+    The rolling windows use the MLB Stats API's byDateRange stat type.
+    """
+    try:
+        game_data = await asyncio.to_thread(
+            statsapi.get, 'game', {'gamePk': game_id}
+        )
+
+        boxscore = game_data.get("liveData", {}).get("boxscore", {})
+        teams = boxscore.get("teams", {})
+
+        all_batter_ids = []
+        for side in ["home", "away"]:
+            batting_order = teams.get(side, {}).get("battingOrder", [])
+            all_batter_ids.extend(batting_order)
+
+        if not all_batter_ids:
+            return ApiResponse(
+                code=200,
+                message="No lineup data available",
+                data={"stats": {}},
+            )
+
+        ids_str = ",".join(str(bid) for bid in all_batter_ids)
+
+        if range == "season":
+            hydrate = "stats(group=[hitting],type=[season])"
+            stat_display_name = "season"
+        else:
+            days = int(range.replace("day", ""))
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+            start_str = start_date.strftime("%m/%d/%Y")
+            end_str = end_date.strftime("%m/%d/%Y")
+            hydrate = (
+                f"stats(group=[hitting],type=[byDateRange],"
+                f"startDate={start_str},endDate={end_str})"
+            )
+            stat_display_name = "byDateRange"
+
+        def fetch_range_stats():
+            return statsapi.get('people', {
+                'personIds': ids_str,
+                'hydrate': hydrate,
+            })
+
+        stats_data = await asyncio.to_thread(fetch_range_stats)
+
+        stats_map = {}
+        for person in stats_data.get("people", []):
+            pid = person.get("id")
+            raw_stat = None
+            for stat_group in person.get("stats", []):
+                display_name = stat_group.get("type", {}).get("displayName", "")
+                if display_name == stat_display_name:
+                    splits = stat_group.get("splits", [])
+                    if splits:
+                        raw_stat = splits[-1].get("stat", {})
+                    break
+            stats_map[pid] = _format_batter_stats(raw_stat)
+
+        return ApiResponse(
+            code=200,
+            message=f"Lineup stats for game {game_id} ({range})",
+            data={"stats": stats_map, "range": range},
+        )
+
+    except Exception as e:
+        return ApiResponse(
+            code=500,
+            message=f"Error fetching lineup stats for game {game_id}: {str(e)}",
+            data=None,
+        )
+
+
 @app.get("/matchups/vs-pitcher", response_model=ApiResponse)
 async def get_vs_pitcher_stats(
     batter_ids: str = Query(..., description="Comma-separated MLB batter IDs"),

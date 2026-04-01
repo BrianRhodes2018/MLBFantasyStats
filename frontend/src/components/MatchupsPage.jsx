@@ -94,6 +94,15 @@ export default function MatchupsPage() {
   const [loadingLineups, setLoadingLineups] = useState(new Set()) // Per-game lineup loading
   const [loadingVs, setLoadingVs] = useState(new Set())           // Per-game vs-pitcher loading
 
+  // rangeStats: Object mapping "gameId-range" → { batter_mlb_id → stats }.
+  const [rangeStats, setRangeStats] = useState({})
+
+  // selectedRange: Object mapping gameId → selected range string ('season', '5day', '10day', '15day').
+  const [selectedRange, setSelectedRange] = useState({})
+
+  // loadingRange: Set of gameIds currently fetching range stats.
+  const [loadingRange, setLoadingRange] = useState(new Set())
+
   const [error, setError] = useState(null)
 
   // ---------------------------------------------------------------------------
@@ -210,6 +219,35 @@ export default function MatchupsPage() {
     }
   }, [lineups])
 
+  /**
+   * Fetch batter stats for a specific date range (5day, 10day, 15day).
+   * Season stats are already available from the lineup endpoint, so this
+   * is only called for rolling window ranges.
+   */
+  const fetchRangeStats = useCallback(async (gameId, range) => {
+    const cacheKey = `${gameId}-${range}`
+    if (rangeStats[cacheKey]) return
+
+    setLoadingRange(prev => new Set([...prev, gameId]))
+
+    try {
+      const res = await fetch(`${API_BASE}/matchups/lineup-stats/${gameId}?range=${range}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = await res.json()
+      if (json.code === 200 && json.data) {
+        setRangeStats(prev => ({ ...prev, [cacheKey]: json.data.stats }))
+      }
+    } catch (err) {
+      console.error(`Failed to fetch ${range} stats for game ${gameId}:`, err)
+    } finally {
+      setLoadingRange(prev => {
+        const next = new Set(prev)
+        next.delete(gameId)
+        return next
+      })
+    }
+  }, [rangeStats])
+
   // ---------------------------------------------------------------------------
   // EFFECTS
   // ---------------------------------------------------------------------------
@@ -257,6 +295,9 @@ export default function MatchupsPage() {
     setLineups({})
     setVsPitcherData({})
     setVsPitcherVisible(new Set())
+    setRangeStats({})
+    setSelectedRange({})
+    setLoadingRange(new Set())
     await fetchGames()
 
     // Re-fetch lineups for any games that are currently expanded
@@ -286,6 +327,16 @@ export default function MatchupsPage() {
       }
       return next
     })
+  }
+
+  /**
+   * Handle selecting a stat range for a game's lineup table.
+   */
+  const handleSelectRange = (gameId, range) => {
+    setSelectedRange(prev => ({ ...prev, [gameId]: range }))
+    if (range !== 'season') {
+      fetchRangeStats(gameId, range)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -357,7 +408,8 @@ export default function MatchupsPage() {
 
   /**
    * Render a lineup table for one side of a game (home or away).
-   * Shows each batter in order with their career stats.
+   * Shows each batter in order with current season stats (default).
+   * Includes toggle buttons for 5-day, 10-day, and 15-day rolling windows.
    * Optionally shows "vs Pitcher" stats when that toggle is active.
    */
   const renderLineupTable = (gameId, side, teamName, lineupData) => {
@@ -368,11 +420,39 @@ export default function MatchupsPage() {
     const vsData = vsPitcherData[vsKey] || {}
     const vsLoading = loadingVs.has(vsKey)
 
+    // Current range selection for this game (default: 'season')
+    const currentRange = selectedRange[gameId] || 'season'
+    const isRangeLoading = loadingRange.has(gameId)
+    const rangeCacheKey = `${gameId}-${currentRange}`
+    const rangeStatsData = rangeStats[rangeCacheKey]
+
     // Determine which pitcher this lineup faces (for the toggle button label)
     const game = games.find(g => g.game_id === gameId)
     const opposingPitcher = side === 'home'
       ? game?.away_pitcher?.name
       : game?.home_pitcher?.name
+
+    /**
+     * Get the stats object for a batter based on the selected range.
+     * For 'season', use the season_stats from the lineup endpoint.
+     * For rolling windows, use the cached range stats if available.
+     */
+    const getStatsForBatter = (batter) => {
+      if (currentRange === 'season') {
+        return batter.season_stats || {}
+      }
+      if (rangeStatsData && rangeStatsData[batter.mlb_id]) {
+        return rangeStatsData[batter.mlb_id]
+      }
+      return {}
+    }
+
+    const ranges = [
+      { key: 'season', label: 'Season' },
+      { key: '5day', label: '5 Day' },
+      { key: '10day', label: '10 Day' },
+      { key: '15day', label: '15 Day' },
+    ]
 
     return (
       <div className="lineup-section">
@@ -381,22 +461,34 @@ export default function MatchupsPage() {
             {teamName} Lineup
             {opposingPitcher && ` vs ${opposingPitcher}`}
           </h4>
-          {/* "vs Pitcher" toggle — shows each batter's career stats against
-              the specific opposing pitcher. This requires extra API calls,
-              so it's opt-in rather than loading automatically. */}
-          {announced && batters.length > 0 && (
-            <button
-              className={`vs-pitcher-toggle${showVs ? ' active' : ''}`}
-              onClick={() => handleToggleVsPitcher(gameId, side)}
-              disabled={vsLoading}
-            >
-              {vsLoading ? 'Loading...' : showVs ? 'Hide vs Pitcher' : 'Show vs Pitcher'}
-            </button>
-          )}
+          <div className="lineup-header-controls">
+            {announced && batters.length > 0 && (
+              <div className="range-buttons">
+                {ranges.map(r => (
+                  <button
+                    key={r.key}
+                    className={`range-btn${currentRange === r.key ? ' active' : ''}`}
+                    onClick={() => handleSelectRange(gameId, r.key)}
+                    disabled={isRangeLoading}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {announced && batters.length > 0 && (
+              <button
+                className={`vs-pitcher-toggle${showVs ? ' active' : ''}`}
+                onClick={() => handleToggleVsPitcher(gameId, side)}
+                disabled={vsLoading}
+              >
+                {vsLoading ? 'Loading...' : showVs ? 'Hide vs Pitcher' : 'Show vs Pitcher'}
+              </button>
+            )}
+          </div>
         </div>
 
         {!announced ? (
-          /* Lineup not yet announced — show helpful message */
           <div className="lineup-tbd">
             Lineup TBD — lineups are typically announced 1-3 hours before game time.
             Use the Refresh button to check for updates.
@@ -404,9 +496,8 @@ export default function MatchupsPage() {
         ) : batters.length === 0 ? (
           <div className="lineup-tbd">No lineup data available.</div>
         ) : (
-          /* The lineup table — one row per batter in batting order */
           <div className="lineup-table-wrapper">
-            <table className="lineup-table">
+            <table className={`lineup-table${isRangeLoading ? ' loading' : ''}`}>
               <thead>
                 <tr>
                   <th>#</th>
@@ -415,10 +506,10 @@ export default function MatchupsPage() {
                   <th>AVG</th>
                   <th>HR</th>
                   <th>RBI</th>
+                  <th>OBP</th>
                   <th>OPS</th>
+                  <th>K</th>
                   <th>AB</th>
-                  {/* Conditionally render the "vs Pitcher" columns.
-                      These only appear when the user toggles them on. */}
                   {showVs && <>
                     <th className="vs-divider">vs AVG</th>
                     <th>vs AB</th>
@@ -429,9 +520,7 @@ export default function MatchupsPage() {
               </thead>
               <tbody>
                 {batters.map((batter) => {
-                  // Use career stats as the primary display
-                  const stats = batter.career_stats || {}
-                  // vs-pitcher data for this specific batter
+                  const stats = getStatsForBatter(batter)
                   const vs = vsData[batter.mlb_id]
 
                   return (
@@ -442,7 +531,9 @@ export default function MatchupsPage() {
                       <td>{displayStat(stats.avg)}</td>
                       <td>{displayStat(stats.home_runs)}</td>
                       <td>{displayStat(stats.rbi)}</td>
+                      <td>{displayStat(stats.obp)}</td>
                       <td>{displayStat(stats.ops)}</td>
+                      <td>{displayStat(stats.strikeouts)}</td>
                       <td>{displayStat(stats.at_bats)}</td>
                       {showVs && (
                         vs?.has_data ? <>
@@ -451,7 +542,6 @@ export default function MatchupsPage() {
                           <td>{displayStat(vs.stats.home_runs)}</td>
                           <td>{displayStat(vs.stats.strikeouts)}</td>
                         </> : <>
-                          {/* No matchup data — these players haven't faced each other */}
                           <td className="vs-divider vs-no-data" colSpan={4}>
                             No matchup history
                           </td>
