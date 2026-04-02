@@ -2477,13 +2477,11 @@ h2 {
   border-color: #4a90d9;
 }
 
-/* --- Card grid layout ---
-   CSS Grid with auto-fill creates a responsive grid WITHOUT media queries.
-   Each card is at least 480px wide; if the screen is wider, Grid adds more columns.
-   This is more maintainable than writing breakpoints for each screen size. */
+/* --- Game card list layout ---
+   Single column stack so lineup tables never need horizontal scrolling. */
 .matchups-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 20px;
 }
 
@@ -2770,17 +2768,16 @@ h2 {
   transform: rotate(180deg);
 }
 
-/* --- Pitcher Panels (side-by-side) --- */
+/* --- Pitcher Panels (stacked vertically to avoid horizontal scroll) --- */
 .pitcher-panels {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   padding: 16px 20px;
   gap: 12px;
   border-top: 1px solid #2a4060;
 }
 
 .pitcher-panel {
-  flex: 1;
   padding: 12px;
   background: #162540;
   border-radius: 8px;
@@ -2829,7 +2826,7 @@ h2 {
   color: #4a90d9;
   font-weight: 700;
   font-size: 0.85rem;
-  min-width: 32px;
+  padding: 4px 0;
 }
 
 /* --- Pitcher Stat Rows --- */
@@ -3058,13 +3055,7 @@ h2 {
 
 @media (max-width: 768px) {
   .pitcher-panels {
-    flex-direction: column;
     padding: 12px;
-  }
-
-  .pitcher-vs {
-    padding: 4px 0;
-    min-width: auto;
   }
 
   .game-card-header {
