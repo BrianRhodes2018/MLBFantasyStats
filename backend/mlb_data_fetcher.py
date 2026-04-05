@@ -1077,6 +1077,40 @@ async def update_player_stats(season: Optional[int] = None, all_players: bool = 
         updated_count = 0
         inserted_count = 0
 
+        # --- Deduplication ---
+        # The old update code matched by name+team, which could create multiple
+        # rows for the same player (e.g., Framber Valdez with stats from his
+        # first start AND cumulative stats as separate rows). Before updating,
+        # we find any mlb_ids that appear more than once and delete the extras,
+        # keeping only the row with the highest database id (most recently added).
+        from sqlalchemy import func, and_
+        dupes_query = (
+            players.select()
+            .with_only_columns(players.c.mlb_id, func.count().label('cnt'))
+            .where(players.c.mlb_id.isnot(None))
+            .group_by(players.c.mlb_id)
+            .having(func.count() > 1)
+        )
+        dupe_rows = await database.fetch_all(dupes_query)
+        dupe_count = 0
+        for row in dupe_rows:
+            dupe_mlb_id = row._mapping['mlb_id']
+            # Find all rows for this mlb_id, ordered by id descending
+            all_for_id = await database.fetch_all(
+                players.select()
+                .where(players.c.mlb_id == dupe_mlb_id)
+                .order_by(players.c.id.desc())
+            )
+            # Keep the first (highest id), delete the rest
+            ids_to_delete = [r._mapping['id'] for r in all_for_id[1:]]
+            if ids_to_delete:
+                await database.execute(
+                    players.delete().where(players.c.id.in_(ids_to_delete))
+                )
+                dupe_count += len(ids_to_delete)
+        if dupe_count:
+            print(f"Dedup: removed {dupe_count} duplicate player rows")
+
         # Collect all mlb_ids from the fresh API data so we can clean up stale rows after.
         fresh_mlb_ids = set()
 
@@ -1176,6 +1210,33 @@ async def update_pitcher_stats(season: Optional[int] = None, all_pitchers: bool 
 
         updated_count = 0
         inserted_count = 0
+
+        # --- Deduplication (same logic as batters — see update_player_stats) ---
+        from sqlalchemy import func, and_
+        dupes_query = (
+            pitchers.select()
+            .with_only_columns(pitchers.c.mlb_id, func.count().label('cnt'))
+            .where(pitchers.c.mlb_id.isnot(None))
+            .group_by(pitchers.c.mlb_id)
+            .having(func.count() > 1)
+        )
+        dupe_rows = await database.fetch_all(dupes_query)
+        dupe_count = 0
+        for row in dupe_rows:
+            dupe_mlb_id = row._mapping['mlb_id']
+            all_for_id = await database.fetch_all(
+                pitchers.select()
+                .where(pitchers.c.mlb_id == dupe_mlb_id)
+                .order_by(pitchers.c.id.desc())
+            )
+            ids_to_delete = [r._mapping['id'] for r in all_for_id[1:]]
+            if ids_to_delete:
+                await database.execute(
+                    pitchers.delete().where(pitchers.c.id.in_(ids_to_delete))
+                )
+                dupe_count += len(ids_to_delete)
+        if dupe_count:
+            print(f"Dedup: removed {dupe_count} duplicate pitcher rows")
 
         # Collect all mlb_ids from the fresh API data for stale cleanup.
         fresh_mlb_ids = set()
