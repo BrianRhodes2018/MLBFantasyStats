@@ -60,7 +60,12 @@ function displayStat(value) {
   return String(value)
 }
 
-export default function MatchupsPage() {
+export default function MatchupsPage({ season }) {
+  // The season prop comes from App.jsx's global season toggle.
+  // When null, we show the current year's label. When set (e.g., "2025"),
+  // we show that year. This keeps the matchups page's labels consistent
+  // with the rest of the app when the user toggles between seasons.
+  const displayYear = season || new Date().getFullYear()
   // ---------------------------------------------------------------------------
   // STATE
   // ---------------------------------------------------------------------------
@@ -391,9 +396,11 @@ export default function MatchupsPage() {
           </div>
         </div>
 
-        {/* Season stats — current year performance (may be empty early in season) */}
+        {/* Season stats — current year performance (may be empty early in season).
+            The label uses displayYear so it stays in sync with the global season
+            toggle in App.jsx (e.g., shows "2025 Season" when viewing historical data). */}
         <div className="pitcher-stats-section">
-          <div className="pitcher-stats-label">2026 Season</div>
+          <div className="pitcher-stats-label">{displayYear} Season</div>
           <div className="pitcher-stat-row">
             <span className="stat-item"><span className="stat-key">W-L</span> {displayStat(season.wins)}-{displayStat(season.losses)}</span>
             <span className="stat-item"><span className="stat-key">ERA</span> {displayStat(season.era)}</span>

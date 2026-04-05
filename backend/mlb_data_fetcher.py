@@ -1033,9 +1033,20 @@ async def update_player_stats(season: Optional[int] = None, all_players: bool = 
     Update existing players with fresh stats from the MLB API.
 
     This is designed for daily updates during the season:
-    - Players that exist in the DB get their stats updated
+    - Players that exist in the DB get their stats updated (matched by mlb_id)
     - New players get added (anyone with at-bats this season)
-    - Players no longer active are kept (historical data)
+    - Stale entries from previous seasons are removed
+
+    Why mlb_id matching?
+      Previously we matched by name + team, which caused duplicates when a player
+      changed teams between seasons (e.g., Framber Valdez with 2025 Astros stats
+      AND a new 2026 row). The MLB API's unique player ID (mlb_id) is stable
+      across seasons and team changes, so it's the correct key for upserts.
+
+    Why cleanup?
+      The primary database holds ONLY the current season's data. Without cleanup,
+      players who retired or moved to the minors would linger with stale stats,
+      creating confusing duplicates alongside fresh data.
 
     Args:
         season: The season to fetch. Defaults to current year.
@@ -1066,17 +1077,25 @@ async def update_player_stats(season: Optional[int] = None, all_players: bool = 
         updated_count = 0
         inserted_count = 0
 
+        # Collect all mlb_ids from the fresh API data so we can clean up stale rows after.
+        fresh_mlb_ids = set()
+
         for player_record in df.to_dicts():
-            # Check if player exists (by name and team)
-            existing = await database.fetch_one(
-                players.select().where(
-                    (players.c.name == player_record['name']) &
-                    (players.c.team == player_record['team'])
+            mlb_id = player_record.get('mlb_id')
+            if mlb_id:
+                fresh_mlb_ids.add(mlb_id)
+
+            # Match by mlb_id (unique MLB API player ID) — this is stable across
+            # seasons and team changes, unlike name + team which can drift.
+            existing = None
+            if mlb_id:
+                existing = await database.fetch_one(
+                    players.select().where(players.c.mlb_id == mlb_id)
                 )
-            )
 
             if existing:
-                # Update existing player
+                # Update existing player — overwrite all stats with fresh data.
+                # This also updates their team name if they were traded.
                 await database.execute(
                     players.update()
                     .where(players.c.id == existing._mapping['id'])
@@ -1090,6 +1109,30 @@ async def update_player_stats(season: Optional[int] = None, all_players: bool = 
                 )
                 inserted_count += 1
 
+        # Cleanup: remove stale rows whose mlb_id isn't in this season's data.
+        # This prevents ghost entries from previous seasons lingering in the DB.
+        # Only delete rows that HAVE an mlb_id (custom-added players without one are kept).
+        if fresh_mlb_ids:
+            from sqlalchemy import and_
+            stale = await database.fetch_all(
+                players.select().where(
+                    and_(
+                        players.c.mlb_id.isnot(None),
+                        players.c.mlb_id.notin_(fresh_mlb_ids),
+                    )
+                )
+            )
+            if stale:
+                await database.execute(
+                    players.delete().where(
+                        and_(
+                            players.c.mlb_id.isnot(None),
+                            players.c.mlb_id.notin_(fresh_mlb_ids),
+                        )
+                    )
+                )
+                print(f"Cleanup: removed {len(stale)} stale player entries from previous seasons")
+
         print(f"Update complete: {updated_count} updated, {inserted_count} new players added")
 
     finally:
@@ -1101,11 +1144,12 @@ async def update_pitcher_stats(season: Optional[int] = None, all_pitchers: bool 
     Update existing pitchers with fresh stats from the MLB API.
 
     This is designed for daily updates during the season:
-    - Pitchers that exist in the DB get their stats updated
+    - Pitchers that exist in the DB get their stats updated (matched by mlb_id)
     - New pitchers get added (anyone with innings this season)
-    - Pitchers no longer active are kept (historical data)
+    - Stale entries from previous seasons are removed
 
-    Mirrors update_player_stats() but for the pitchers table.
+    Mirrors update_player_stats() — see that function's docstring for the
+    rationale behind mlb_id matching and stale data cleanup.
 
     Args:
         season: The season to fetch. Defaults to current year.
@@ -1133,17 +1177,25 @@ async def update_pitcher_stats(season: Optional[int] = None, all_pitchers: bool 
         updated_count = 0
         inserted_count = 0
 
+        # Collect all mlb_ids from the fresh API data for stale cleanup.
+        fresh_mlb_ids = set()
+
         for pitcher_record in df.to_dicts():
-            # Check if pitcher exists (by name and team)
-            existing = await database.fetch_one(
-                pitchers.select().where(
-                    (pitchers.c.name == pitcher_record['name']) &
-                    (pitchers.c.team == pitcher_record['team'])
+            mlb_id = pitcher_record.get('mlb_id')
+            if mlb_id:
+                fresh_mlb_ids.add(mlb_id)
+
+            # Match by mlb_id — stable across seasons and team changes.
+            # This prevents duplicates like "Framber Valdez (2025)" and
+            # "Framber Valdez (2026)" appearing as separate rows.
+            existing = None
+            if mlb_id:
+                existing = await database.fetch_one(
+                    pitchers.select().where(pitchers.c.mlb_id == mlb_id)
                 )
-            )
 
             if existing:
-                # Update existing pitcher
+                # Update existing pitcher — overwrites stats AND team name
                 await database.execute(
                     pitchers.update()
                     .where(pitchers.c.id == existing._mapping['id'])
@@ -1156,6 +1208,29 @@ async def update_pitcher_stats(season: Optional[int] = None, all_pitchers: bool 
                     pitchers.insert().values(**pitcher_record)
                 )
                 inserted_count += 1
+
+        # Cleanup: remove stale rows from previous seasons.
+        # Pitchers with mlb_id not in the fresh data are no longer active.
+        if fresh_mlb_ids:
+            from sqlalchemy import and_
+            stale = await database.fetch_all(
+                pitchers.select().where(
+                    and_(
+                        pitchers.c.mlb_id.isnot(None),
+                        pitchers.c.mlb_id.notin_(fresh_mlb_ids),
+                    )
+                )
+            )
+            if stale:
+                await database.execute(
+                    pitchers.delete().where(
+                        and_(
+                            pitchers.c.mlb_id.isnot(None),
+                            pitchers.c.mlb_id.notin_(fresh_mlb_ids),
+                        )
+                    )
+                )
+                print(f"Cleanup: removed {len(stale)} stale pitcher entries from previous seasons")
 
         print(f"Pitcher update complete: {updated_count} updated, {inserted_count} new pitchers added")
 

@@ -626,6 +626,7 @@ function App() {
       <div className="app">
         <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
         <MatchupsPage
+          season={season}
           onBack={() => setCurrentView('dashboard')}
           onPitcherClick={(pitcher) => {
             // Open the same PlayerModal used on the main page.
@@ -802,16 +803,18 @@ function App() {
       )}
 
       {/* Season banner — visual indicator when viewing historical data.
-          Prevents confusion about which dataset the user is looking at. */}
+          Prevents confusion about which dataset the user is looking at.
+          Shows prominently at the top so there's no ambiguity about which
+          season's stats are being displayed across ALL pages. */}
       {season && (
         <div className="season-banner">
-          📊 Viewing <strong>{season} Season</strong> — Historical Snapshot
+          Viewing <strong>{season} Season</strong> — Historical Snapshot (all stats are {season})
           <button
             className="season-banner-close"
             onClick={() => setSeason(null)}
             title="Switch to current season"
           >
-            Return to Live Stats →
+            Return to {new Date().getFullYear()} Live Stats
           </button>
         </div>
       )}
@@ -911,24 +914,36 @@ function App() {
             </select>
           </div>
 
-          {/* Season toggle — switch between current season and historical snapshots.
-              Only shown when snapshot databases are configured (e.g., DATABASE_URL_2025).
-              Changing the season re-fetches all data from the selected database. */}
-          {availableSeasons.length > 1 && (
+          {/* Season toggle button — switches ALL displayed stats between the
+              current season (2026 live data) and the 2025 historical snapshot.
+              This is a single toggle rather than a dropdown because we want an
+              all-or-nothing switch: either everything shows 2026 or everything
+              shows 2025. The button is always visible so users know the option
+              exists, but disabled if no snapshot database is configured.
+
+              When clicked, setSeason() triggers the useEffect that re-fetches
+              ALL data from the appropriate database (primary vs snapshot). */}
+          {availableSeasons.length > 1 ? (() => {
+            // Find the snapshot season (any year that isn't the current year).
+            // This makes the toggle work for any snapshot, not just hardcoded 2025.
+            const currentYear = String(new Date().getFullYear())
+            const snapshotYear = availableSeasons.find(s => s !== currentYear) || availableSeasons[0]
+            return (
+              <div className="table-header-filter season-toggle">
+                <button
+                  className={`season-toggle-btn${season ? ' active' : ''}`}
+                  onClick={() => setSeason(season ? null : snapshotYear)}
+                  title={season
+                    ? `Switch back to ${currentYear} live stats`
+                    : `View ${snapshotYear} historical stats`}
+                >
+                  {season ? `${season} Stats` : `${currentYear} Stats`}
+                </button>
+              </div>
+            )
+          })() : (
             <div className="table-header-filter season-toggle">
-              <label htmlFor="season-select">Season:</label>
-              <select
-                id="season-select"
-                value={season || ''}
-                onChange={(e) => setSeason(e.target.value || null)}
-              >
-                {/* Current season (live data) — value="" maps to season=null */}
-                <option value="">{availableSeasons[availableSeasons.length - 1]} (Live)</option>
-                {/* Historical snapshots — all seasons except the latest (current) */}
-                {availableSeasons.slice(0, -1).map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              <span className="season-label">{new Date().getFullYear()} Season</span>
             </div>
           )}
 

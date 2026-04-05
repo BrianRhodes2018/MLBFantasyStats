@@ -1973,7 +1973,7 @@ async def add_fantasy_league(league_input: FantasyLeagueIn):
         try:
             espn_data = await fetch_league_settings(
                 league_id=league_input.league_id,
-                season_year=league_input.season_year or 2025,
+                season_year=league_input.season_year or datetime.now().year,
                 espn_s2=league_input.espn_s2,
                 swid=league_input.swid,
             )

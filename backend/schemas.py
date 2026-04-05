@@ -297,7 +297,7 @@ class FantasyLeagueIn(BaseModel):
     """
     provider: Optional[str] = "espn"
     league_id: Optional[int] = None
-    season_year: Optional[int] = 2025
+    season_year: Optional[int] = None  # Defaults to current year in the endpoint if not provided
     espn_s2: Optional[str] = None
     swid: Optional[str] = None
     # Yahoo-specific fields:
