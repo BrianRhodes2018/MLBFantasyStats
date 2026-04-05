@@ -914,38 +914,37 @@ function App() {
             </select>
           </div>
 
-          {/* Season toggle button — switches ALL displayed stats between the
-              current season (2026 live data) and the 2025 historical snapshot.
-              This is a single toggle rather than a dropdown because we want an
-              all-or-nothing switch: either everything shows 2026 or everything
-              shows 2025. The button is always visible so users know the option
-              exists, but disabled if no snapshot database is configured.
+          {/* Season buttons — two separate buttons so it's crystal clear which
+              season you're viewing. The active button is highlighted, the other
+              is dimmed. Clicking a button sets the `season` state which triggers
+              a full data re-fetch from the appropriate database.
 
-              When clicked, setSeason() triggers the useEffect that re-fetches
-              ALL data from the appropriate database (primary vs snapshot). */}
-          {availableSeasons.length > 1 ? (() => {
-            // Find the snapshot season (any year that isn't the current year).
-            // This makes the toggle work for any snapshot, not just hardcoded 2025.
-            const currentYear = String(new Date().getFullYear())
-            const snapshotYear = availableSeasons.find(s => s !== currentYear) || availableSeasons[0]
-            return (
-              <div className="table-header-filter season-toggle">
+              Why two buttons instead of one toggle?
+              A single toggle can be ambiguous ("does it show what I'm viewing,
+              or what I'd switch to?"). Two labeled buttons remove all doubt —
+              the lit-up one is what you're looking at right now. */}
+          <div className="table-header-filter season-buttons">
+            {availableSeasons.map(s => {
+              const currentYear = String(new Date().getFullYear())
+              const isCurrentSeason = s === currentYear
+              // A button is "active" if:
+              //   - It's the current year button and no snapshot is selected (season=null)
+              //   - It's a snapshot year button and that year is selected
+              const isActive = isCurrentSeason ? !season : season === s
+              return (
                 <button
-                  className={`season-toggle-btn${season ? ' active' : ''}`}
-                  onClick={() => setSeason(season ? null : snapshotYear)}
-                  title={season
-                    ? `Switch back to ${currentYear} live stats`
-                    : `View ${snapshotYear} historical stats`}
+                  key={s}
+                  className={`season-btn${isActive ? ' active' : ''}`}
+                  onClick={() => setSeason(isCurrentSeason ? null : s)}
+                  title={isCurrentSeason
+                    ? `View ${s} live stats (updated daily)`
+                    : `View ${s} historical stats (frozen snapshot)`}
                 >
-                  {season ? `${season} Stats` : `${currentYear} Stats`}
+                  {s}
                 </button>
-              </div>
-            )
-          })() : (
-            <div className="table-header-filter season-toggle">
-              <span className="season-label">{new Date().getFullYear()} Season</span>
-            </div>
-          )}
+              )
+            })}
+          </div>
 
           {/* Fantasy League selector — choose which ESPN league's scoring to apply.
               Sits alongside Position and Team dropdowns so all filters are grouped.

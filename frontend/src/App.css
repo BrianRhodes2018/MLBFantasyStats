@@ -583,16 +583,20 @@ h2 {
   color: #a0d0ff;
 }
 
-/* Season toggle button — sits in the table header bar alongside position/team filters.
-   Provides a clear, always-visible way to switch between current and historical stats.
-   The "active" state (viewing 2025) uses a distinct color to signal that you're
-   looking at historical data, not live stats. */
-.season-toggle-btn {
-  background: linear-gradient(135deg, #1a5c2a, #0d4a1f);
-  border: 1px solid #2a7a3a;
-  color: #a0e0b0;
-  padding: 6px 16px;
-  border-radius: 6px;
+/* Season buttons — two side-by-side buttons (e.g., "2025" and "2026") so
+   it's obvious which season you're viewing. The active button is bright/lit,
+   the inactive one is dimmed. They sit together as a button group with
+   connected borders (first button rounds left, second rounds right). */
+.season-buttons {
+  display: flex;
+  gap: 0;
+}
+
+.season-btn {
+  background: #1a2a40;
+  border: 1px solid #2a4a6a;
+  color: #5a8aaa;
+  padding: 6px 14px;
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
@@ -600,28 +604,30 @@ h2 {
   white-space: nowrap;
 }
 
-.season-toggle-btn:hover {
-  background: linear-gradient(135deg, #1f6e32, #125a26);
-  border-color: #3a9a4a;
-  color: #c0f0d0;
+/* First button gets rounded left corners, last gets rounded right corners.
+   This creates a "button group" look — a common UI pattern where related
+   buttons appear connected as a single unit. */
+.season-btn:first-child {
+  border-radius: 6px 0 0 6px;
+  border-right: none;
 }
 
-.season-toggle-btn.active {
-  background: linear-gradient(135deg, #5a3a1a, #4a2a10);
-  border-color: #8a5a2a;
-  color: #e0c090;
+.season-btn:last-child {
+  border-radius: 0 6px 6px 0;
 }
 
-.season-toggle-btn.active:hover {
-  background: linear-gradient(135deg, #6a4a2a, #5a3a1a);
-  border-color: #9a6a3a;
-  color: #f0d0a0;
-}
-
-.season-label {
+.season-btn:hover:not(.active) {
+  background: #1e3050;
   color: #7eb8e0;
-  font-size: 0.85rem;
-  font-weight: 600;
+  border-color: #3a6a9a;
+}
+
+/* Active state — the lit-up button showing which season you're viewing */
+.season-btn.active {
+  background: linear-gradient(135deg, #1a5c2a, #0d4a1f);
+  border: 1px solid #2a7a3a;
+  color: #a0e0b0;
+  cursor: default;
 }
 
 /* ===========================================================================
