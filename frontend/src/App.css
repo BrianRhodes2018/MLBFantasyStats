@@ -583,6 +583,47 @@ h2 {
   color: #a0d0ff;
 }
 
+/* Season toggle button — sits in the table header bar alongside position/team filters.
+   Provides a clear, always-visible way to switch between current and historical stats.
+   The "active" state (viewing 2025) uses a distinct color to signal that you're
+   looking at historical data, not live stats. */
+.season-toggle-btn {
+  background: linear-gradient(135deg, #1a5c2a, #0d4a1f);
+  border: 1px solid #2a7a3a;
+  color: #a0e0b0;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.season-toggle-btn:hover {
+  background: linear-gradient(135deg, #1f6e32, #125a26);
+  border-color: #3a9a4a;
+  color: #c0f0d0;
+}
+
+.season-toggle-btn.active {
+  background: linear-gradient(135deg, #5a3a1a, #4a2a10);
+  border-color: #8a5a2a;
+  color: #e0c090;
+}
+
+.season-toggle-btn.active:hover {
+  background: linear-gradient(135deg, #6a4a2a, #5a3a1a);
+  border-color: #9a6a3a;
+  color: #f0d0a0;
+}
+
+.season-label {
+  color: #7eb8e0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 /* ===========================================================================
    6. PLAYER SEARCH STYLES
    =========================================================================== */
