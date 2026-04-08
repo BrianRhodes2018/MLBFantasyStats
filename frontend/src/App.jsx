@@ -528,7 +528,10 @@ function App() {
    * @param {Object} player - The full player object from the table row
    */
   const handlePlayerClick = (player) => {
-    setModalPlayer(player)
+    // Rolling stats use player_id (MLB API ID) instead of mlb_id.
+    // Normalize so the modal can always use player.mlb_id.
+    const normalized = player.mlb_id ? player : { ...player, mlb_id: player.player_id }
+    setModalPlayer(normalized)
     setModalPlayerType('batter')
   }
 
@@ -538,7 +541,8 @@ function App() {
    * @param {Object} pitcher - The full pitcher object from the table row
    */
   const handlePitcherClick = (pitcher) => {
-    setModalPlayer(pitcher)
+    const normalized = pitcher.mlb_id ? pitcher : { ...pitcher, mlb_id: pitcher.player_id }
+    setModalPlayer(normalized)
     setModalPlayerType('pitcher')
   }
 
