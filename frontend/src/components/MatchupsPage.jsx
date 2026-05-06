@@ -24,6 +24,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE } from '../config'
+import { formatBatterName, formatPitcherName } from '../utils/handedness'
 
 /**
  * Helper: Format an ISO datetime string into a readable local time.
@@ -376,11 +377,11 @@ export default function MatchupsPage({ season }) {
           <img
             className="pitcher-headshot"
             src={`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${pitcher.mlb_id}/headshot/silo/current`}
-            alt={pitcher.name}
+            alt={formatPitcherName(pitcher)}
             onError={(e) => { e.target.style.display = 'none' }}
           />
           <div>
-            <div className="pitcher-name">{pitcher.name}</div>
+            <div className="pitcher-name">{formatPitcherName(pitcher)}</div>
           </div>
         </div>
 
@@ -533,7 +534,7 @@ export default function MatchupsPage({ season }) {
                   return (
                     <tr key={batter.mlb_id}>
                       <td className="lineup-order">{batter.batting_order}</td>
-                      <td className="lineup-name">{batter.name}</td>
+                      <td className="lineup-name">{formatBatterName(batter)}</td>
                       <td className="lineup-pos">{batter.position}</td>
                       <td>{displayStat(stats.avg)}</td>
                       <td>{displayStat(stats.home_runs)}</td>

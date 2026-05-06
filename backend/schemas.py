@@ -72,6 +72,7 @@ class PlayerIn(BaseModel):
     triples: Optional[int] = None           # 3B - Triples (needed for fantasy points)
     caught_stealing: Optional[int] = None   # CS - Caught stealing (needed for fantasy points)
     mlb_id: Optional[int] = None             # MLB Stats API player ID
+    bats: Optional[str] = None               # Batting handedness: 'R', 'L', or 'S' (switch)
 
 
 class PlayerUpdate(BaseModel):
@@ -144,6 +145,7 @@ class PlayerUpdate(BaseModel):
     triples: Optional[int] = None
     caught_stealing: Optional[int] = None
     mlb_id: Optional[int] = None
+    bats: Optional[str] = None
 
 
 class PlayerOut(PlayerIn):
@@ -203,6 +205,7 @@ class PitcherIn(BaseModel):
     saves: Optional[int] = None
     quality_starts: Optional[int] = None     # QS - Quality Starts (6+ IP, 3 or fewer ER)
     mlb_id: Optional[int] = None             # MLB Stats API player ID
+    throws: Optional[str] = None             # Throwing handedness: 'R' or 'L'
 
 
 class PitcherUpdate(BaseModel):
@@ -228,6 +231,7 @@ class PitcherUpdate(BaseModel):
     saves: Optional[int] = None
     quality_starts: Optional[int] = None
     mlb_id: Optional[int] = None
+    throws: Optional[str] = None
 
 
 class PitcherOut(PitcherIn):

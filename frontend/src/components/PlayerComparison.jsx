@@ -16,6 +16,14 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { fuzzyNameMatch, fuzzyMatchScore } from '../utils/fuzzyMatch'
+import { formatBatterName, formatPitcherName } from '../utils/handedness'
+
+// Pick the right handedness suffix based on whether `player` is a batter
+// or a pitcher. The `type` argument can come from `comparisonType` (locked
+// for the panel) or `player._type` (mixed search results).
+function formatComparePlayerName(player, type) {
+  return type === 'pitcher' ? formatPitcherName(player) : formatBatterName(player)
+}
 
 // ---------------------------------------------------------------------------
 // STAT DEFINITIONS — which stats to show for each player type
@@ -242,7 +250,9 @@ function PlayerComparison({
                       className="comparison-suggestion"
                       onClick={() => handleSelectSuggestion(player)}
                     >
-                      <span className="suggestion-name">{player.name}</span>
+                      <span className="suggestion-name">
+                        {formatComparePlayerName(player, comparisonType || player._type)}
+                      </span>
                       <span className="suggestion-meta">
                         <span className="suggestion-team">{player.team}</span>
                         {!comparisonType && (
@@ -288,7 +298,7 @@ function PlayerComparison({
                           onClick={() => onPlayerClick && onPlayerClick(player, comparisonType)}
                           title="Click to view player details"
                         >
-                          {player.name}
+                          {formatComparePlayerName(player, comparisonType)}
                         </span>
                       </td>
                       {stats.map((statDef) => {

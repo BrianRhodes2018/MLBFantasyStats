@@ -12,6 +12,7 @@
 
 import { useState } from 'react'
 import { API_BASE } from '../config'
+import { formatPitcherName } from '../utils/handedness'
 
 /**
  * Column definitions for the pitcher table.
@@ -30,7 +31,9 @@ const COLUMNS = [
     key: 'name',
     label: 'Name',
     tooltip: 'Pitcher\'s full name as registered with MLB.',
-    editable: true
+    editable: true,
+    // Suffix the name with throwing handedness — (RHP) or (LHP).
+    formatRow: (pitcher) => formatPitcherName(pitcher),
   },
   {
     key: 'team',
@@ -435,11 +438,15 @@ function PitcherTable({ pitchers, computed, fantasyPoints, onPitcherUpdated, isR
                   }
 
                   const rawValue = pitcher[col.key]
-                  const displayValue = col.format
-                    ? col.format(rawValue)
-                    : col.isComputed
-                      ? (rawValue ?? '—')
-                      : rawValue
+                  // formatRow gets the full pitcher object — needed for the name
+                  // column which appends throwing handedness from `pitcher.throws`.
+                  const displayValue = col.formatRow
+                    ? col.formatRow(pitcher)
+                    : col.format
+                      ? col.format(rawValue)
+                      : col.isComputed
+                        ? (rawValue ?? '—')
+                        : rawValue
 
                   return (
                     <td

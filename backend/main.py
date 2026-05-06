@@ -120,93 +120,9 @@ app.add_middleware(
 metadata.create_all(bind=engine)
 
 
-def run_migrations():
-    """
-    Check for missing columns and add them to existing tables.
-
-    This is a lightweight migration approach. It uses SQLAlchemy's inspect()
-    to check which columns currently exist in the database table, then
-    runs ALTER TABLE to add any that are missing.
-
-    In a production app, you'd use Alembic (SQLAlchemy's migration tool)
-    for this. But for learning purposes, this manual approach shows you
-    exactly what's happening at the SQL level.
-
-    Key concept: DDL (Data Definition Language) vs DML (Data Manipulation Language)
-    - DDL changes the table STRUCTURE (ALTER TABLE, CREATE TABLE, DROP TABLE)
-    - DML changes the table DATA (INSERT, UPDATE, DELETE, SELECT)
-    """
-    inspector = inspect(engine)
-
-    # --- Players table migrations ---
-    if inspector.has_table("players"):
-        existing_columns = [col["name"] for col in inspector.get_columns("players")]
-        missing_columns = {
-            "position": "VARCHAR(10)",
-            "runs": "INTEGER",
-            "strikeouts": "INTEGER",
-            "total_bases": "INTEGER",
-            "at_bats": "INTEGER",
-            "mlb_id": "INTEGER",          # MLB Stats API player ID for game log linking
-            "walks": "INTEGER",           # BB - Bases on balls (needed for OBP calculation)
-            "hit_by_pitch": "INTEGER",    # HBP - Hit by pitch (needed for OBP calculation)
-            "sacrifice_flies": "INTEGER", # SF - Sacrifice flies (needed for OBP calculation)
-            "hits": "INTEGER",            # H - Total hits (needed for fantasy points)
-            "doubles": "INTEGER",         # 2B - Doubles (needed for fantasy points)
-            "triples": "INTEGER",         # 3B - Triples (needed for fantasy points)
-            "caught_stealing": "INTEGER", # CS - Caught stealing (needed for fantasy points)
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in missing_columns.items():
-                if col_name not in existing_columns:
-                    conn.execute(text(f"ALTER TABLE players ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-    # --- Pitchers table migrations ---
-    if inspector.has_table("pitchers"):
-        existing_pitcher_cols = [col["name"] for col in inspector.get_columns("pitchers")]
-        pitcher_missing = {
-            "quality_starts": "INTEGER",  # QS - Quality Starts
-            "mlb_id": "INTEGER",          # MLB Stats API player ID
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in pitcher_missing.items():
-                if col_name not in existing_pitcher_cols:
-                    conn.execute(text(f"ALTER TABLE pitchers ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-    # --- Fantasy leagues table migrations ---
-    # Add Yahoo-specific columns for the Yahoo Fantasy integration.
-    # The provider column identifies whether a league is ESPN or Yahoo,
-    # and the yahoo_* columns store OAuth tokens and league keys.
-    # DEFAULT 'espn' ensures existing rows are tagged as ESPN leagues.
-    if inspector.has_table("fantasy_leagues"):
-        existing_fl_cols = [col["name"] for col in inspector.get_columns("fantasy_leagues")]
-        fl_missing = {
-            "provider": "VARCHAR(20) DEFAULT 'espn'",      # "espn" or "yahoo"
-            "yahoo_league_key": "VARCHAR(50)",              # e.g. "431.l.123456"
-            "yahoo_access_token": "VARCHAR(2000)",          # OAuth access token
-            "yahoo_refresh_token": "VARCHAR(2000)",         # OAuth refresh token
-            "yahoo_token_expires_at": "VARCHAR(30)",        # Token expiry timestamp
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in fl_missing.items():
-                if col_name not in existing_fl_cols:
-                    conn.execute(text(f"ALTER TABLE fantasy_leagues ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-        # Also make league_id nullable for Yahoo leagues (they use yahoo_league_key instead).
-        # This ALTER only needs to run once; it's safe to re-run (no-op if already nullable).
-        with engine.connect() as conn:
-            try:
-                conn.execute(text("ALTER TABLE fantasy_leagues ALTER COLUMN league_id DROP NOT NULL"))
-                conn.commit()
-            except Exception:
-                conn.rollback()  # Silently ignore if column is already nullable
-
+# Schema migrations live in their own module so daily_update.py (GitHub
+# Actions cron) can call them without importing the FastAPI app.
+from migrations import run_migrations
 
 # Run migrations on import (before the server starts handling requests)
 run_migrations()
@@ -2896,6 +2812,8 @@ async def get_todays_matchups():
                 pitcher_stats_map[pid] = {
                     "career": _format_pitcher_stats(extracted["career"]),
                     "season": _format_pitcher_stats(extracted["season"]),
+                    # Throwing handedness from the person object: 'R' or 'L'.
+                    "throws": (person.get("pitchHand") or {}).get("code"),
                 }
 
         # Step 5: Attach pitcher stats to each game object.
@@ -2905,10 +2823,12 @@ async def get_todays_matchups():
                 if pid and pid in pitcher_stats_map:
                     game[side]["career_stats"] = pitcher_stats_map[pid]["career"]
                     game[side]["season_stats"] = pitcher_stats_map[pid]["season"]
+                    game[side]["throws"] = pitcher_stats_map[pid]["throws"]
                 else:
                     # Pitcher TBD or stats not found
                     game[side]["career_stats"] = _format_pitcher_stats(None)
                     game[side]["season_stats"] = _format_pitcher_stats(None)
+                    game[side]["throws"] = None
 
         return ApiResponse(
             code=200,
@@ -2983,6 +2903,9 @@ async def get_game_lineup(game_id: int):
         # Step 3: Batch-fetch career stats for all batters across both lineups.
         # We use comma-separated IDs to get everyone in one API call.
         career_stats_map = {}
+        # Parallel batting-handedness map populated from the same /people response
+        # so the frontend can render (R)/(L)/(S) suffixes after each batter's name.
+        bats_map = {}
 
         if all_batter_ids:
             ids_str = ",".join(str(bid) for bid in all_batter_ids)
@@ -3001,6 +2924,7 @@ async def get_game_lineup(game_id: int):
                 stats_list = person.get("stats", [])
                 extracted = _extract_pitcher_stats(stats_list, "hitting")
                 career_stats_map[pid] = _format_batter_stats(extracted.get("career"))
+                bats_map[pid] = (person.get("batSide") or {}).get("code")
 
         # Step 4: Build lineup arrays with season stats (from boxscore) + career stats.
         for side in ["home", "away"]:
@@ -3025,6 +2949,7 @@ async def get_game_lineup(game_id: int):
                     "batting_order": order_num,
                     "season_stats": _format_batter_stats(season_batting),
                     "career_stats": career_stats_map.get(pid, _format_batter_stats(None)),
+                    "bats": bats_map.get(pid),
                 })
 
             result[f"{side}_lineup"] = lineup

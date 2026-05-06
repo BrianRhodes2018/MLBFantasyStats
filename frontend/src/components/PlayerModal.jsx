@@ -28,8 +28,14 @@
 
 import { useState, useEffect } from 'react'
 import { API_BASE } from '../config'
+import { formatBatterName, formatPitcherName } from '../utils/handedness'
 
 function PlayerModal({ player, playerType, onClose }) {
+  // Pick the right handedness suffix based on whether this modal opened
+  // for a batter or a pitcher row. Falls back to the raw name if unknown.
+  const displayName = playerType === 'pitcher'
+    ? formatPitcherName(player)
+    : formatBatterName(player)
   // -----------------------------------------------------------------------
   // State
   // -----------------------------------------------------------------------
@@ -216,14 +222,14 @@ function PlayerModal({ player, playerType, onClose }) {
             <img
               className="modal-headshot"
               src={headshotUrl}
-              alt={`${player.name} headshot`}
+              alt={`${displayName} headshot`}
               onError={(e) => {
                 e.target.style.display = 'none'
               }}
             />
           )}
           <div className="modal-player-info">
-            <h2 className="modal-player-name">{player.name}</h2>
+            <h2 className="modal-player-name">{displayName}</h2>
             <p className="modal-player-meta">
               {player.team}{player.position ? ` | ${player.position}` : ''}
               {playerType ? ` | ${playerType === 'batter' ? 'Batter' : 'Pitcher'}` : ''}

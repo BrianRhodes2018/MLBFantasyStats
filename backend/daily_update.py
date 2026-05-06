@@ -110,6 +110,12 @@ async def run_daily_update(skip_gamelogs: bool = False):
     logger.info("Starting MLB Stats Daily Update")
     logger.info("=" * 60)
 
+    # Ensure the schema is up-to-date before writing. This entry point doesn't
+    # import main.py, so migrations need to run here too — otherwise newly-added
+    # columns (e.g. handedness) would cause inserts/updates to fail.
+    from migrations import run_migrations
+    run_migrations()
+
     # Check if we're in season
     if not is_mlb_season():
         logger.info("Currently offseason - skipping update")
@@ -176,6 +182,10 @@ async def run_full_refresh(season: int = None, all_players: bool = False):
     logger.info("WARNING: This will clear all existing player data!")
     logger.info("=" * 60)
 
+    # Apply schema migrations before any writes (see run_daily_update for context).
+    from migrations import run_migrations
+    run_migrations()
+
     try:
         from mlb_data_fetcher import populate_database_from_mlb
 
@@ -224,6 +234,8 @@ Examples:
     elif args.force:
         # Force update (bypass season check)
         logger.info("Force flag set - bypassing season check")
+        from migrations import run_migrations
+        run_migrations()
         from mlb_data_fetcher import update_player_stats, update_pitcher_stats
         season = args.season or datetime.now().year
         asyncio.run(update_player_stats(season, all_players=args.all))
