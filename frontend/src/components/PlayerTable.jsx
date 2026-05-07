@@ -53,6 +53,7 @@
 
 import { useState } from 'react'
 import { API_BASE } from '../config'
+import { formatBatterName } from '../utils/handedness'
 
 /**
  * Column definitions for the player table.
@@ -86,7 +87,9 @@ const COLUMNS = [
     key: 'name',
     label: 'Name',
     tooltip: 'Player\'s full name as registered with MLB.',
-    editable: true
+    editable: true,
+    // Suffix the name with batting handedness — (R), (L), or (S) for switch hitters.
+    formatRow: (player) => formatBatterName(player),
   },
   {
     key: 'team',

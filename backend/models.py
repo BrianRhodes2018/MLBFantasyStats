@@ -85,6 +85,10 @@ players = Table(
     # The MLB API assigns a unique numeric ID to every player (e.g., Aaron Judge = 592450).
     # We store this so we can match season totals to per-game data in batter_game_logs.
     Column("mlb_id", Integer, nullable=True),
+
+    # Batting handedness: 'R', 'L', or 'S' (switch hitter).
+    # Sourced from the MLB /people endpoint (batSide.code).
+    Column("bats", String(2), nullable=True),
 )
 
 
@@ -138,6 +142,10 @@ pitchers = Table(
 
     # MLB Stats API player ID — used to link this pitcher to their game logs.
     Column("mlb_id", Integer, nullable=True),
+
+    # Throwing handedness: 'R' or 'L'.
+    # Sourced from the MLB /people endpoint (pitchHand.code).
+    Column("throws", String(2), nullable=True),
 )
 
 

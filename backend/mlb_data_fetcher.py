@@ -47,6 +47,45 @@ from typing import Optional
 import asyncio
 
 
+def fetch_handedness_map(mlb_ids: list, hand_field: str) -> dict:
+    """
+    Fetch batting/throwing handedness for a list of MLB player IDs.
+
+    The /stats endpoint returns only basic player references, so we need a
+    follow-up call to /people to get batSide / pitchHand. The MLB API accepts
+    comma-separated personIds, so we batch in chunks to avoid URL-length issues.
+
+    Args:
+        mlb_ids: List of MLB player IDs (ints).
+        hand_field: 'batSide' for batters, 'pitchHand' for pitchers.
+
+    Returns:
+        Dict mapping mlb_id -> 'R' / 'L' / 'S' (switch hitters; pitchers won't be 'S').
+        Players whose handedness can't be fetched are omitted from the dict.
+    """
+    if not mlb_ids:
+        return {}
+
+    handedness = {}
+    chunk_size = 50  # /people supports many IDs per call but keep URL reasonable
+    unique_ids = [i for i in {int(x) for x in mlb_ids if x is not None}]
+
+    for i in range(0, len(unique_ids), chunk_size):
+        chunk = unique_ids[i:i + chunk_size]
+        ids_param = ','.join(str(x) for x in chunk)
+        try:
+            data = statsapi.get('people', {'personIds': ids_param})
+            for person in data.get('people', []):
+                pid = person.get('id')
+                code = (person.get(hand_field) or {}).get('code')
+                if pid and code:
+                    handedness[pid] = code
+        except Exception as e:
+            print(f"  Warning: handedness chunk fetch failed ({len(chunk)} ids): {e}")
+
+    return handedness
+
+
 def get_qualified_batters(season: int, limit: int = 1000, qualified_only: bool = False) -> pl.DataFrame:
     """
     Fetch batters' statistics from the MLB Stats API.
@@ -166,8 +205,16 @@ def get_qualified_batters(season: int, limit: int = 1000, qualified_only: bool =
             'caught_stealing': stat.get('caughtStealing', 0),  # CS - Caught stealing
             'games_played': stat.get('gamesPlayed', 0),      # G - Games played (for Pts/G)
             'mlb_id': player_info.get('id'),  # MLB API unique player ID
+            'bats': None,  # Filled in below via batch /people call
         }
         players.append(player_record)
+
+    # Enrich with batting handedness — /stats doesn't include this field, so we
+    # batch-fetch via the /people endpoint using the mlb_ids we just collected.
+    print(f"  Fetching batting handedness for {len(players)} players...")
+    hand_map = fetch_handedness_map([p['mlb_id'] for p in players], 'batSide')
+    for p in players:
+        p['bats'] = hand_map.get(p['mlb_id'])
 
     # Create a Polars DataFrame from the list of dicts
     df = pl.DataFrame(players)
@@ -252,6 +299,10 @@ def get_all_active_players(season: int) -> pl.DataFrame:
                         person_data = stats_data['people'][0]
                         stats_list = person_data.get('stats', [])
 
+                        # Batting handedness comes from the person object directly
+                        # (not nested under stats). Codes: 'R', 'L', or 'S' (switch).
+                        bats_code = (person_data.get('batSide') or {}).get('code')
+
                         # Find the season hitting stats
                         batting_stats = {}
                         for stat_group in stats_list:
@@ -303,6 +354,7 @@ def get_all_active_players(season: int) -> pl.DataFrame:
                                 'caught_stealing': batting_stats.get('caughtStealing', 0),
                                 'games_played': batting_stats.get('gamesPlayed', 0),  # G - Games played (for Pts/G)
                                 'mlb_id': player_id,  # MLB API unique player ID
+                                'bats': bats_code,    # Batting handedness from /people
                             }
                             all_players.append(player_record)
                             team_player_count += 1
@@ -453,8 +505,15 @@ def get_qualified_pitchers(season: int, limit: int = 1000, qualified_only: bool 
             'saves': stat.get('saves', 0),
             'quality_starts': None,                     # Computed from game logs later
             'mlb_id': player_info.get('id'),            # MLB API unique player ID
+            'throws': None,                             # Filled in below via batch /people call
         }
         pitchers.append(pitcher_record)
+
+    # Enrich with throwing handedness — same pattern as batters.
+    print(f"  Fetching pitching handedness for {len(pitchers)} pitchers...")
+    hand_map = fetch_handedness_map([p['mlb_id'] for p in pitchers], 'pitchHand')
+    for p in pitchers:
+        p['throws'] = hand_map.get(p['mlb_id'])
 
     df = pl.DataFrame(pitchers)
     print(f"Fetched {len(df)} {pool_label} pitchers from {season} season")
@@ -519,6 +578,9 @@ def get_all_pitchers(season: int) -> pl.DataFrame:
                         person_data = stats_data['people'][0]
                         stats_list = person_data.get('stats', [])
 
+                        # Throwing handedness from the person object: 'R' or 'L'.
+                        throws_code = (person_data.get('pitchHand') or {}).get('code')
+
                         pitching_stats = {}
                         for stat_group in stats_list:
                             if stat_group.get('group', {}).get('displayName') == 'pitching':
@@ -569,6 +631,7 @@ def get_all_pitchers(season: int) -> pl.DataFrame:
                                 'saves': pitching_stats.get('saves', 0),
                                 'quality_starts': None,     # Computed from game logs later
                                 'mlb_id': player_id,        # MLB API unique player ID
+                                'throws': throws_code,      # Throwing handedness from /people
                             }
                             all_pitchers.append(pitcher_record)
                             team_pitcher_count += 1
