@@ -37,7 +37,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
-from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues
+from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata
 from schemas import (
     PlayerIn, PlayerOut, PlayerUpdate,
     PitcherIn, PitcherOut, PitcherUpdate,
@@ -156,6 +156,31 @@ async def get_available_seasons():
         "current": current_year,
         "available": sorted(available_seasons + [current_year]),
     }
+
+
+@app.get("/system/last-updated", response_model=ApiResponse)
+async def get_last_updated():
+    """
+    Return the timestamp of the last successful daily stats update.
+
+    The frontend renders this under each page header so users know how fresh
+    the stats are. The timestamp is written by daily_update.py at the end of
+    a successful run, stored as an ISO-8601 UTC string in the system_metadata
+    table under the key "last_stats_update".
+
+    Returns:
+        ApiResponse with data={"last_updated": "<ISO-8601 string>" | null}.
+        Returns null when no daily update has run yet (fresh deployment).
+    """
+    row = await database.fetch_one(
+        system_metadata.select().where(system_metadata.c.key == "last_stats_update")
+    )
+    last_updated = row._mapping["value"] if row else None
+    return ApiResponse(
+        code=200,
+        message="Last update timestamp",
+        data={"last_updated": last_updated},
+    )
 
 
 # ---------------------------------------------------------------------------

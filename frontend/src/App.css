@@ -53,6 +53,17 @@ body {
   letter-spacing: -0.5px;
 }
 
+/* "Stats last updated: ..." line that sits directly under the page header.
+   Negative top margin pulls it tight against the h1 (whose own margin-bottom
+   is 32px) without removing visual breathing room. Muted color so the user
+   notices it but it doesn't compete with the title for attention. */
+.last-updated {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #8da4c0;
+  margin: -24px 0 20px 0;
+}
+
 /* Section headings used by each component */
 h2 {
   font-size: 1.3rem;
