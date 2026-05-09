@@ -32,12 +32,13 @@ API docs are auto-generated at http://localhost:8001/docs (Swagger UI).
 import os
 import asyncio
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
-from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata
+from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata, bet_suggestions
+from betting import compute_composite_score, signals_to_json
 from park_factors import (
     get_park_factor,
     get_all_factors_with_meta,
@@ -3344,3 +3345,313 @@ async def get_vs_pitcher_stats(
             message=f"Error fetching vs-pitcher stats: {str(e)}",
             data=None,
         )
+
+
+# =============================================================================
+# BETTING EDGE ENDPOINT
+# =============================================================================
+# /betting/candidates ranks today's hitters by composite score across the
+# signals we have data for. See PLAN_BETTING_PAGE.md for the full scope and
+# backend/betting.py for the scoring math.
+#
+# Phase 1 implementation status:
+#   - Platoon advantage:    REAL (handedness from lineup + DB pitcher)
+#   - Pitcher vulnerability: REAL (FIP/WHIP/HR-per-9 from DB)
+#   - Recent form:          REAL (14-day rolling OPS from batter_game_logs)
+#   - Park factor:          REAL (Baseball Savant via park_factors module)
+#   - BvP:                  STUB (returns neutral). Phase 1.5 adds the per-batter
+#                           statsapi vsPlayerTotal lookup. Skipped for now because
+#                           it's N concurrent API calls per request and the rest
+#                           of the pipeline is more valuable to ship first.
+#
+# Persistence: every successful generation writes one row per candidate to
+# bet_suggestions. Re-running for the same date deletes the previous rows
+# first so the audit always reflects the latest generation.
+
+
+def _compute_rolling_ops_map(
+    rows: list, cutoff_date: str
+) -> dict[int, float]:
+    """
+    Compute 14-day rolling OPS per batter from batter_game_logs rows.
+
+    Polars expression mirrors /players/rolling-stats but kept inline because
+    we only need OPS (no need to return all the other rolling stats).
+
+    Formula:
+        OBP = (H + BB + HBP) / (AB + BB + HBP + SF)
+        SLG = TB / AB    where TB = singles + 2*2B + 3*3B + 4*HR
+        OPS = OBP + SLG
+
+    Returns a dict mapping mlb_player_id -> rolling OPS. Players with 0 PA
+    in the window are omitted (caller treats them as "no rolling data").
+    """
+    if not rows:
+        return {}
+    df = pl.DataFrame([dict(r._mapping) for r in rows])
+    df = df.filter(pl.col("game_date") >= cutoff_date)
+    if df.is_empty():
+        return {}
+
+    # Aggregate by player.
+    agg = df.group_by("player_id").agg([
+        pl.col("at_bats").sum().alias("ab"),
+        pl.col("hits").sum().alias("h"),
+        pl.col("doubles").sum().alias("dbl"),
+        pl.col("triples").sum().alias("tpl"),
+        pl.col("home_runs").sum().alias("hr"),
+        pl.col("walks").sum().alias("bb"),
+        pl.col("hit_by_pitch").sum().alias("hbp"),
+        pl.col("sacrifice_flies").sum().alias("sf"),
+    ])
+
+    # Compute OBP, SLG, OPS. Singles = H - 2B - 3B - HR. TB likewise.
+    agg = agg.with_columns([
+        (pl.col("h") - pl.col("dbl") - pl.col("tpl") - pl.col("hr")).alias("singles"),
+    ])
+    agg = agg.with_columns([
+        (pl.col("singles") + 2 * pl.col("dbl") + 3 * pl.col("tpl") + 4 * pl.col("hr")).alias("tb"),
+    ])
+    agg = agg.with_columns([
+        # OBP — guard against zero PA
+        pl.when((pl.col("ab") + pl.col("bb") + pl.col("hbp") + pl.col("sf")) > 0)
+          .then((pl.col("h") + pl.col("bb") + pl.col("hbp")) / (pl.col("ab") + pl.col("bb") + pl.col("hbp") + pl.col("sf")))
+          .otherwise(0.0)
+          .alias("obp"),
+        # SLG — guard against zero AB
+        pl.when(pl.col("ab") > 0)
+          .then(pl.col("tb") / pl.col("ab"))
+          .otherwise(0.0)
+          .alias("slg"),
+    ])
+    agg = agg.with_columns((pl.col("obp") + pl.col("slg")).alias("ops"))
+
+    # Filter to players with at least 10 PA in the window — fewer than that
+    # is too noisy (a single 4-for-4 game overwhelms the math).
+    agg = agg.filter((pl.col("ab") + pl.col("bb") + pl.col("hbp") + pl.col("sf")) >= 10)
+
+    out: dict[int, float] = {}
+    for row in agg.iter_rows(named=True):
+        out[int(row["player_id"])] = round(float(row["ops"]), 3)
+    return out
+
+
+@app.get("/betting/candidates", response_model=ApiResponse)
+async def get_betting_candidates(
+    date: Optional[str] = Query(None, description="Game date YYYY-MM-DD (defaults to today)"),
+    top_n: int = Query(8, ge=1, le=20, description="How many top candidates to return"),
+    min_pitcher_ip: float = Query(20.0, ge=0.0, description="Min innings pitched for the opposing pitcher to count (filters tiny-sample noise)"),
+):
+    """
+    Generate today's top hitter betting candidates by composite scoring.
+
+    Orchestrates the data foundation (handedness, pitcher rate stats, rolling
+    form, park factors) into a single ranked list. Persists every row to
+    bet_suggestions so the Phase 2 audit page can join actual game results
+    against what we suggested.
+
+    Query params:
+        date            ISO date "YYYY-MM-DD". Defaults to today.
+        top_n           1..20. Default 8 (matches the spec's 5-8 candidates).
+        min_pitcher_ip  Minimum IP for the opposing pitcher to be considered.
+                        Default 20 — filters out small-sample relievers whose
+                        FIP is statistical noise.
+
+    Returns:
+        ApiResponse with data={"date", "candidates": [...], "generated_at"}
+    """
+    # Resolve target date
+    target_date = date or datetime.now().strftime("%Y-%m-%d")
+    # statsapi.schedule wants MM/DD/YYYY
+    sched_date = datetime.strptime(target_date, "%Y-%m-%d").strftime("%m/%d/%Y")
+
+    # ---------- 1. Today's schedule ----------
+    schedule = await asyncio.to_thread(statsapi.schedule, date=sched_date)
+    if not schedule:
+        return ApiResponse(
+            code=200,
+            message=f"No MLB games scheduled for {target_date}",
+            data={"date": target_date, "candidates": [], "generated_at": None},
+        )
+
+    # ---------- 2. For each game, fetch full game data (lineups + probable pitchers) ----------
+    async def fetch_game(game_id: int):
+        return await asyncio.to_thread(statsapi.get, "game", {"gamePk": game_id})
+
+    game_data_results = await asyncio.gather(
+        *[fetch_game(g["game_id"]) for g in schedule],
+        return_exceptions=True,
+    )
+
+    # ---------- 3. Park factor lookup (cached, sync) ----------
+    park_meta = get_all_factors_with_meta()
+
+    # Build a list of (game_context, batter_dict, opposing_pitcher_id) tuples.
+    # Each tuple is one potential candidate to score.
+    matchup_rows: list[dict] = []
+    pitcher_ids_needed: set[int] = set()
+    batter_ids_needed: set[int] = set()
+
+    for sched_game, game_data in zip(schedule, game_data_results):
+        if isinstance(game_data, Exception):
+            continue
+        prob = game_data.get("gameData", {}).get("probablePitchers", {})
+        boxscore = game_data.get("liveData", {}).get("boxscore", {}).get("teams", {})
+        venue_name = sched_game.get("venue_name", "")
+        park = get_park_factor(venue_name)
+        runs_factor = park["runs"] if park else None
+
+        # We need pitcher handedness too — the game API typically embeds this
+        # under the player record but the simplest source for our pipeline is
+        # the DB pitchers table (where we already populated `throws`).
+        for offense_side in ["home", "away"]:
+            opposing = "away" if offense_side == "home" else "home"
+            opposing_pid = (prob.get(opposing) or {}).get("id")
+            opposing_pname = (prob.get(opposing) or {}).get("fullName", "TBD")
+            if not opposing_pid:
+                continue  # No probable pitcher announced on the other side
+
+            pitcher_ids_needed.add(opposing_pid)
+            team_data = boxscore.get(offense_side, {})
+            batting_order = team_data.get("battingOrder", [])
+            players_dict = team_data.get("players", {})
+
+            for pid in batting_order:
+                player = players_dict.get(f"ID{pid}", {})
+                person = player.get("person", {})
+                bats = (person.get("batSide") or {}).get("code")  # 'L'/'R'/'S' or None
+                season_batting = player.get("seasonStats", {}).get("batting", {})
+                # Season OPS comes back as a string from MLB API; coerce safely.
+                try:
+                    season_ops = float(season_batting.get("ops", 0))
+                except (ValueError, TypeError):
+                    season_ops = None
+
+                batter_ids_needed.add(pid)
+                matchup_rows.append({
+                    "player_mlb_id": pid,
+                    "player_name": person.get("fullName", "Unknown"),
+                    "player_team": team_data.get("team", {}).get("name", ""),
+                    "bats": bats,
+                    "season_ops": season_ops,
+                    "game_id": sched_game["game_id"],
+                    "opposing_pitcher_mlb_id": opposing_pid,
+                    "opposing_pitcher_name": opposing_pname,
+                    "venue": venue_name,
+                    "park_runs_factor": runs_factor,
+                })
+
+    if not matchup_rows:
+        return ApiResponse(
+            code=200,
+            message=f"No batters with announced lineups for {target_date}",
+            data={"date": target_date, "candidates": [], "generated_at": None},
+        )
+
+    # ---------- 4. Bulk-load opposing pitcher stats from DB ----------
+    pitcher_rows = await database.fetch_all(
+        pitchers.select().where(pitchers.c.mlb_id.in_(list(pitcher_ids_needed)))
+    )
+    pitcher_lookup: dict[int, dict] = {}
+    for r in pitcher_rows:
+        m = dict(r._mapping)
+        ip = m.get("innings_pitched") or 0
+        if ip < min_pitcher_ip:
+            continue  # filter out noise-sample pitchers
+        # Compute FIP, K/9, BB/9, HR/9 inline (same formulas as /pitchers/computed)
+        hr = m.get("home_runs_allowed") or 0
+        bb = m.get("walks") or 0
+        hbp = m.get("hit_by_pitch") or 0
+        k = m.get("strikeouts") or 0
+        fip = round(((13 * hr) + (3 * (bb + hbp)) - (2 * k)) / ip + 3.15, 2) if ip > 0 else None
+        hr_per_9 = round(hr / ip * 9, 2) if ip > 0 else None
+        pitcher_lookup[m["mlb_id"]] = {
+            "throws": m.get("throws"),
+            "fip": fip,
+            "whip": m.get("whip"),
+            "hr_per_9": hr_per_9,
+            "innings_pitched": ip,
+            "name": m.get("name"),
+        }
+
+    # ---------- 5. Bulk-load 14-day rolling stats from batter_game_logs ----------
+    cutoff = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=14)).strftime("%Y-%m-%d")
+    log_rows = await database.fetch_all(
+        batter_game_logs.select().where(batter_game_logs.c.player_id.in_(list(batter_ids_needed)))
+    )
+    rolling_ops_map = _compute_rolling_ops_map(log_rows, cutoff)
+
+    # ---------- 6. Score every matchup ----------
+    candidates = []
+    for row in matchup_rows:
+        pdata = pitcher_lookup.get(row["opposing_pitcher_mlb_id"])
+        if pdata is None:
+            continue  # Pitcher filtered out (below min_pitcher_ip or not in DB)
+
+        rolling_ops = rolling_ops_map.get(row["player_mlb_id"])
+
+        result = compute_composite_score(
+            bats=row["bats"],
+            throws=pdata["throws"],
+            pitcher_fip=pdata["fip"],
+            pitcher_whip=pdata["whip"],
+            pitcher_hr_per_9=pdata["hr_per_9"],
+            rolling_ops=rolling_ops,
+            season_ops=row["season_ops"],
+            bvp_pa=None,    # Phase 1.5: hydrate from statsapi vsPlayerTotal
+            bvp_ops=None,
+            park_runs_factor=row["park_runs_factor"],
+        )
+
+        candidates.append({
+            **row,
+            "composite_score": result["composite_score"],
+            "signals": result["signals"],
+            "summary": result["summary"],
+        })
+
+    candidates.sort(key=lambda c: c["composite_score"], reverse=True)
+    top = candidates[:top_n]
+    for i, c in enumerate(top, start=1):
+        c["rank"] = i
+
+    # ---------- 7. Persist to bet_suggestions ----------
+    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    # Idempotent: clear any existing rows for this date, then insert the new set.
+    await database.execute(
+        bet_suggestions.delete().where(bet_suggestions.c.suggested_date == target_date)
+    )
+    if top:
+        rows_to_insert = [
+            {
+                "suggested_date": target_date,
+                "generated_at": generated_at,
+                "rank": c["rank"],
+                "player_mlb_id": c["player_mlb_id"],
+                "player_name": c["player_name"],
+                "player_team": c.get("player_team"),
+                "game_id": c.get("game_id"),
+                "opposing_pitcher_mlb_id": c.get("opposing_pitcher_mlb_id"),
+                "opposing_pitcher_name": c.get("opposing_pitcher_name"),
+                "venue": c.get("venue"),
+                "composite_score": c["composite_score"],
+                "signals_json": signals_to_json(c["signals"]),
+                "summary": c["summary"],
+            }
+            for c in top
+        ]
+        await database.execute_many(bet_suggestions.insert(), rows_to_insert)
+
+    return ApiResponse(
+        code=200,
+        message=f"Top {len(top)} betting candidates for {target_date}",
+        data={
+            "date": target_date,
+            "generated_at": generated_at,
+            "park_factor_meta": {
+                "source": park_meta["source"],
+                "year_range": park_meta["year_range"],
+            },
+            "candidates": top,
+        },
+    )

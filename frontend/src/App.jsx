@@ -45,6 +45,7 @@ import LeagueSelector from './components/LeagueSelector'
 import PlayerModal from './components/PlayerModal'
 import PlayerComparison from './components/PlayerComparison'
 import MatchupsPage from './components/MatchupsPage'
+import BettingPage from './components/BettingPage'
 import { fuzzyNameMatch, fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
@@ -705,6 +706,43 @@ function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // BETTING EDGE PAGE VIEW
+  // ---------------------------------------------------------------------------
+  // Renders the /betting candidates page. Same shell as the matchups view
+  // (header + last-updated banner + content), reusing the PlayerModal so
+  // clicking a candidate name drills into the full player detail view.
+  if (currentView === 'betting') {
+    return (
+      <div className="app">
+        <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+        {renderLastUpdated()}
+        <div style={{ textAlign: 'center', marginTop: '-10px', marginBottom: '20px' }}>
+          <span
+            className="matchups-nav-link"
+            onClick={() => setCurrentView('dashboard')}
+          >
+            &larr; Back to Stats
+          </span>
+        </div>
+        <BettingPage
+          onPlayerClick={(player) => {
+            // Treat candidate as a batter — that's what /betting/candidates returns.
+            setModalPlayer(player)
+            setModalPlayerType('batter')
+          }}
+        />
+        {modalPlayer && (
+          <PlayerModal
+            player={modalPlayer}
+            playerType={modalPlayerType}
+            onClose={handleModalClose}
+          />
+        )}
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // POSITION FILTERING
   // ---------------------------------------------------------------------------
   // Position filter groups for the dropdown
@@ -836,16 +874,21 @@ function App() {
       <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
       {renderLastUpdated()}
 
-      {/* Navigation link to the Matchups page.
-          This sits just below the main title as a simple text link.
-          Clicking it sets currentView='matchups', which triggers a re-render
-          that swaps the entire dashboard for the MatchupsPage component. */}
-      <div style={{ textAlign: 'center', marginTop: '-20px', marginBottom: '20px' }}>
+      {/* Navigation links below the main title. Two text-link "tabs" that
+          swap the dashboard for either the matchups page or the betting
+          edge page. Both use the same simple state-based routing pattern. */}
+      <div style={{ textAlign: 'center', marginTop: '-20px', marginBottom: '20px', display: 'flex', justifyContent: 'center', gap: '24px' }}>
         <span
           className="matchups-nav-link"
           onClick={() => setCurrentView('matchups')}
         >
           Today's Pitching Matchups &rarr;
+        </span>
+        <span
+          className="matchups-nav-link"
+          onClick={() => setCurrentView('betting')}
+        >
+          Betting Edge &rarr;
         </span>
       </div>
 
