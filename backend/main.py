@@ -38,6 +38,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
 from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata
+from park_factors import (
+    get_park_factor,
+    get_all_factors_with_meta,
+    classify_park_factor,
+    refresh_park_factors_cache,
+)
 from schemas import (
     PlayerIn, PlayerOut, PlayerUpdate,
     PitcherIn, PitcherOut, PitcherUpdate,
@@ -158,6 +164,40 @@ async def get_available_seasons():
     }
 
 
+@app.get("/parks/factors", response_model=ApiResponse)
+async def get_park_factors():
+    """
+    Return the cached park-factor lookup with freshness metadata.
+
+    Source priority:
+        1. Live data from Baseball Savant (3-year rolling window) — refreshed
+           on every server startup.
+        2. Static fallback values (2023-2024 estimates) when the Savant fetch
+           fails or for new/temporary venues with insufficient sample size.
+
+    The response includes `source`, `year_range`, and `fetched_at` so the
+    frontend can show users which data is being displayed (and how fresh).
+
+    Returns:
+        ApiResponse with data={
+            "factors": {<venue_name>: {"runs": int, "hr": int, "team": str}, ...},
+            "source": "baseball_savant" | "static_fallback",
+            "year_range": "2024-2026" or "static fallback (...)",
+            "fetched_at": ISO-8601 UTC timestamp,
+            "venue_count": int,
+        }
+    """
+    cache = get_all_factors_with_meta()
+    return ApiResponse(
+        code=200,
+        message=(
+            f"Park factors for {cache['venue_count']} venues "
+            f"(source: {cache['source']}, range: {cache['year_range']})"
+        ),
+        data=cache,
+    )
+
+
 @app.get("/system/last-updated", response_model=ApiResponse)
 async def get_last_updated():
     """
@@ -222,6 +262,12 @@ async def startup():
         await populate_sample_data()
     # Start keep-alive background task (only active on Render)
     asyncio.create_task(keep_alive())
+
+    # Refresh park factors from Baseball Savant in the background. The cache
+    # is pre-populated with static fallback values at module import, so first
+    # requests during the in-flight fetch get sensible output. When Savant
+    # responds (~1-2s), the cache is replaced with current 3-year-rolling data.
+    asyncio.create_task(refresh_park_factors_cache())
 
 
 @app.on_event("shutdown")
@@ -1045,6 +1091,11 @@ async def get_pitcher_aggregated_stats(season: Optional[str] = None):
     if df.is_empty():
         return {"detail": "No pitcher data available."}
 
+    # League-average FIP across qualified pitchers (IP > 0). Computed inline
+    # because FIP isn't stored — it's derived from HR / BB / HBP / K / IP.
+    # Filtering to IP > 0 prevents division-by-zero from leaking into the mean.
+    df_with_ip = df.filter(pl.col("innings_pitched") > 0) if "innings_pitched" in df.columns else df
+
     # Compute averages for key pitching stats
     avg_stats = df.select([
         pl.col("era").mean().round(2).alias("avg_era"),
@@ -1056,7 +1107,22 @@ async def get_pitcher_aggregated_stats(season: Optional[str] = None):
         pl.col("walks").mean().round(1).alias("avg_walks"),
     ])
 
-    return avg_stats.to_dict(as_series=False)
+    result = avg_stats.to_dict(as_series=False)
+
+    # Append average FIP if we have any qualified pitchers
+    if not df_with_ip.is_empty() and "hit_by_pitch" in df_with_ip.columns:
+        avg_fip = df_with_ip.select(
+            (
+                (
+                    (pl.col("home_runs_allowed") * 13)
+                    + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
+                    - (pl.col("strikeouts") * 2)
+                ) / pl.col("innings_pitched") + 3.15
+            ).mean().round(2)
+        ).item()
+        result["avg_fip"] = [avg_fip]
+
+    return result
 
 
 @app.get("/pitchers/computed")
@@ -1104,11 +1170,34 @@ async def get_pitcher_computed_stats(season: Optional[str] = None):
         # Lower is better. League average ~1.2, elite <0.7.
         # Key fantasy stat because home runs are the most damaging hit type.
         ((pl.col("home_runs_allowed") / pl.col("innings_pitched")) * 9).round(2).alias("hr_per_9"),
+
+        # FIP: Fielding Independent Pitching. Estimates a pitcher's run prevention
+        # using only the outcomes they directly control (HR, BB, HBP, K), stripping
+        # out defense + batted-ball luck. Better than ERA at predicting future
+        # performance — a high FIP with a low ERA usually means a pitcher is due
+        # to regress upward.
+        #
+        # Canonical formula:
+        #   FIP = (13*HR + 3*(BB + HBP) - 2*K) / IP + FIP_constant
+        #
+        # FIP_constant is a yearly league-wide adjustment that makes league-average
+        # FIP equal league-average ERA. ~3.15 for recent MLB seasons (2024). Update
+        # annually if drift is observed.
+        #
+        # .fill_null(0) on hit_by_pitch handles older rows backfilled before the
+        # column was populated.
+        (
+            (
+                (pl.col("home_runs_allowed") * 13)
+                + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
+                - (pl.col("strikeouts") * 2)
+            ) / pl.col("innings_pitched") + 3.15
+        ).round(2).alias("fip"),
     ])
 
     result = computed.select([
         "id", "name", "team",
-        "k_per_9", "bb_per_9", "k_bb_ratio", "win_pct", "hr_per_9"
+        "k_per_9", "bb_per_9", "k_bb_ratio", "win_pct", "hr_per_9", "fip"
     ])
 
     return result.to_dicts()
@@ -1268,6 +1357,27 @@ async def get_pitcher_filterable_stats(season: Optional[str] = None):
             "avg": round(hr9_avg, 2) if hr9_avg is not None else round(hr9_min, 2),
         })
 
+        # FIP: Fielding Independent Pitching — see /pitchers/computed for the
+        # formula. Surfaced here so the search UI auto-renders min_fip / max_fip
+        # range inputs for "find vulnerable pitchers" workflows.
+        fip_expr = (
+            (
+                (pl.col("home_runs_allowed") * 13)
+                + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
+                - (pl.col("strikeouts") * 2)
+            ) / pl.col("innings_pitched") + 3.15
+        )
+        fip_min = df_with_ip.select(fip_expr.min()).item()
+        fip_max = df_with_ip.select(fip_expr.max()).item()
+        fip_avg = df_with_ip.select(fip_expr.mean()).item()
+        stat_info.append({
+            "name": "fip",
+            "type": "float",
+            "min": round(fip_min, 2) if fip_min is not None else 0.0,
+            "max": round(fip_max, 2) if fip_max is not None else 0.0,
+            "avg": round(fip_avg, 2) if fip_avg is not None else round(fip_min or 0.0, 2),
+        })
+
     # --- K/BB needs walks > 0 to avoid division by zero ---
     df_with_bb = df.filter(pl.col("walks") > 0)
     if not df_with_bb.is_empty():
@@ -1399,6 +1509,22 @@ async def search_pitchers(
           .then(((pl.col("home_runs_allowed") / pl.col("innings_pitched")) * 9).round(2))
           .otherwise(None)
           .alias("hr_per_9"),
+
+        # FIP: Fielding Independent Pitching — defense-neutral run prevention estimate.
+        # Formula: (13*HR + 3*(BB+HBP) - 2*K) / IP + 3.15
+        # See /pitchers/computed for full explanation. Lower is better; a useful
+        # complement to ERA when scouting for vulnerable pitchers (high FIP + low
+        # ERA = regression candidate).
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((
+              (
+                  (pl.col("home_runs_allowed") * 13)
+                  + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
+                  - (pl.col("strikeouts") * 2)
+              ) / pl.col("innings_pitched") + 3.15
+          ).round(2))
+          .otherwise(None)
+          .alias("fip"),
     ])
 
     # --- Dynamic stat range filters ---
@@ -1411,7 +1537,7 @@ async def search_pitchers(
     # Combine raw database columns with computed stat columns.
     # This lets the same filtering loop handle both types seamlessly —
     # the loop doesn't need to know whether a column is raw or computed.
-    computed_stat_cols = ["k_per_9", "bb_per_9", "k_bb_ratio", "hr_per_9"]
+    computed_stat_cols = ["k_per_9", "bb_per_9", "k_bb_ratio", "hr_per_9", "fip"]
     all_filterable_cols = numeric_cols + computed_stat_cols
 
     for stat in all_filterable_cols:
@@ -2794,6 +2920,19 @@ async def get_todays_matchups():
             if away_pid:
                 pitcher_ids.add(away_pid)
 
+            # Look up park factor for this venue. None when the venue isn't in
+            # the static lookup yet (new/temporary stadiums) — the frontend
+            # treats None as "no data" instead of falsely showing 100.
+            venue_name = sched_game.get("venue_name", "")
+            park = get_park_factor(venue_name)
+            park_factor_payload = None
+            if park is not None:
+                park_factor_payload = {
+                    "runs": park["runs"],
+                    "hr": park["hr"],
+                    "category": classify_park_factor(park["runs"]),
+                }
+
             # Build the game object with basic info + pitcher IDs
             games.append({
                 "game_id": sched_game["game_id"],
@@ -2809,7 +2948,8 @@ async def get_todays_matchups():
                     "mlb_id": away_pid,
                     "name": away_pitcher_info.get("fullName", "TBD"),
                 },
-                "venue": sched_game.get("venue_name", ""),
+                "venue": venue_name,
+                "park_factor": park_factor_payload,
             })
 
         # Step 4: Batch-fetch pitcher career + season stats.
@@ -2855,10 +2995,25 @@ async def get_todays_matchups():
                     game[side]["season_stats"] = _format_pitcher_stats(None)
                     game[side]["throws"] = None
 
+        # Include park-factor source metadata so the frontend can show users
+        # which data backs the venue badges (Baseball Savant rolling window vs
+        # static fallback). Per-game `park_factor` payloads stay in each game
+        # object; this is just the freshness/source pointer for them.
+        meta = get_all_factors_with_meta()
+        park_factor_meta = {
+            "source": meta["source"],
+            "year_range": meta["year_range"],
+            "fetched_at": meta["fetched_at"],
+        }
+
         return ApiResponse(
             code=200,
             message=f"Found {len(games)} games for {today_str}",
-            data={"date": today_str, "games": games},
+            data={
+                "date": today_str,
+                "games": games,
+                "park_factor_meta": park_factor_meta,
+            },
         )
 
     except Exception as e:

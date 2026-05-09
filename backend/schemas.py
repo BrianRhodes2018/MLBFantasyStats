@@ -202,6 +202,7 @@ class PitcherIn(BaseModel):
     walks: int
     strikeouts: int
     home_runs_allowed: Optional[int] = None
+    hit_by_pitch: Optional[int] = None       # HBP - Hit batters (needed for true FIP)
     saves: Optional[int] = None
     quality_starts: Optional[int] = None     # QS - Quality Starts (6+ IP, 3 or fewer ER)
     mlb_id: Optional[int] = None             # MLB Stats API player ID
@@ -228,6 +229,7 @@ class PitcherUpdate(BaseModel):
     walks: Optional[int] = None
     strikeouts: Optional[int] = None
     home_runs_allowed: Optional[int] = None
+    hit_by_pitch: Optional[int] = None
     saves: Optional[int] = None
     quality_starts: Optional[int] = None
     mlb_id: Optional[int] = None

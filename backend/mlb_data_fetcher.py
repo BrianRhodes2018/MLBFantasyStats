@@ -502,6 +502,7 @@ def get_qualified_pitchers(season: int, limit: int = 1000, qualified_only: bool 
             'walks': stat.get('baseOnBalls', 0),
             'strikeouts': stat.get('strikeOuts', 0),
             'home_runs_allowed': stat.get('homeRuns', 0),
+            'hit_by_pitch': stat.get('hitByPitch', 0),  # HBP - needed for true FIP
             'saves': stat.get('saves', 0),
             'quality_starts': None,                     # Computed from game logs later
             'mlb_id': player_info.get('id'),            # MLB API unique player ID
@@ -628,6 +629,7 @@ def get_all_pitchers(season: int) -> pl.DataFrame:
                                 'walks': pitching_stats.get('baseOnBalls', 0),
                                 'strikeouts': pitching_stats.get('strikeOuts', 0),
                                 'home_runs_allowed': pitching_stats.get('homeRuns', 0),
+                                'hit_by_pitch': pitching_stats.get('hitByPitch', 0),  # HBP - needed for true FIP
                                 'saves': pitching_stats.get('saves', 0),
                                 'quality_starts': None,     # Computed from game logs later
                                 'mlb_id': player_id,        # MLB API unique player ID
@@ -833,6 +835,7 @@ def get_pitcher_game_logs(player_id: int, player_name: str, team: str, season: i
                         'walks': game_stat.get('baseOnBalls', 0),
                         'strikeouts': game_stat.get('strikeOuts', 0),
                         'home_runs_allowed': game_stat.get('homeRuns', 0),
+                        'hit_by_pitch': game_stat.get('hitByPitch', 0),  # HBP per game (for rolling FIP)
                         'wins': wins,
                         'losses': losses,
                         'saves': saves,

@@ -64,6 +64,86 @@ body {
   margin: -24px 0 20px 0;
 }
 
+/* ===========================================================================
+   VENUE + PARK FACTOR BAR (matchups page)
+   ===========================================================================
+   Sits between the game card header and the pitcher panels. The badge is
+   color-coded by park_factor.category so the user can scan a slate quickly:
+     - hitter-friendly → green-tinted
+     - pitcher-friendly → blue-tinted
+     - neutral → gray
+   Hover gives the raw runs/HR factors via the title attribute. */
+.game-venue-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #162236;
+  border-bottom: 1px solid #2a3f5f;
+  font-size: 0.85rem;
+  color: #c4ced4;
+}
+
+.game-venue-bar .venue-name {
+  font-weight: 500;
+  color: #e8ecf0;
+}
+
+.park-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.park-badge.park-hitter-friendly {
+  background: rgba(76, 175, 80, 0.18);
+  color: #8edb91;
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.park-badge.park-pitcher-friendly {
+  background: rgba(74, 144, 217, 0.18);
+  color: #7fb3e8;
+  border: 1px solid rgba(74, 144, 217, 0.4);
+}
+
+.park-badge.park-neutral {
+  background: rgba(180, 180, 180, 0.12);
+  color: #b0b8c2;
+  border: 1px solid rgba(180, 180, 180, 0.3);
+}
+
+.park-badge .park-factor-detail {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+/* Source attribution line above the matchup grid (e.g. "Park factors:
+   Baseball Savant · 2024-2026 rolling"). Subtle so it doesn't compete
+   with the matchup cards but discoverable enough that users know where
+   the numbers come from. */
+.park-factor-meta {
+  text-align: center;
+  font-size: 0.78rem;
+  color: #8da4c0;
+  margin: 0 0 16px 0;
+}
+
+.park-factor-meta a {
+  color: #7fb3e8;
+  text-decoration: none;
+}
+
+.park-factor-meta a:hover {
+  text-decoration: underline;
+}
+
 /* Section headings used by each component */
 h2 {
   font-size: 1.3rem;

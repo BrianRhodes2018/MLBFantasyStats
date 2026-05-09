@@ -218,6 +218,12 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward park factor routes (used on the matchups page to surface
+      // hitter-friendly / pitcher-friendly venues).
+      '/parks': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
 })

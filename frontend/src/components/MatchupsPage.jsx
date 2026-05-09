@@ -77,6 +77,12 @@ export default function MatchupsPage({ season }) {
   //     away_pitcher: { ... } }
   const [games, setGames] = useState([])
 
+  // parkFactorMeta: { source, year_range, fetched_at } — describes which dataset
+  // the per-game park_factor values come from (Baseball Savant rolling window
+  // vs static fallback). Surfaced as a small footer note on the page so users
+  // know the freshness of the venue badges.
+  const [parkFactorMeta, setParkFactorMeta] = useState(null)
+
   // expandedGames: A Set of game_id values for games the user has clicked to expand.
   // We use a Set for O(1) lookups when checking if a game is expanded.
   // NOTE: React state must be immutable — we create a NEW Set each time
@@ -130,6 +136,7 @@ export default function MatchupsPage({ season }) {
       const json = await res.json()
       if (json.code === 200 && json.data) {
         setGames(json.data.games || [])
+        setParkFactorMeta(json.data.park_factor_meta || null)
         setError(null)
       } else {
         setError(json.message || 'Failed to load matchups')
@@ -607,6 +614,32 @@ export default function MatchupsPage({ season }) {
         </div>
       )}
 
+      {/* Park factor source attribution. Shown above the matchup grid so users
+          know whether badges reflect live Baseball Savant data or the static
+          fallback. The fetched_at timestamp helps debug stale data on cold
+          starts where the Savant fetch hasn't completed yet. */}
+      {parkFactorMeta && (
+        <div className="park-factor-meta">
+          Park factors:{' '}
+          {parkFactorMeta.source === 'baseball_savant' ? (
+            <>
+              <a
+                href="https://baseballsavant.mlb.com/leaderboard/statcast-park-factors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Baseball Savant
+              </a>{' '}
+              · {parkFactorMeta.year_range} rolling
+            </>
+          ) : (
+            <span title={parkFactorMeta.year_range}>
+              static fallback (Baseball Savant unreachable)
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Game cards — one card per game with pitcher stats and expandable lineups */}
       <div className="matchups-grid">
         {games.map((game) => {
@@ -635,6 +668,33 @@ export default function MatchupsPage({ season }) {
                   </span>
                 </div>
               </div>
+
+              {/* Venue + park factor bar — shows where the game is being played
+                  and how hitter- or pitcher-friendly the stadium is. The badge
+                  is color-coded so users can scan a long slate at a glance:
+                  green = hitter-friendly, blue = pitcher-friendly, gray = neutral.
+                  Park factor data comes from /parks/factors (joined into the
+                  /matchups/today response on the backend). When the venue isn't
+                  in the lookup (new/temporary stadiums) we render the venue
+                  name without a badge rather than misleadingly showing 100. */}
+              {(game.venue || game.park_factor) && (
+                <div className="game-venue-bar">
+                  {game.venue && <span className="venue-name">{game.venue}</span>}
+                  {game.park_factor && (
+                    <span
+                      className={`park-badge park-${game.park_factor.category}`}
+                      title={`Runs factor ${game.park_factor.runs}, HR factor ${game.park_factor.hr}. 100 = league-neutral; >100 = hitter-friendly; <100 = pitcher-friendly.`}
+                    >
+                      {game.park_factor.category === 'hitter-friendly' && 'Hitter-friendly'}
+                      {game.park_factor.category === 'pitcher-friendly' && 'Pitcher-friendly'}
+                      {game.park_factor.category === 'neutral' && 'Neutral park'}
+                      <span className="park-factor-detail">
+                        {' '}· Runs {game.park_factor.runs} · HR {game.park_factor.hr}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Pitcher panels — always visible (not just when expanded).
                   Shows both starting pitchers side-by-side with their stats. */}
