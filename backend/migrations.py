@@ -66,12 +66,27 @@ def run_migrations():
             "quality_starts": "INTEGER",  # QS - Quality Starts
             "mlb_id": "INTEGER",          # MLB Stats API player ID
             "throws": "VARCHAR(2)",       # Throwing handedness: 'R' or 'L'
+            "hit_by_pitch": "INTEGER",    # HBP - Hit By Pitch (needed for true FIP)
         }
 
         with engine.connect() as conn:
             for col_name, col_type in pitcher_missing.items():
                 if col_name not in existing_pitcher_cols:
                     conn.execute(text(f"ALTER TABLE pitchers ADD COLUMN {col_name} {col_type}"))
+            conn.commit()
+
+    # --- Pitcher game logs table migrations ---
+    # Add HBP at the per-game level so rolling FIP windows can be computed.
+    if inspector.has_table("pitcher_game_logs"):
+        existing_pgl_cols = [col["name"] for col in inspector.get_columns("pitcher_game_logs")]
+        pgl_missing = {
+            "hit_by_pitch": "INTEGER DEFAULT 0",  # HBP - per-game (for rolling FIP)
+        }
+
+        with engine.connect() as conn:
+            for col_name, col_type in pgl_missing.items():
+                if col_name not in existing_pgl_cols:
+                    conn.execute(text(f"ALTER TABLE pitcher_game_logs ADD COLUMN {col_name} {col_type}"))
             conn.commit()
 
     # --- Fantasy leagues table migrations ---

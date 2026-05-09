@@ -179,6 +179,13 @@ const COLUMNS = [
     mobileHide: true,
   },
   {
+    key: 'fip',
+    label: 'FIP',
+    tooltip: 'Fielding Independent Pitching (FIP)\n(13×HR + 3×(BB+HBP) − 2×K) ÷ IP + 3.15\nEstimates a pitcher\'s run prevention based only on the outcomes they directly control (HR, BB, HBP, K), stripping out defense and batted-ball luck. Better than ERA at predicting future performance — a pitcher with FIP much higher than ERA is usually due to regress upward.\nLower is better. Average: 4.00 | Good: 3.50 | Elite: <3.00',
+    isComputed: true,
+    mobileHide: true,
+  },
+  {
     key: 'fantasy_pts',
     label: 'Fantasy Pts',
     tooltip: 'Fantasy Points\nComputed based on the selected ESPN fantasy league\'s scoring settings.\nSelect a league in the header bar to see fantasy points.\nPoints = SUM(stat × league_point_value) for each scored category.',

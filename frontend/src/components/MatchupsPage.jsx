@@ -636,6 +636,33 @@ export default function MatchupsPage({ season }) {
                 </div>
               </div>
 
+              {/* Venue + park factor bar — shows where the game is being played
+                  and how hitter- or pitcher-friendly the stadium is. The badge
+                  is color-coded so users can scan a long slate at a glance:
+                  green = hitter-friendly, blue = pitcher-friendly, gray = neutral.
+                  Park factor data comes from /parks/factors (joined into the
+                  /matchups/today response on the backend). When the venue isn't
+                  in the lookup (new/temporary stadiums) we render the venue
+                  name without a badge rather than misleadingly showing 100. */}
+              {(game.venue || game.park_factor) && (
+                <div className="game-venue-bar">
+                  {game.venue && <span className="venue-name">{game.venue}</span>}
+                  {game.park_factor && (
+                    <span
+                      className={`park-badge park-${game.park_factor.category}`}
+                      title={`Runs factor ${game.park_factor.runs}, HR factor ${game.park_factor.hr}. 100 = league-neutral; >100 = hitter-friendly; <100 = pitcher-friendly.`}
+                    >
+                      {game.park_factor.category === 'hitter-friendly' && 'Hitter-friendly'}
+                      {game.park_factor.category === 'pitcher-friendly' && 'Pitcher-friendly'}
+                      {game.park_factor.category === 'neutral' && 'Neutral park'}
+                      <span className="park-factor-detail">
+                        {' '}· Runs {game.park_factor.runs} · HR {game.park_factor.hr}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Pitcher panels — always visible (not just when expanded).
                   Shows both starting pitchers side-by-side with their stats. */}
               <div className="pitcher-panels">

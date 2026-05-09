@@ -136,6 +136,14 @@ pitchers = Table(
     # Saves (for relief pitchers)
     Column("saves", Integer, nullable=True),
 
+    # Hit By Pitch (HBP from the pitcher's side — number of batters hit).
+    # Required for the standard FIP formula:
+    #   FIP = (13*HR + 3*(BB+HBP) - 2*K) / IP + FIP_constant
+    # Without HBP, FIP is approximate; with it, it matches the FanGraphs/MLB
+    # canonical formula. The MLB Stats API exposes this as `hitByPitch` on
+    # pitching splits (same key as batting, just on the pitching group).
+    Column("hit_by_pitch", Integer, nullable=True),
+
     # Quality Starts — a start where the pitcher goes 6+ IP with 3 or fewer ER.
     # Important fantasy baseball stat measuring pitcher reliability.
     Column("quality_starts", Integer, nullable=True),  # QS - Quality Starts
@@ -230,6 +238,7 @@ pitcher_game_logs = Table(
     Column("walks", Integer, default=0),               # BB
     Column("strikeouts", Integer, default=0),          # K
     Column("home_runs_allowed", Integer, default=0),   # HR allowed
+    Column("hit_by_pitch", Integer, default=0),        # HBP issued (needed for true FIP)
     Column("wins", Integer, default=0),                # 0 or 1 for this game
     Column("losses", Integer, default=0),              # 0 or 1
     Column("saves", Integer, default=0),               # 0 or 1
