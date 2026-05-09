@@ -115,9 +115,7 @@ function BettingPage({ onPlayerClick }) {
       <div className="betting-methodology">
         Composite score combines platoon advantage, opposing pitcher
         vulnerability (FIP / WHIP / HR/9), 14-day rolling OPS vs season
-        OPS, and park factor.
-        {' '}
-        <em>BvP history is stubbed in Phase 1 — adds in the next iteration.</em>
+        OPS, career batter-vs-pitcher history (≥10 PA), and park factor.
         {' '}
         Park factors:{' '}
         {data?.park_factor_meta?.source === 'baseball_savant' ? (
@@ -125,6 +123,8 @@ function BettingPage({ onPlayerClick }) {
         ) : (
           <>static fallback.</>
         )}
+        {' '}
+        <em>Each generation fans out ~270 BvP calls and takes 5-10 seconds.</em>
       </div>
 
       {!error && data && data.candidates?.length === 0 && (

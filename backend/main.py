@@ -3354,19 +3354,111 @@ async def get_vs_pitcher_stats(
 # signals we have data for. See PLAN_BETTING_PAGE.md for the full scope and
 # backend/betting.py for the scoring math.
 #
-# Phase 1 implementation status:
+# Phase 1 implementation status (all five signals real as of Phase 1.5):
 #   - Platoon advantage:    REAL (handedness from lineup + DB pitcher)
 #   - Pitcher vulnerability: REAL (FIP/WHIP/HR-per-9 from DB)
 #   - Recent form:          REAL (14-day rolling OPS from batter_game_logs)
 #   - Park factor:          REAL (Baseball Savant via park_factors module)
-#   - BvP:                  STUB (returns neutral). Phase 1.5 adds the per-batter
-#                           statsapi vsPlayerTotal lookup. Skipped for now because
-#                           it's N concurrent API calls per request and the rest
-#                           of the pipeline is more valuable to ship first.
+#   - BvP:                  REAL (statsapi vsPlayerTotal, ~270 calls fanned out
+#                           in chunks of 50; ~5-10s wall-clock per generation).
 #
 # Persistence: every successful generation writes one row per candidate to
 # bet_suggestions. Re-running for the same date deletes the previous rows
 # first so the audit always reflects the latest generation.
+
+
+async def _fetch_bvp_for_pairs(
+    pairs: list[tuple[int, int]],
+    chunk_size: int = 50,
+) -> dict[tuple[int, int], dict]:
+    """
+    Fetch career batter-vs-pitcher stats for many (batter_id, pitcher_id) pairs.
+
+    The MLB Stats API's vsPlayerTotal hydration only accepts ONE opposing
+    pitcher per call, so we need exactly N calls (one per pair). With a full
+    daily slate that's ~270 calls. We run them in chunks of 50 in parallel:
+    fast enough to keep the betting endpoint responsive (~5-10s wall clock)
+    without firing 270 concurrent requests at the public MLB API and risking
+    rate-limit pushback.
+
+    Pair-level errors are absorbed silently — pairs with no data or fetch
+    failures are simply omitted from the result map. score_bvp() in
+    betting.py handles missing data as "neutral, no signal", so the score
+    just doesn't get a BvP boost rather than crashing the whole endpoint.
+
+    Args:
+        pairs: list of (batter_mlb_id, pitcher_mlb_id) tuples to fetch
+        chunk_size: how many pairs to fetch concurrently. Default 50 is a
+                    deliberate compromise; bump if MLB API is comfortable
+                    with more, drop if we ever see 429s.
+
+    Returns:
+        dict mapping (batter_id, pitcher_id) -> {"pa": int, "ops": float}.
+        Pairs with no data or below-the-line samples are omitted entirely.
+    """
+    async def fetch_one(batter_id: int, pitcher_id: int):
+        """One call per pair. Returns ((b, p), {"pa": ..., "ops": ...}) or None."""
+        try:
+            data = await asyncio.to_thread(
+                statsapi.get, "people", {
+                    "personIds": batter_id,
+                    "hydrate": f"stats(group=[hitting],type=[vsPlayerTotal],opposingPlayerId={pitcher_id})",
+                }
+            )
+            stats_list = data.get("people", [{}])[0].get("stats", [])
+            for stat_group in stats_list:
+                display_name = stat_group.get("type", {}).get("displayName", "")
+                # vsPlayerTotal is the canonical type name; "vsPlayer" matches
+                # both the rolling-window vsPlayer and the all-time total.
+                if "vsPlayerTotal" not in display_name and "vsPlayer" not in display_name:
+                    continue
+                splits = stat_group.get("splits", [])
+                if not splits:
+                    continue
+                raw = splits[0].get("stat", {})
+
+                # PA: prefer plateAppearances when present; otherwise reconstruct
+                # from AB + BB + HBP + SF. Older API responses omit it.
+                pa = raw.get("plateAppearances")
+                if pa is None:
+                    pa = (
+                        raw.get("atBats", 0)
+                        + raw.get("baseOnBalls", 0)
+                        + raw.get("hitByPitch", 0)
+                        + raw.get("sacFlies", 0)
+                    )
+                try:
+                    pa = int(pa) if pa else 0
+                except (ValueError, TypeError):
+                    pa = 0
+
+                # OPS comes back as a decimal-leading string ("1.182", ".455", "-").
+                # float(".455") works in Python — leading dot is valid.
+                ops_str = raw.get("ops", "")
+                try:
+                    ops = float(ops_str) if ops_str and ops_str != "-" else None
+                except (ValueError, TypeError):
+                    ops = None
+
+                return ((batter_id, pitcher_id), {"pa": pa, "ops": ops})
+            return None
+        except Exception:
+            return None
+
+    result: dict[tuple[int, int], dict] = {}
+    for i in range(0, len(pairs), chunk_size):
+        chunk = pairs[i:i + chunk_size]
+        chunk_results = await asyncio.gather(
+            *[fetch_one(b, p) for b, p in chunk],
+            return_exceptions=True,
+        )
+        for entry in chunk_results:
+            if not entry or isinstance(entry, Exception):
+                continue
+            key, value = entry
+            if value is not None:
+                result[key] = value
+    return result
 
 
 def _compute_rolling_ops_map(
@@ -3581,7 +3673,17 @@ async def get_betting_candidates(
     )
     rolling_ops_map = _compute_rolling_ops_map(log_rows, cutoff)
 
-    # ---------- 6. Score every matchup ----------
+    # ---------- 6. Fetch career BvP for every (batter, opposing_pitcher) pair ----------
+    # Skip pairs whose pitcher got filtered out at step 4 (below min_pitcher_ip)
+    # so we don't waste calls on hitters who'd be skipped during scoring anyway.
+    bvp_pairs = [
+        (row["player_mlb_id"], row["opposing_pitcher_mlb_id"])
+        for row in matchup_rows
+        if row["opposing_pitcher_mlb_id"] in pitcher_lookup
+    ]
+    bvp_map = await _fetch_bvp_for_pairs(bvp_pairs)
+
+    # ---------- 7. Score every matchup ----------
     candidates = []
     for row in matchup_rows:
         pdata = pitcher_lookup.get(row["opposing_pitcher_mlb_id"])
@@ -3589,6 +3691,9 @@ async def get_betting_candidates(
             continue  # Pitcher filtered out (below min_pitcher_ip or not in DB)
 
         rolling_ops = rolling_ops_map.get(row["player_mlb_id"])
+        bvp = bvp_map.get((row["player_mlb_id"], row["opposing_pitcher_mlb_id"]))
+        bvp_pa = bvp["pa"] if bvp else None
+        bvp_ops = bvp["ops"] if bvp else None
 
         result = compute_composite_score(
             bats=row["bats"],
@@ -3598,8 +3703,8 @@ async def get_betting_candidates(
             pitcher_hr_per_9=pdata["hr_per_9"],
             rolling_ops=rolling_ops,
             season_ops=row["season_ops"],
-            bvp_pa=None,    # Phase 1.5: hydrate from statsapi vsPlayerTotal
-            bvp_ops=None,
+            bvp_pa=bvp_pa,
+            bvp_ops=bvp_ops,
             park_runs_factor=row["park_runs_factor"],
         )
 
@@ -3615,7 +3720,7 @@ async def get_betting_candidates(
     for i, c in enumerate(top, start=1):
         c["rank"] = i
 
-    # ---------- 7. Persist to bet_suggestions ----------
+    # ---------- 8. Persist to bet_suggestions ----------
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     # Idempotent: clear any existing rows for this date, then insert the new set.
     await database.execute(
