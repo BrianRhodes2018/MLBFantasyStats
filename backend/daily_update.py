@@ -40,8 +40,11 @@ MLB Season Schedule (approximate):
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+from sqlalchemy import text
+from database import engine, metadata
 
 # Set up logging
 log_file = Path(__file__).parent / 'logs' / 'mlb_updates.log'
@@ -56,6 +59,41 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def record_successful_update_timestamp() -> None:
+    """
+    Record the current UTC timestamp as the time of the last successful update.
+
+    Writes (or upserts) a single row in `system_metadata` keyed on
+    "last_stats_update". The frontend reads this via /system/last-updated to
+    show a "Stats last updated: ..." line under each page header.
+
+    Uses the synchronous SQLAlchemy engine (same pattern as run_migrations) so
+    we don't have to manage an async connection lifecycle here. The PostgreSQL
+    `ON CONFLICT` clause makes this an idempotent upsert.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO system_metadata (key, value, updated_at)
+                    VALUES ('last_stats_update', :ts, :ts)
+                    ON CONFLICT (key) DO UPDATE
+                        SET value = EXCLUDED.value,
+                            updated_at = EXCLUDED.updated_at
+                    """
+                ),
+                {"ts": now_iso},
+            )
+            conn.commit()
+        logger.info(f"Recorded last_stats_update = {now_iso}")
+    except Exception as e:
+        # Don't fail the whole update just because we couldn't write the timestamp.
+        # The stats data is what matters; the banner is a nicety.
+        logger.warning(f"Failed to record last_stats_update timestamp: {e}")
 
 
 def is_mlb_season() -> bool:
@@ -110,9 +148,13 @@ async def run_daily_update(skip_gamelogs: bool = False):
     logger.info("Starting MLB Stats Daily Update")
     logger.info("=" * 60)
 
-    # Ensure the schema is up-to-date before writing. This entry point doesn't
-    # import main.py, so migrations need to run here too — otherwise newly-added
-    # columns (e.g. handedness) would cause inserts/updates to fail.
+    # Ensure tables and schema are up-to-date before writing. main.py creates
+    # tables on startup via metadata.create_all(); we mirror that here so this
+    # entry point doesn't depend on the FastAPI server having booted first
+    # (e.g., a brand-new table like system_metadata that GitHub Actions may
+    # need to write before Render has redeployed).
+    metadata.create_all(bind=engine)
+
     from migrations import run_migrations
     run_migrations()
 
@@ -151,6 +193,7 @@ async def run_daily_update(skip_gamelogs: bool = False):
             logger.info("Pitcher game logs refreshed successfully")
 
         logger.info(f"Daily update completed successfully! (all {total_phases} phases)")
+        record_successful_update_timestamp()
 
     except Exception as e:
         logger.error(f"Error during daily update: {e}", exc_info=True)
@@ -183,6 +226,7 @@ async def run_full_refresh(season: int = None, all_players: bool = False):
     logger.info("=" * 60)
 
     # Apply schema migrations before any writes (see run_daily_update for context).
+    metadata.create_all(bind=engine)
     from migrations import run_migrations
     run_migrations()
 
@@ -192,6 +236,7 @@ async def run_full_refresh(season: int = None, all_players: bool = False):
         await populate_database_from_mlb(season=season, clear_existing=True, all_players=all_players)
 
         logger.info("Full refresh completed successfully!")
+        record_successful_update_timestamp()
 
     except Exception as e:
         logger.error(f"Error during full refresh: {e}", exc_info=True)
@@ -234,12 +279,14 @@ Examples:
     elif args.force:
         # Force update (bypass season check)
         logger.info("Force flag set - bypassing season check")
+        metadata.create_all(bind=engine)
         from migrations import run_migrations
         run_migrations()
         from mlb_data_fetcher import update_player_stats, update_pitcher_stats
         season = args.season or datetime.now().year
         asyncio.run(update_player_stats(season, all_players=args.all))
         asyncio.run(update_pitcher_stats(season, all_pitchers=args.all))
+        record_successful_update_timestamp()
     else:
         # Normal daily update (all 4 phases unless --skip-gamelogs)
         asyncio.run(run_daily_update(skip_gamelogs=args.skip_gamelogs))

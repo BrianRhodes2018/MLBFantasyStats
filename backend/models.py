@@ -315,3 +315,28 @@ fantasy_leagues = Table(
     # Timestamp of when this league was added (ISO format string "YYYY-MM-DD HH:MM:SS").
     Column("created_at", String(30), nullable=True),
 )
+
+
+# =============================================================================
+# SYSTEM METADATA TABLE
+# =============================================================================
+# Generic key/value store for app-wide metadata. Currently used to track when
+# the daily stats update last completed successfully — the frontend reads this
+# to display a "Stats last updated: ..." line under each page header.
+#
+# Why a key/value table instead of a dedicated column somewhere?
+# Other system-level facts will likely follow (last successful migration,
+# data version, feature flags). One generic table avoids schema churn.
+system_metadata = Table(
+    "system_metadata",
+    metadata,
+    # The metadata key (e.g., "last_stats_update"). One row per fact.
+    Column("key", String(100), primary_key=True),
+    # The value as a string. ISO-8601 UTC timestamps for time-based facts;
+    # arbitrary strings for anything else.
+    Column("value", String(500)),
+    # When this row was last written (ISO-8601 UTC). Same as `value` for
+    # time-based keys, but kept separately so non-time values can also be
+    # audited.
+    Column("updated_at", String(30)),
+)

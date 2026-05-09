@@ -139,6 +139,15 @@ function App() {
   const [availableSeasons, setAvailableSeasons] = useState([])
 
   // ---------------------------------------------------------------------------
+  // LAST-UPDATED BANNER STATE
+  // ---------------------------------------------------------------------------
+  // ISO-8601 string written by daily_update.py at the end of a successful run,
+  // exposed by GET /system/last-updated. Rendered as a small line under each
+  // page header so users know how fresh the stats are. null until the fetch
+  // resolves (or if no daily update has run yet on a fresh deployment).
+  const [lastUpdated, setLastUpdated] = useState(null)
+
+  // ---------------------------------------------------------------------------
   // PLAYER COMPARISON STATE
   // ---------------------------------------------------------------------------
   const [comparisonPlayers, setComparisonPlayers] = useState([])
@@ -274,15 +283,25 @@ function App() {
    * useEffect with an empty dependency array [] runs ONCE after the component
    * first renders (mounts). This is the React equivalent of "on page load".
    */
-  // Fetch available seasons on mount (once, from primary DB)
+  // Fetch one-time mount data (always from primary DB, never season-scoped):
+  //   - /seasons:              available historical-snapshot seasons
+  //   - /system/last-updated:  timestamp of the last successful daily update
+  // Both run in parallel since they're independent.
   useEffect(() => {
-    const loadSeasons = async () => {
-      const data = await safeFetch('/seasons', { includeSeason: false })
-      if (data?.available) {
-        setAvailableSeasons(data.available)
+    const loadOnMount = async () => {
+      const [seasonsData, lastUpdatedData] = await Promise.all([
+        safeFetch('/seasons', { includeSeason: false }),
+        safeFetch('/system/last-updated', { includeSeason: false }),
+      ])
+      if (seasonsData?.available) {
+        setAvailableSeasons(seasonsData.available)
+      }
+      // The endpoint wraps its payload in ApiResponse: { code, message, data: { last_updated } }
+      if (lastUpdatedData?.data?.last_updated) {
+        setLastUpdated(lastUpdatedData.data.last_updated)
       }
     }
-    loadSeasons()
+    loadOnMount()
   }, [])
 
   // Fetch all data on mount AND when the season changes.
@@ -609,12 +628,43 @@ function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // LAST-UPDATED BANNER HELPER
+  // ---------------------------------------------------------------------------
+  // Returns the small "Stats last updated: ..." line rendered under each
+  // page header. Returns null when we haven't fetched the timestamp yet or
+  // it's missing — the banner just disappears rather than showing a placeholder.
+  //
+  // The backend stores ISO-8601 UTC; we convert to the viewer's local time
+  // using Intl via toLocaleString so the displayed time matches the user's
+  // wall clock regardless of where they are.
+  const renderLastUpdated = () => {
+    if (!lastUpdated) return null
+    const date = new Date(lastUpdated)
+    if (Number.isNaN(date.getTime())) return null
+    const formatted = date.toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    })
+    return (
+      <div className="last-updated">
+        Stats last updated: {formatted}
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // RENDER
   // ---------------------------------------------------------------------------
 
   // Show a loading message while the initial data fetch is in progress
   if (loading) {
-    return <div className="app"><h1>MLB Player Stats</h1><p>Loading data...</p></div>
+    return (
+      <div className="app">
+        <h1>MLB Player Stats</h1>
+        {renderLastUpdated()}
+        <p>Loading data...</p>
+      </div>
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -629,6 +679,7 @@ function App() {
     return (
       <div className="app">
         <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+        {renderLastUpdated()}
         <MatchupsPage
           season={season}
           onBack={() => setCurrentView('dashboard')}
@@ -783,6 +834,7 @@ function App() {
   return (
     <div className="app">
       <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+      {renderLastUpdated()}
 
       {/* Navigation link to the Matchups page.
           This sits just below the main title as a simple text link.

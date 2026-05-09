@@ -212,6 +212,12 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward system metadata routes (e.g. /system/last-updated for the
+      // "Stats last updated" banner under each page header).
+      '/system': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
 })
