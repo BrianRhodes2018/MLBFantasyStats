@@ -1150,26 +1150,50 @@ async def get_pitcher_computed_stats(season: Optional[str] = None):
     # Compute advanced pitching metrics.
     # These derived stats give deeper insight into pitcher performance
     # beyond the raw counting stats stored in the database.
+    #
+    # Every formula below is wrapped in pl.when(<denominator-non-zero>) so we
+    # produce null instead of inf/NaN for edge-case rows (relievers with 0-W-0-L,
+    # call-ups with 0 IP, etc.). FastAPI's default JSON encoder cannot serialize
+    # inf or NaN — those rows would 500 the whole endpoint. Null is JSON-safe
+    # and the frontend already renders it as "—".
     computed = df.with_columns([
         # K/9: Strikeouts per 9 innings — measures strikeout ability.
         # Higher is better. Elite pitchers average 10+ K/9.
-        ((pl.col("strikeouts") / pl.col("innings_pitched")) * 9).round(2).alias("k_per_9"),
+        pl.when(pl.col("innings_pitched") > 0)
+          .then(((pl.col("strikeouts") / pl.col("innings_pitched")) * 9).round(2))
+          .otherwise(None)
+          .alias("k_per_9"),
 
         # BB/9: Walks per 9 innings — measures control.
         # Lower is better. Elite pitchers keep this under 2.0.
-        ((pl.col("walks") / pl.col("innings_pitched")) * 9).round(2).alias("bb_per_9"),
+        pl.when(pl.col("innings_pitched") > 0)
+          .then(((pl.col("walks") / pl.col("innings_pitched")) * 9).round(2))
+          .otherwise(None)
+          .alias("bb_per_9"),
 
         # K/BB: Strikeout to walk ratio (higher is better).
         # This measures command — can the pitcher get Ks without walking batters?
-        (pl.col("strikeouts") / pl.col("walks")).round(2).alias("k_bb_ratio"),
+        # Guarded against walks=0 to avoid division-by-zero (returns inf).
+        pl.when(pl.col("walks") > 0)
+          .then((pl.col("strikeouts") / pl.col("walks")).round(2))
+          .otherwise(None)
+          .alias("k_bb_ratio"),
 
-        # Win percentage: Wins / (Wins + Losses) × 100
-        (pl.col("wins") / (pl.col("wins") + pl.col("losses")) * 100).round(1).alias("win_pct"),
+        # Win percentage: Wins / (Wins + Losses) × 100.
+        # Relief pitchers often have 0 wins AND 0 losses early in the season,
+        # which yields 0/0 = NaN. Guard returns null for those rows.
+        pl.when((pl.col("wins") + pl.col("losses")) > 0)
+          .then((pl.col("wins") / (pl.col("wins") + pl.col("losses")) * 100).round(1))
+          .otherwise(None)
+          .alias("win_pct"),
 
         # HR/9: Home runs allowed per 9 innings — measures vulnerability to the long ball.
         # Lower is better. League average ~1.2, elite <0.7.
         # Key fantasy stat because home runs are the most damaging hit type.
-        ((pl.col("home_runs_allowed") / pl.col("innings_pitched")) * 9).round(2).alias("hr_per_9"),
+        pl.when(pl.col("innings_pitched") > 0)
+          .then(((pl.col("home_runs_allowed") / pl.col("innings_pitched")) * 9).round(2))
+          .otherwise(None)
+          .alias("hr_per_9"),
 
         # FIP: Fielding Independent Pitching. Estimates a pitcher's run prevention
         # using only the outcomes they directly control (HR, BB, HBP, K), stripping
@@ -1186,13 +1210,16 @@ async def get_pitcher_computed_stats(season: Optional[str] = None):
         #
         # .fill_null(0) on hit_by_pitch handles older rows backfilled before the
         # column was populated.
-        (
-            (
-                (pl.col("home_runs_allowed") * 13)
-                + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
-                - (pl.col("strikeouts") * 2)
-            ) / pl.col("innings_pitched") + 3.15
-        ).round(2).alias("fip"),
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((
+              (
+                  (pl.col("home_runs_allowed") * 13)
+                  + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
+                  - (pl.col("strikeouts") * 2)
+              ) / pl.col("innings_pitched") + 3.15
+          ).round(2))
+          .otherwise(None)
+          .alias("fip"),
     ])
 
     result = computed.select([
