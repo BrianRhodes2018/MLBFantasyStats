@@ -77,6 +77,12 @@ export default function MatchupsPage({ season }) {
   //     away_pitcher: { ... } }
   const [games, setGames] = useState([])
 
+  // parkFactorMeta: { source, year_range, fetched_at } — describes which dataset
+  // the per-game park_factor values come from (Baseball Savant rolling window
+  // vs static fallback). Surfaced as a small footer note on the page so users
+  // know the freshness of the venue badges.
+  const [parkFactorMeta, setParkFactorMeta] = useState(null)
+
   // expandedGames: A Set of game_id values for games the user has clicked to expand.
   // We use a Set for O(1) lookups when checking if a game is expanded.
   // NOTE: React state must be immutable — we create a NEW Set each time
@@ -130,6 +136,7 @@ export default function MatchupsPage({ season }) {
       const json = await res.json()
       if (json.code === 200 && json.data) {
         setGames(json.data.games || [])
+        setParkFactorMeta(json.data.park_factor_meta || null)
         setError(null)
       } else {
         setError(json.message || 'Failed to load matchups')
@@ -604,6 +611,32 @@ export default function MatchupsPage({ season }) {
       {!error && games.length === 0 && (
         <div className="matchups-no-games">
           No MLB games scheduled for today.
+        </div>
+      )}
+
+      {/* Park factor source attribution. Shown above the matchup grid so users
+          know whether badges reflect live Baseball Savant data or the static
+          fallback. The fetched_at timestamp helps debug stale data on cold
+          starts where the Savant fetch hasn't completed yet. */}
+      {parkFactorMeta && (
+        <div className="park-factor-meta">
+          Park factors:{' '}
+          {parkFactorMeta.source === 'baseball_savant' ? (
+            <>
+              <a
+                href="https://baseballsavant.mlb.com/leaderboard/statcast-park-factors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Baseball Savant
+              </a>{' '}
+              · {parkFactorMeta.year_range} rolling
+            </>
+          ) : (
+            <span title={parkFactorMeta.year_range}>
+              static fallback (Baseball Savant unreachable)
+            </span>
+          )}
         </div>
       )}
 

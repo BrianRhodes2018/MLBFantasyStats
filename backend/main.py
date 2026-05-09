@@ -38,7 +38,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
 from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata
-from park_factors import PARK_FACTORS, get_park_factor, classify_park_factor
+from park_factors import (
+    get_park_factor,
+    get_all_factors_with_meta,
+    classify_park_factor,
+    refresh_park_factors_cache,
+)
 from schemas import (
     PlayerIn, PlayerOut, PlayerUpdate,
     PitcherIn, PitcherOut, PitcherUpdate,
@@ -162,27 +167,34 @@ async def get_available_seasons():
 @app.get("/parks/factors", response_model=ApiResponse)
 async def get_park_factors():
     """
-    Return the static park-factor lookup for all 30 MLB venues.
+    Return the cached park-factor lookup with freshness metadata.
 
-    Park factors quantify how hitter-friendly or pitcher-friendly each
-    stadium is relative to league average (100 = neutral, >100 = hitters,
-    <100 = pitchers). Used by the betting analysis to weight matchups by
-    venue, and surfaced on the matchups page so users see at a glance
-    whether today's games are at favorable or unfavorable parks.
+    Source priority:
+        1. Live data from Baseball Savant (3-year rolling window) — refreshed
+           on every server startup.
+        2. Static fallback values (2023-2024 estimates) when the Savant fetch
+           fails or for new/temporary venues with insufficient sample size.
 
-    The data is keyed by canonical venue name (matching MLB Stats API's
-    `venue_name` field) so frontend code can look up directly from the
-    matchups response.
+    The response includes `source`, `year_range`, and `fetched_at` so the
+    frontend can show users which data is being displayed (and how fresh).
 
     Returns:
         ApiResponse with data={
-            "factors": {<venue_name>: {"runs": int, "hr": int, "team": str}, ...}
+            "factors": {<venue_name>: {"runs": int, "hr": int, "team": str}, ...},
+            "source": "baseball_savant" | "static_fallback",
+            "year_range": "2024-2026" or "static fallback (...)",
+            "fetched_at": ISO-8601 UTC timestamp,
+            "venue_count": int,
         }
     """
+    cache = get_all_factors_with_meta()
     return ApiResponse(
         code=200,
-        message=f"Park factors for {len(PARK_FACTORS)} MLB venues",
-        data={"factors": PARK_FACTORS},
+        message=(
+            f"Park factors for {cache['venue_count']} venues "
+            f"(source: {cache['source']}, range: {cache['year_range']})"
+        ),
+        data=cache,
     )
 
 
@@ -250,6 +262,12 @@ async def startup():
         await populate_sample_data()
     # Start keep-alive background task (only active on Render)
     asyncio.create_task(keep_alive())
+
+    # Refresh park factors from Baseball Savant in the background. The cache
+    # is pre-populated with static fallback values at module import, so first
+    # requests during the in-flight fetch get sensible output. When Savant
+    # responds (~1-2s), the cache is replaced with current 3-year-rolling data.
+    asyncio.create_task(refresh_park_factors_cache())
 
 
 @app.on_event("shutdown")
@@ -2977,10 +2995,25 @@ async def get_todays_matchups():
                     game[side]["season_stats"] = _format_pitcher_stats(None)
                     game[side]["throws"] = None
 
+        # Include park-factor source metadata so the frontend can show users
+        # which data backs the venue badges (Baseball Savant rolling window vs
+        # static fallback). Per-game `park_factor` payloads stay in each game
+        # object; this is just the freshness/source pointer for them.
+        meta = get_all_factors_with_meta()
+        park_factor_meta = {
+            "source": meta["source"],
+            "year_range": meta["year_range"],
+            "fetched_at": meta["fetched_at"],
+        }
+
         return ApiResponse(
             code=200,
             message=f"Found {len(games)} games for {today_str}",
-            data={"date": today_str, "games": games},
+            data={
+                "date": today_str,
+                "games": games,
+                "park_factor_meta": park_factor_meta,
+            },
         )
 
     except Exception as e:

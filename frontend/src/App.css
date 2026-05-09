@@ -124,6 +124,26 @@ body {
   opacity: 0.85;
 }
 
+/* Source attribution line above the matchup grid (e.g. "Park factors:
+   Baseball Savant · 2024-2026 rolling"). Subtle so it doesn't compete
+   with the matchup cards but discoverable enough that users know where
+   the numbers come from. */
+.park-factor-meta {
+  text-align: center;
+  font-size: 0.78rem;
+  color: #8da4c0;
+  margin: 0 0 16px 0;
+}
+
+.park-factor-meta a {
+  color: #7fb3e8;
+  text-decoration: none;
+}
+
+.park-factor-meta a:hover {
+  text-decoration: underline;
+}
+
 /* Section headings used by each component */
 h2 {
   font-size: 1.3rem;
