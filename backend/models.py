@@ -349,3 +349,94 @@ system_metadata = Table(
     # audited.
     Column("updated_at", String(30)),
 )
+
+
+# =============================================================================
+# BET SUGGESTIONS TABLE
+# =============================================================================
+# Logs every betting candidate that /betting/candidates surfaces to the user.
+# Phase 2's "Bet Audit" page reads from here, joining the actual_* columns
+# (backfilled the day after) against what we suggested to evaluate the
+# scoring function's hit rate.
+#
+# Lifecycle:
+#   1. /betting/candidates is called -> rows inserted with composite_score,
+#      signals_json, summary, and all "predicted" fields. actual_* are NULL.
+#   2. Game completes overnight.
+#   3. daily_update.py phase 5 (Phase 2 work) backfills actual_* by pulling
+#      that player's gameLog stat for the suggested_date.
+#   4. Audit page joins suggestion + actuals to show how each pick performed.
+#
+# Idempotency: unique constraint on (suggested_date, rank) so re-running the
+# generator for the same day overwrites or noops, never duplicates.
+#
+# Why all the columns are nullable except the keys:
+#   - generated_at, rank, score etc. are written immediately on suggestion.
+#   - actual_* are filled in later — typically the next day. We can't make
+#     them NOT NULL because they don't exist at INSERT time.
+#   - actual_skip_reason holds short text like "did not play" so we don't
+#     keep retrying the API for someone who got scratched / called up later.
+bet_suggestions = Table(
+    "bet_suggestions",
+    metadata,
+    Column("id", Integer, primary_key=True),
+
+    # When the suggestion is for (game date), in "YYYY-MM-DD" form.
+    # ISO date strings sort lexicographically — same convention as game_logs.
+    Column("suggested_date", String(10), nullable=False),
+
+    # When the suggestion was actually generated (ISO-8601 UTC timestamp).
+    # Multiple regenerations on the same day overwrite the same (date, rank)
+    # row but bump generated_at — useful when a starter is scratched and we
+    # rerun. The audit page can flag rows where generated_at is suspiciously
+    # late (post-game) as low-confidence.
+    Column("generated_at", String(30), nullable=False),
+
+    # 1..top_n within the day. Lower is "stronger candidate" by composite_score.
+    Column("rank", Integer, nullable=False),
+
+    # Player identity — denormalized so the audit page doesn't need to join
+    # against a players snapshot from the day of the suggestion (rosters churn).
+    Column("player_mlb_id", Integer, nullable=False),
+    Column("player_name", String(100), nullable=False),
+    Column("player_team", String(50)),
+
+    # Game context — also denormalized for the same reason. game_id is the
+    # MLB Stats API gamePk we used.
+    Column("game_id", Integer),
+    Column("opposing_pitcher_mlb_id", Integer),
+    Column("opposing_pitcher_name", String(100)),
+    Column("venue", String(100)),
+
+    # Scoring output. composite_score is what we ranked on; signals_json is
+    # the full per-signal breakdown serialized as JSON so the audit page can
+    # filter "show me only suggestions where 'platoon' fired" without a
+    # schema change every time we add a new signal.
+    Column("composite_score", Float, nullable=False),
+    Column("signals_json", String(2000)),
+    Column("summary", String(500)),
+
+    # ---- Backfilled by Phase 2 (daily_update.py phase 5) ----
+    # All actual stats from the player's actual game line. Stored as integers
+    # because that's what the MLB API returns. NULL until backfill runs.
+    Column("actual_at_bats", Integer),
+    Column("actual_hits", Integer),
+    Column("actual_doubles", Integer),
+    Column("actual_triples", Integer),
+    Column("actual_home_runs", Integer),
+    Column("actual_total_bases", Integer),
+    Column("actual_rbi", Integer),
+    Column("actual_runs", Integer),
+    Column("actual_walks", Integer),
+    Column("actual_strikeouts", Integer),
+
+    # ISO-8601 UTC timestamp of when the backfill ran. Use this to tell the
+    # user "data through 2026-05-09" on the audit page. NULL means we haven't
+    # backfilled yet.
+    Column("actual_recorded_at", String(30)),
+
+    # Short note when backfill couldn't get a stat line (e.g. "did not play",
+    # "API error after 3 retries"). Lets the audit job stop retrying and the
+    # UI show the row clearly as "no data" instead of "pending".
+    Column("actual_skip_reason", String(200)),
+)

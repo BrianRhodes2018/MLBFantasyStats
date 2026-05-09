@@ -224,6 +224,11 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward betting routes — /betting/candidates and (Phase 2) /betting/audit.
+      '/betting': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
 })
