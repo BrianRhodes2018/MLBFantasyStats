@@ -72,8 +72,14 @@ def record_successful_update_timestamp() -> None:
     Uses the synchronous SQLAlchemy engine (same pattern as run_migrations) so
     we don't have to manage an async connection lifecycle here. The PostgreSQL
     `ON CONFLICT` clause makes this an idempotent upsert.
+
+    Microseconds are stripped before serializing because the resulting string
+    needs to fit in `system_metadata.updated_at` (VARCHAR(30)). Without the
+    strip, isoformat() emits e.g. "2026-05-09T15:01:19.836014+00:00" (32 chars)
+    and the INSERT fails with a StringDataRightTruncation error. Second-level
+    precision is plenty for "when did the daily update last finish".
     """
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     try:
         with engine.connect() as conn:
             conn.execute(
