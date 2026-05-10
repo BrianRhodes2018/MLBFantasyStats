@@ -46,6 +46,7 @@ import PlayerModal from './components/PlayerModal'
 import PlayerComparison from './components/PlayerComparison'
 import MatchupsPage from './components/MatchupsPage'
 import BettingPage from './components/BettingPage'
+import BetAuditPage from './components/BetAuditPage'
 import { fuzzyNameMatch, fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
@@ -743,6 +744,42 @@ function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // BET AUDIT PAGE VIEW
+  // ---------------------------------------------------------------------------
+  // Renders the /betting/audit historical-performance page. Same shell as
+  // the betting view (header + last-updated banner + content). Phase 3
+  // weight-tuning will read from this page's per-signal hit-rate breakdown.
+  if (currentView === 'audit') {
+    return (
+      <div className="app">
+        <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+        {renderLastUpdated()}
+        <div style={{ textAlign: 'center', marginTop: '-10px', marginBottom: '20px' }}>
+          <span
+            className="matchups-nav-link"
+            onClick={() => setCurrentView('dashboard')}
+          >
+            &larr; Back to Stats
+          </span>
+        </div>
+        <BetAuditPage
+          onPlayerClick={(player) => {
+            setModalPlayer(player)
+            setModalPlayerType('batter')
+          }}
+        />
+        {modalPlayer && (
+          <PlayerModal
+            player={modalPlayer}
+            playerType={modalPlayerType}
+            onClose={handleModalClose}
+          />
+        )}
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // POSITION FILTERING
   // ---------------------------------------------------------------------------
   // Position filter groups for the dropdown
@@ -874,10 +911,11 @@ function App() {
       <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
       {renderLastUpdated()}
 
-      {/* Navigation links below the main title. Two text-link "tabs" that
-          swap the dashboard for either the matchups page or the betting
-          edge page. Both use the same simple state-based routing pattern. */}
-      <div style={{ textAlign: 'center', marginTop: '-20px', marginBottom: '20px', display: 'flex', justifyContent: 'center', gap: '24px' }}>
+      {/* Navigation links below the main title. Three text-link "tabs"
+          that swap the dashboard for matchups, the betting edge page,
+          or the bet audit page. All use the same simple state-based
+          routing pattern. */}
+      <div style={{ textAlign: 'center', marginTop: '-20px', marginBottom: '20px', display: 'flex', justifyContent: 'center', gap: '24px', flexWrap: 'wrap' }}>
         <span
           className="matchups-nav-link"
           onClick={() => setCurrentView('matchups')}
@@ -889,6 +927,12 @@ function App() {
           onClick={() => setCurrentView('betting')}
         >
           Betting Edge &rarr;
+        </span>
+        <span
+          className="matchups-nav-link"
+          onClick={() => setCurrentView('audit')}
+        >
+          Bet Audit &rarr;
         </span>
       </div>
 

@@ -40,11 +40,13 @@ MLB Season Schedule (approximate):
 
 import asyncio
 import logging
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import text
-from database import engine, metadata
+from database import database, engine, metadata
+from models import bet_suggestions
 
 # Set up logging
 log_file = Path(__file__).parent / 'logs' / 'mlb_updates.log'
@@ -100,6 +102,142 @@ def record_successful_update_timestamp() -> None:
         # Don't fail the whole update just because we couldn't write the timestamp.
         # The stats data is what matters; the banner is a nicety.
         logger.warning(f"Failed to record last_stats_update timestamp: {e}")
+
+
+async def backfill_bet_suggestion_actuals() -> dict:
+    """
+    Pull actual game stats for any bet_suggestions rows still missing actuals.
+
+    Phase 5 of the daily update — runs after the season-stat and game-log
+    refreshes so the MLB API has fresh data for yesterday's games. For every
+    suggestion where suggested_date is in the past AND actual_recorded_at is
+    NULL, fetches that player's gameLog for the season and matches the row's
+    suggested_date to the corresponding game's stat line.
+
+    Resilience:
+        - One API call per (player, season) pair, so the cost is small
+          (typically ~8 candidates/day -> ~8 calls).
+        - If the API fetch fails for a player, we leave actual_recorded_at
+          NULL so the next run retries. We don't want to mark "skipped" for
+          transient errors and lose data forever.
+        - If the API succeeds but the player didn't play that date, we mark
+          actual_skip_reason = "did not play" + stamp actual_recorded_at so
+          we stop retrying.
+
+    Returns:
+        dict with {scanned, backfilled, skipped} counts for logger output.
+    """
+    import statsapi
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Connect to database if not already (this function may be called from
+    # a context that hasn't connected yet — daily_update runs as a script).
+    needs_disconnect = False
+    if not database.is_connected:
+        await database.connect()
+        needs_disconnect = True
+
+    try:
+        rows = await database.fetch_all(
+            bet_suggestions.select().where(
+                bet_suggestions.c.actual_recorded_at.is_(None)
+                & (bet_suggestions.c.suggested_date < today_str)
+            )
+        )
+
+        if not rows:
+            logger.info("No bet suggestions need backfill")
+            return {"scanned": 0, "backfilled": 0, "skipped": 0}
+
+        logger.info(f"Backfilling actuals for {len(rows)} bet suggestion(s)...")
+
+        # Group by (player_mlb_id, season) so one MLB API call covers all
+        # of a given player's suggestion dates within that season.
+        by_player_season = defaultdict(list)
+        for row in rows:
+            mapping = dict(row._mapping)
+            season = mapping["suggested_date"][:4]  # "YYYY-MM-DD" -> "YYYY"
+            by_player_season[(mapping["player_mlb_id"], season)].append(mapping)
+
+        backfilled = 0
+        skipped = 0
+        now_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+        for (player_id, season), player_rows in by_player_season.items():
+            try:
+                data = await asyncio.to_thread(
+                    statsapi.get,
+                    "people",
+                    {
+                        "personIds": player_id,
+                        "hydrate": f"stats(group=[hitting],type=[gameLog],season={season})",
+                    },
+                )
+            except Exception as e:
+                # Transient error — leave for retry next run rather than
+                # poisoning the row with a permanent skip.
+                logger.warning(f"  Player {player_id} season {season}: API error ({e}); will retry next run")
+                continue
+
+            # Build a date -> stat dict for this player.
+            game_stats_by_date: dict[str, dict] = {}
+            for person in data.get("people", []):
+                for stat_group in person.get("stats", []):
+                    if stat_group.get("group", {}).get("displayName") != "hitting":
+                        continue
+                    for split in stat_group.get("splits", []):
+                        gd = split.get("date", "")
+                        if gd:
+                            game_stats_by_date[gd] = split.get("stat", {})
+
+            for row in player_rows:
+                game_stat = game_stats_by_date.get(row["suggested_date"])
+                update_data = {"actual_recorded_at": now_iso}
+
+                if game_stat:
+                    # Player played — extract stats. Compute total bases from
+                    # the parts since MLB API doesn't return TB directly.
+                    h = game_stat.get("hits", 0) or 0
+                    dbl = game_stat.get("doubles", 0) or 0
+                    tpl = game_stat.get("triples", 0) or 0
+                    hr = game_stat.get("homeRuns", 0) or 0
+                    singles = max(h - dbl - tpl - hr, 0)  # guard against API quirks
+                    tb = singles + 2 * dbl + 3 * tpl + 4 * hr
+
+                    update_data.update({
+                        "actual_at_bats": game_stat.get("atBats", 0) or 0,
+                        "actual_hits": h,
+                        "actual_doubles": dbl,
+                        "actual_triples": tpl,
+                        "actual_home_runs": hr,
+                        "actual_total_bases": tb,
+                        "actual_rbi": game_stat.get("rbi", 0) or 0,
+                        "actual_runs": game_stat.get("runs", 0) or 0,
+                        "actual_walks": game_stat.get("baseOnBalls", 0) or 0,
+                        "actual_strikeouts": game_stat.get("strikeOuts", 0) or 0,
+                    })
+                    backfilled += 1
+                else:
+                    # Player was suggested but didn't actually play (scratched,
+                    # bench, sent down). Stamp it so we stop retrying.
+                    update_data["actual_skip_reason"] = "did not play"
+                    skipped += 1
+
+                await database.execute(
+                    bet_suggestions.update()
+                    .where(bet_suggestions.c.id == row["id"])
+                    .values(**update_data)
+                )
+
+        logger.info(
+            f"Backfill complete: {backfilled} populated, {skipped} marked 'did not play'"
+        )
+        return {"scanned": len(rows), "backfilled": backfilled, "skipped": skipped}
+
+    finally:
+        if needs_disconnect:
+            await database.disconnect()
 
 
 def is_mlb_season() -> bool:
@@ -171,7 +309,9 @@ async def run_daily_update(skip_gamelogs: bool = False):
         return
 
     current_year = datetime.now().year
-    total_phases = 2 if skip_gamelogs else 4
+    # Phase 5 (bet-suggestion backfill) always runs — it's cheap and
+    # decouples audit data from the heavy game-log refresh.
+    total_phases = 3 if skip_gamelogs else 5
     logger.info(f"Updating stats for {current_year} season ({total_phases} phases)")
 
     try:
@@ -197,6 +337,14 @@ async def run_daily_update(skip_gamelogs: bool = False):
             logger.info(f"Phase 4/{total_phases}: Refreshing pitcher game logs...")
             await populate_game_logs(season=current_year, player_type='pitchers', clear_existing=True)
             logger.info("Pitcher game logs refreshed successfully")
+
+        # Phase 5 (or 3 if --skip-gamelogs): Backfill actuals for past
+        # bet_suggestions rows. Cheap (~1 API call per unique player), so
+        # always runs — it's how the Bet Audit page fills in over time.
+        backfill_phase_num = total_phases
+        logger.info(f"Phase {backfill_phase_num}/{total_phases}: Backfilling bet-suggestion actuals...")
+        await backfill_bet_suggestion_actuals()
+        logger.info("Bet-suggestion backfill complete")
 
         logger.info(f"Daily update completed successfully! (all {total_phases} phases)")
         record_successful_update_timestamp()

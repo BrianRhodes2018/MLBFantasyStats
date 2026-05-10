@@ -3760,3 +3760,138 @@ async def get_betting_candidates(
             "candidates": top,
         },
     )
+
+
+# Names of the signals we care about for per-signal hit-rate breakdowns.
+# Defined as a module-level constant so the audit endpoint and any future
+# tuning helpers stay in agreement on the canonical signal list.
+_AUDIT_SIGNAL_NAMES = ["platoon", "pitcher_vulnerability", "recent_form", "bvp", "park_factor"]
+
+
+@app.get("/betting/audit", response_model=ApiResponse)
+async def get_betting_audit(
+    from_date: Optional[str] = Query(None, alias="from", description="Start date YYYY-MM-DD (default: 30 days ago)"),
+    to_date: Optional[str] = Query(None, alias="to", description="End date YYYY-MM-DD (default: today)"),
+    signal: Optional[str] = Query(None, description="Filter to suggestions where this specific signal fired"),
+    min_score: Optional[float] = Query(None, description="Filter to suggestions whose composite score meets/exceeds this"),
+):
+    """
+    Return historical bet suggestions joined with actual game results.
+
+    Used by the Bet Audit page to evaluate how the scoring function is
+    performing. Three layers of output:
+
+      1. `suggestions`  — the raw rows in the date window, ordered newest first,
+         each annotated with `outcome_pending`, `hit_2tb`, `hit_xbh`.
+      2. `aggregates`   — overall hit rates and freshness across the window.
+      3. `per_signal`   — same hit rates sliced by which signal fired. This is
+         the row that drives Phase 3 weight tuning: if `bvp` shows a 65% hit
+         rate but `recent_form` only 45%, the audit's pointing us at where to
+         re-weight.
+
+    Outcome definitions (because there's no real sportsbook prop here):
+      - hit_2tb : actual_total_bases >= 2 (extra-base or multi-hit game)
+      - hit_xbh : at least one extra-base hit (2B + 3B + HR >= 1)
+    Both shown so users can see which definition correlates with our score.
+    """
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if not from_date:
+        from_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    if not to_date:
+        to_date = today_str
+
+    rows = await database.fetch_all(
+        bet_suggestions.select()
+        .where(
+            (bet_suggestions.c.suggested_date >= from_date)
+            & (bet_suggestions.c.suggested_date <= to_date)
+        )
+        .order_by(
+            bet_suggestions.c.suggested_date.desc(),
+            bet_suggestions.c.rank.asc(),
+        )
+    )
+
+    suggestions: list[dict] = []
+    for row in rows:
+        d = dict(row._mapping)
+
+        # Decode the JSON signal blob. Defensive against bad rows.
+        try:
+            d["signals"] = json.loads(d.pop("signals_json", "{}") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            d["signals"] = {}
+
+        # Compute outcome flags. actual_at_bats is null when the row hasn't
+        # been backfilled yet — surface that as outcome_pending so the UI
+        # can render a "data pending" pill instead of a misleading 0/miss.
+        if d.get("actual_at_bats") is None:
+            d["outcome_pending"] = True
+            d["hit_2tb"] = None
+            d["hit_xbh"] = None
+        else:
+            tb = d.get("actual_total_bases") or 0
+            xbh = (
+                (d.get("actual_doubles") or 0)
+                + (d.get("actual_triples") or 0)
+                + (d.get("actual_home_runs") or 0)
+            )
+            d["outcome_pending"] = False
+            d["hit_2tb"] = tb >= 2
+            d["hit_xbh"] = xbh >= 1
+
+        # Apply optional filters
+        if signal and not d["signals"].get(signal, {}).get("fired"):
+            continue
+        if min_score is not None and (d.get("composite_score") or 0) < min_score:
+            continue
+
+        suggestions.append(d)
+
+    # ---- Aggregates ----
+    backfilled = [s for s in suggestions if not s.get("outcome_pending")]
+    total = len(suggestions)
+    bf_count = len(backfilled)
+
+    def _pct_hit(items, key):
+        """Hit-rate helper — returns None when sample is empty so the UI
+        can render '—' instead of an invented 0%."""
+        if not items:
+            return None
+        return round(100 * sum(1 for s in items if s.get(key)) / len(items), 1)
+
+    aggregates = {
+        "total_suggestions": total,
+        "backfilled_count": bf_count,
+        "freshness_pct": round(100 * bf_count / total, 1) if total else 0.0,
+        "hit_rate_2tb": _pct_hit(backfilled, "hit_2tb"),
+        "hit_rate_xbh": _pct_hit(backfilled, "hit_xbh"),
+    }
+
+    # ---- Per-signal hit rates ----
+    # For each signal, slice the backfilled set down to suggestions where it
+    # fired and compute the same two hit-rate definitions. This is the
+    # feedback the Phase 3 tuning pass reads.
+    per_signal: dict[str, dict] = {}
+    for sig_name in _AUDIT_SIGNAL_NAMES:
+        sig_fired_subset = [
+            s for s in backfilled
+            if s.get("signals", {}).get(sig_name, {}).get("fired")
+        ]
+        per_signal[sig_name] = {
+            "count": len(sig_fired_subset),
+            "hit_rate_2tb": _pct_hit(sig_fired_subset, "hit_2tb"),
+            "hit_rate_xbh": _pct_hit(sig_fired_subset, "hit_xbh"),
+        }
+
+    return ApiResponse(
+        code=200,
+        message=f"{total} suggestion(s) from {from_date} to {to_date}",
+        data={
+            "from": from_date,
+            "to": to_date,
+            "aggregates": aggregates,
+            "per_signal": per_signal,
+            "suggestions": suggestions,
+        },
+    )
