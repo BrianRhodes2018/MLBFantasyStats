@@ -321,6 +321,164 @@ body {
   line-height: 1.4;
 }
 
+/* ===========================================================================
+   BET AUDIT PAGE
+   ===========================================================================
+   Filter row → aggregate stat band → per-signal table → suggestion log table.
+   Reuses .betting-* shells (header/title/subtitle/loading/empty) so the
+   visual language stays consistent with the Betting Edge page next door. */
+
+.audit-page {
+  margin-top: 16px;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 16px;
+  background: #162236;
+  border: 1px solid #2a3f5f;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 0.85rem;
+  color: #c4ced4;
+}
+
+.audit-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.audit-filters input,
+.audit-filters select {
+  background: #0a1929;
+  color: #e8ecf0;
+  border: 1px solid #2a3f5f;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+/* Aggregate stat band — three big numbers side-by-side. */
+.audit-aggregates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.audit-stat {
+  background: #1e3050;
+  border: 1px solid #2a3f5f;
+  border-radius: 12px;
+  padding: 16px 20px;
+  text-align: center;
+}
+
+.audit-stat-label {
+  font-size: 0.8rem;
+  color: #8da4c0;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.audit-stat-value {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 4px 0;
+  line-height: 1.1;
+}
+
+.audit-stat-sub {
+  font-size: 0.78rem;
+  color: #8da4c0;
+}
+
+/* Per-signal table */
+.audit-section-title {
+  font-size: 1.05rem;
+  color: #e8ecf0;
+  margin: 24px 0 12px 0;
+  border-bottom: 1px solid #2a3f5f;
+  padding-bottom: 6px;
+}
+
+.audit-signal-table,
+.audit-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  color: #c4ced4;
+  background: #1e3050;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.audit-signal-table th,
+.audit-log-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #162236;
+  color: #8da4c0;
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #2a3f5f;
+}
+
+.audit-signal-table td,
+.audit-log-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a3f5f;
+}
+
+.audit-signal-table tbody tr:last-child td,
+.audit-log-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-meta-note {
+  font-size: 0.8rem;
+  color: #8da4c0;
+  margin-top: 8px;
+  font-style: italic;
+}
+
+.audit-statline {
+  font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+  font-size: 0.82rem;
+  color: #e8ecf0;
+}
+
+.audit-player-name {
+  cursor: pointer;
+  color: #e8ecf0;
+}
+
+.audit-player-name:hover {
+  color: #7fb3e8;
+  text-decoration: underline;
+}
+
+.audit-hit-yes {
+  color: #8edb91;
+  font-weight: 600;
+}
+
+.audit-hit-no {
+  color: #d97a7a;
+  font-weight: 600;
+}
+
+.audit-hit-pending {
+  color: #8da4c0;
+  font-style: italic;
+}
+
 /* Section headings used by each component */
 h2 {
   font-size: 1.3rem;
