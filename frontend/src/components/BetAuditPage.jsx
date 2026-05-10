@@ -22,7 +22,7 @@
  * weights to bump and which to drop.
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { API_BASE } from '../config'
 
 // Same canonical order as the betting page so the audit table reads
@@ -42,11 +42,19 @@ function fmtPct(pct) {
   return pct === null || pct === undefined ? '—' : `${pct.toFixed(1)}%`
 }
 
-// Helper: render the actual stat line as "AB-H-2B-3B-HR-RBI" for compact display
-function fmtStatLine(s) {
-  if (s.outcome_pending) return 'pending'
-  if (s.actual_skip_reason) return s.actual_skip_reason
-  return `${s.actual_at_bats ?? '-'}-${s.actual_hits ?? '-'}-${s.actual_doubles ?? '-'}-${s.actual_triples ?? '-'}-${s.actual_home_runs ?? '-'}-${s.actual_rbi ?? '-'}`
+// Helper: human-readable summary of how the player actually performed.
+// "3-for-4, 1 HR, 4 RBI" is what you'd glance at in a box score — friendlier
+// than the dense "AB-H-2B-3B-HR-RBI" format.
+function fmtActualLine(s) {
+  const parts = []
+  parts.push(`${s.actual_hits ?? 0}-for-${s.actual_at_bats ?? 0}`)
+  if ((s.actual_doubles ?? 0) > 0) parts.push(`${s.actual_doubles} 2B`)
+  if ((s.actual_triples ?? 0) > 0) parts.push(`${s.actual_triples} 3B`)
+  if ((s.actual_home_runs ?? 0) > 0) parts.push(`${s.actual_home_runs} HR`)
+  if ((s.actual_rbi ?? 0) > 0) parts.push(`${s.actual_rbi} RBI`)
+  if ((s.actual_walks ?? 0) > 0) parts.push(`${s.actual_walks} BB`)
+  if ((s.actual_strikeouts ?? 0) > 0) parts.push(`${s.actual_strikeouts} K`)
+  return `${parts.join(', ')} (${s.actual_total_bases ?? 0} TB)`
 }
 
 // Default the filter window to "last 30 days inclusive" — matches what the
@@ -58,6 +66,19 @@ function defaultFrom() {
 }
 function defaultTo() {
   return new Date().toISOString().slice(0, 10)
+}
+
+// Render "2026-05-09" as "Saturday, May 9, 2026" — matches the kind of
+// header the live Betting Edge page would show that day.
+function formatDateLong(yyyymmdd) {
+  // Append T12:00:00 to avoid UTC shifting the date back a day in some zones
+  const d = new Date(`${yyyymmdd}T12:00:00`)
+  return d.toLocaleDateString(undefined, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 }
 
 
@@ -72,6 +93,18 @@ function BetAuditPage({ onPlayerClick }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Group suggestions by date so we can render each date as its own section,
+  // matching how the original Betting Edge page would have looked. Server
+  // already orders newest-first within each date, so we preserve that.
+  const groupedByDate = useMemo(() => {
+    const map = new Map()
+    for (const s of data?.suggestions || []) {
+      if (!map.has(s.suggested_date)) map.set(s.suggested_date, [])
+      map.get(s.suggested_date).push(s)
+    }
+    return Array.from(map.entries())
+  }, [data?.suggestions])
 
   const fetchAudit = useCallback(async () => {
     try {
@@ -231,11 +264,13 @@ function BetAuditPage({ onPlayerClick }) {
         </div>
       )}
 
-      {/* Suggestion log — the raw history.
-          Sorted newest-first by the backend. Click a player name to open
-          the existing PlayerModal. Stat-line column shows AB-H-2B-3B-HR-RBI
-          which is compact and box-score-familiar. */}
-      <h3 className="audit-section-title">Suggestion log</h3>
+      {/* Suggestion history — grouped by date so each section reads like
+          the original Betting Edge page for that date, with the actual
+          outcome appended to each card. The full reasoning that was shown
+          when the suggestion was generated (signal details, fired chips,
+          summary line) renders identically here, so you can see *why* a
+          pick was made and how it performed. */}
+      <h3 className="audit-section-title">Suggestion history</h3>
       {(!data?.suggestions || data.suggestions.length === 0) ? (
         <div className="betting-empty">
           No suggestions in this date range.
@@ -245,41 +280,34 @@ function BetAuditPage({ onPlayerClick }) {
           )}
         </div>
       ) : (
-        <table className="audit-log-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>#</th>
-              <th>Player</th>
-              <th>Pitcher</th>
-              <th>Score</th>
-              <th>Fired</th>
-              <th>Actual (AB-H-2B-3B-HR-RBI)</th>
-              <th>Hit?</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.suggestions.map((s) => {
-              const firedSignals = SIGNAL_NAMES
-                .filter(({ key }) => s.signals?.[key]?.fired)
-                .map(({ label }) => label)
-                .join(', ') || '—'
-              const hitFlag = s.outcome_pending
-                ? <span className="audit-hit-pending">pending</span>
-                : (s.hit_2tb
-                    ? <span className="audit-hit-yes">✓ ≥2TB</span>
-                    : (s.hit_xbh
-                        ? <span className="audit-hit-yes">✓ XBH</span>
-                        : <span className="audit-hit-no">✗</span>
-                      )
-                  )
-              return (
-                <tr key={s.id}>
-                  <td>{s.suggested_date}</td>
-                  <td>{s.rank}</td>
-                  <td>
+        groupedByDate.map(([date, items]) => (
+          <div key={date} className="audit-date-group">
+            <div className="audit-date-header">
+              <span className="audit-date-label">{formatDateLong(date)}</span>
+              <span className="audit-date-count">
+                {items.length} candidate{items.length === 1 ? '' : 's'}
+                {' · '}
+                {(() => {
+                  const backfilled = items.filter(s => !s.outcome_pending)
+                  const hits2tb = backfilled.filter(s => s.hit_2tb).length
+                  if (backfilled.length === 0) return 'awaiting backfill'
+                  return `${hits2tb}/${backfilled.length} hit (≥2TB)`
+                })()}
+              </span>
+            </div>
+            <div className="betting-grid">
+              {items.map((s) => (
+                <div key={s.id} className="betting-card">
+                  {/* Same card layout as the live Betting Edge page — rank,
+                      score, player, context, signals, summary. */}
+                  <div className="betting-card-rank-and-score">
+                    <span className="betting-rank">#{s.rank}</span>
+                    <span className="betting-score">{s.composite_score}</span>
+                  </div>
+
+                  <div className="betting-player">
                     <span
-                      className="audit-player-name"
+                      className="betting-player-name"
                       onClick={() =>
                         onPlayerClick && onPlayerClick({
                           name: s.player_name,
@@ -290,17 +318,54 @@ function BetAuditPage({ onPlayerClick }) {
                     >
                       {s.player_name}
                     </span>
-                  </td>
-                  <td>{s.opposing_pitcher_name}</td>
-                  <td>{s.composite_score}</td>
-                  <td>{firedSignals}</td>
-                  <td className="audit-statline">{fmtStatLine(s)}</td>
-                  <td>{hitFlag}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                    <span className="betting-team">{s.player_team}</span>
+                  </div>
+
+                  <div className="betting-context">
+                    <span className="betting-vs">vs</span>{' '}
+                    <span className="betting-pitcher">{s.opposing_pitcher_name}</span>
+                    {s.venue && <> · <span className="betting-venue">{s.venue}</span></>}
+                  </div>
+
+                  <div className="betting-signals">
+                    {SIGNAL_NAMES.map(({ key, label }) => {
+                      const sig = s.signals?.[key]
+                      if (!sig) return null
+                      return (
+                        <span
+                          key={key}
+                          className={`betting-signal-chip ${sig.fired ? 'fired' : 'dim'}`}
+                          title={sig.detail}
+                        >
+                          {sig.fired ? '✓' : '·'} {label}
+                        </span>
+                      )
+                    })}
+                  </div>
+
+                  <div className="betting-summary">{s.summary}</div>
+
+                  {/* Actual outcome — separated by a divider so you see at a
+                      glance "this is the prediction; below is what happened". */}
+                  <div className="audit-card-outcome">
+                    {s.outcome_pending ? (
+                      <span className="audit-outcome-pending">awaiting backfill...</span>
+                    ) : s.actual_skip_reason ? (
+                      <span className="audit-outcome-skip">{s.actual_skip_reason}</span>
+                    ) : (
+                      <>
+                        <span className="audit-outcome-line">{fmtActualLine(s)}</span>
+                        <span className={`audit-outcome-flag ${s.hit_2tb ? 'hit' : (s.hit_xbh ? 'partial' : 'miss')}`}>
+                          {s.hit_2tb ? '✓ ≥2TB' : (s.hit_xbh ? '✓ XBH' : '✗')}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
       )}
     </div>
   )

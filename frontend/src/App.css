@@ -479,6 +479,99 @@ body {
   font-style: italic;
 }
 
+/* ---- Date-grouped audit cards ----
+   Each date renders as a section: header showing the date + how many
+   candidates hit, then a grid of cards mirroring the live Betting Edge
+   page layout. The card body reuses .betting-card / .betting-* styles
+   verbatim. Only the actual-outcome strip at the bottom is new here. */
+
+.audit-date-group {
+  margin-top: 24px;
+}
+
+.audit-date-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 14px;
+  background: #162236;
+  border: 1px solid #2a3f5f;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-date-label {
+  font-weight: 600;
+  color: #e8ecf0;
+  font-size: 0.95rem;
+}
+
+.audit-date-count {
+  color: #8da4c0;
+  font-size: 0.82rem;
+}
+
+/* The outcome strip sits at the bottom of each audit card, separated by
+   a thin divider line so it visually reads as "the prediction is above,
+   here's what actually happened". */
+.audit-card-outcome {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #2a3f5f;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.audit-outcome-line {
+  color: #e8ecf0;
+  font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+  font-size: 0.82rem;
+}
+
+.audit-outcome-pending {
+  color: #8da4c0;
+  font-style: italic;
+}
+
+.audit-outcome-skip {
+  color: #d97a7a;
+  font-style: italic;
+}
+
+.audit-outcome-flag {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.audit-outcome-flag.hit {
+  background: rgba(76, 175, 80, 0.18);
+  color: #8edb91;
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.audit-outcome-flag.partial {
+  background: rgba(255, 193, 7, 0.15);
+  color: #f0c659;
+  border: 1px solid rgba(255, 193, 7, 0.4);
+}
+
+.audit-outcome-flag.miss {
+  background: rgba(217, 122, 122, 0.15);
+  color: #d97a7a;
+  border: 1px solid rgba(217, 122, 122, 0.4);
+}
+
 /* Section headings used by each component */
 h2 {
   font-size: 1.3rem;
