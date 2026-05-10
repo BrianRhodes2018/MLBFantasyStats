@@ -3640,6 +3640,32 @@ async def get_betting_candidates(
             data={"date": target_date, "candidates": [], "generated_at": None},
         )
 
+    # ---------- 3.5. Hydrate batter handedness via /people ----------
+    # The boxscore's `player.person` object does NOT reliably include
+    # `batSide`, so the inline `bats = person.batSide.code` extraction in
+    # step 3 lands None for nearly every batter — which then collapses the
+    # platoon signal to "neutral, not fired" (see audit log: platoon fired
+    # 0/8 on day 1 before this fix). The /matchups/lineup/{id} endpoint has
+    # been doing this same /people lookup for the same reason. One batch
+    # call handles every batter in one shot.
+    if batter_ids_needed:
+        ids_str = ",".join(str(bid) for bid in batter_ids_needed)
+
+        def _fetch_handedness():
+            return statsapi.get("people", {"personIds": ids_str})
+
+        handedness_data = await asyncio.to_thread(_fetch_handedness)
+        bats_map: dict[int, Optional[str]] = {}
+        for person in handedness_data.get("people", []):
+            pid = person.get("id")
+            bats_map[pid] = (person.get("batSide") or {}).get("code")
+
+        # Patch every matchup_row that didn't get a bats value from the
+        # boxscore (which is approximately all of them in practice).
+        for row in matchup_rows:
+            if row.get("bats") is None:
+                row["bats"] = bats_map.get(row["player_mlb_id"])
+
     # ---------- 4. Bulk-load opposing pitcher stats from DB ----------
     pitcher_rows = await database.fetch_all(
         pitchers.select().where(pitchers.c.mlb_id.in_(list(pitcher_ids_needed)))
