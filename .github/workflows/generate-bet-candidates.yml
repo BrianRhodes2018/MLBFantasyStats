@@ -1,0 +1,90 @@
+# ===========================================================================
+# GitHub Actions — Daily Bet-Candidate Auto-Generation
+# ===========================================================================
+#
+# Hits the deployed /betting/candidates endpoint once a day so the audit
+# table fills in even when nobody visits the Betting Edge page. This is
+# the gap-filler called out in PLAN_BETTING_PAGE.md design question #4.
+#
+# Why a thin scheduled curl instead of refactoring the endpoint into a
+# shared function imported by daily_update.py?
+#   - The endpoint already does everything we need (orchestration +
+#     persistence + idempotency on (suggested_date, rank)).
+#   - A shared-function refactor adds significant cross-module surface
+#     area without changing the runtime behavior.
+#   - If this workflow fails one day, the next day's run picks up — the
+#     audit just has a one-day gap, which is acceptable.
+#
+# Timing — why 19:00 UTC:
+#   That's 3 PM EDT / 12 PM PDT.
+#   - East Coast 1 PM games: in progress, lineups long since out.
+#   - East Coast 7 PM games: ~4 hours before first pitch — most teams
+#     have posted lineups by then (typical lineup post is 2-3 hours
+#     before first pitch).
+#   - West Coast 7 PM games: 8 hours before first pitch — lineups may
+#     not be out yet for some teams. Those days we'll miss them in the
+#     audit.
+#   We accept the West Coast gap rather than running multiple times per
+#   day. If the audit shows systematically missing West Coast games we
+#   can add a second run at 22:00 UTC.
+#
+# Required secret:
+#   None. The endpoint is unauthenticated. (Pre-launch this should change
+#   per PLAN_AUTH_AND_TESTING.md, at which point this workflow needs an
+#   API token.)
+#
+# ===========================================================================
+
+name: Generate Bet Candidates
+
+on:
+  schedule:
+    # 19:00 UTC daily — see header comment for rationale.
+    - cron: '0 19 * * *'
+
+  # Manual trigger — useful for testing the workflow itself or forcing a
+  # regeneration after a hot-fix lands mid-day.
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Render free tier spins down after 15 min of idle and cold-starts on
+      # the next request. The cold start can eat 30-60 seconds, which when
+      # combined with the ~5-10s BvP fan-out in /betting/candidates risks
+      # tripping curl's timeout. We hit /health first to wake the dyno; the
+      # next call lands on a warm server. continue-on-error so we still try
+      # the real call even if the wake fails.
+      - name: Wake the API (cold-start mitigation)
+        run: |
+          curl -fsS --max-time 60 https://mlbfantasystats.onrender.com/health \
+            > /dev/null \
+            && echo "Server warm" \
+            || echo "Wake call failed; will try generation anyway"
+        continue-on-error: true
+
+      # Hit the real endpoint. 180s timeout gives plenty of room for the
+      # ~270 BvP calls fanned out per generation, plus any residual cold
+      # start. fail-on-curl-error so a non-2xx makes the workflow red.
+      - name: Generate betting candidates
+        run: |
+          response=$(curl -fsS --max-time 180 https://mlbfantasystats.onrender.com/betting/candidates)
+
+          # Pretty summary in the workflow log so you can debug at a glance
+          # whether candidates landed or this was a "no lineups yet" run.
+          echo "$response" | python -c "
+          import sys, json
+          d = json.load(sys.stdin).get('data', {})
+          candidates = d.get('candidates', [])
+          print(f\"Date: {d.get('date')}\")
+          print(f\"Generated at: {d.get('generated_at')}\")
+          print(f\"Candidates: {len(candidates)}\")
+          if not candidates:
+              print('Note: zero candidates — most likely lineups not announced yet')
+          else:
+              for c in candidates:
+                  fired = [k for k, v in c.get('signals', {}).items() if v.get('fired')]
+                  print(f\"  #{c['rank']} {c['player_name']:25} score={c['composite_score']} fired={fired}\")
+          "
