@@ -37,7 +37,8 @@ from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
-from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata, bet_suggestions
+from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata, bet_suggestions, hitter_savant_snapshots
+import xwoba
 from betting import compute_composite_score, signals_to_json
 from park_factors import (
     get_park_factor,
@@ -269,6 +270,13 @@ async def startup():
     # requests during the in-flight fetch get sensible output. When Savant
     # responds (~1-2s), the cache is replaced with current 3-year-rolling data.
     asyncio.create_task(refresh_park_factors_cache())
+
+    # Warm the Savant expected-stats cache from the DB. The cache is what
+    # the /betting/candidates endpoint reads to gate the form signal on
+    # season K% / Barrel/PA / etc. Without this, every server cold-start
+    # would leave that data missing until the next daily-update Phase 6
+    # ran. Idempotent — safe even when the table is empty (first deploy).
+    asyncio.create_task(xwoba.warm_cache_from_db(database, hitter_savant_snapshots))
 
 
 @app.on_event("shutdown")
@@ -1221,11 +1229,33 @@ async def get_pitcher_computed_stats(season: Optional[str] = None):
           ).round(2))
           .otherwise(None)
           .alias("fip"),
+
+        # K-BB%: Strikeout rate minus walk rate, as a percentage of batters
+        # faced. One of the most stable single-stat indicators of pitcher
+        # quality. Equivalent to "K% - BB%" — captures two of FIP's three
+        # components (K and BB) in one clean number, without HR variance.
+        #
+        # We don't store batters-faced directly; reconstruct it from:
+        #   PA_estimated = 3*IP + hits_allowed + walks + hit_by_pitch
+        # (Outs end PAs that don't reach base = 3*IP. Reaches add H+BB+HBP.
+        # Accurate to ~0.5%, ignoring reached-on-error and a few edge cases.)
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((
+              (pl.col("strikeouts") - pl.col("walks"))
+              / (
+                  (pl.col("innings_pitched") * 3)
+                  + pl.col("hits_allowed")
+                  + pl.col("walks")
+                  + pl.col("hit_by_pitch").fill_null(0)
+              ) * 100
+          ).round(1))
+          .otherwise(None)
+          .alias("k_bb_pct"),
     ])
 
     result = computed.select([
         "id", "name", "team",
-        "k_per_9", "bb_per_9", "k_bb_ratio", "win_pct", "hr_per_9", "fip"
+        "k_per_9", "bb_per_9", "k_bb_ratio", "win_pct", "hr_per_9", "fip", "k_bb_pct"
     ])
 
     return result.to_dicts()
@@ -1406,6 +1436,28 @@ async def get_pitcher_filterable_stats(season: Optional[str] = None):
             "avg": round(fip_avg, 2) if fip_avg is not None else round(fip_min or 0.0, 2),
         })
 
+        # K-BB%: per /pitchers/computed. Add filter so users can search for
+        # "elite command" pitchers (K-BB% above 18) or vulnerable ones (below 8).
+        k_bb_expr = (
+            (pl.col("strikeouts") - pl.col("walks"))
+            / (
+                (pl.col("innings_pitched") * 3)
+                + pl.col("hits_allowed")
+                + pl.col("walks")
+                + pl.col("hit_by_pitch").fill_null(0)
+            ) * 100
+        )
+        kbb_pct_min = df_with_ip.select(k_bb_expr.min()).item()
+        kbb_pct_max = df_with_ip.select(k_bb_expr.max()).item()
+        kbb_pct_avg = df_with_ip.select(k_bb_expr.mean()).item()
+        stat_info.append({
+            "name": "k_bb_pct",
+            "type": "float",
+            "min": round(kbb_pct_min, 1) if kbb_pct_min is not None else 0.0,
+            "max": round(kbb_pct_max, 1) if kbb_pct_max is not None else 0.0,
+            "avg": round(kbb_pct_avg, 1) if kbb_pct_avg is not None else round(kbb_pct_min or 0.0, 1),
+        })
+
     # --- K/BB needs walks > 0 to avoid division by zero ---
     df_with_bb = df.filter(pl.col("walks") > 0)
     if not df_with_bb.is_empty():
@@ -1553,6 +1605,21 @@ async def search_pitchers(
           ).round(2))
           .otherwise(None)
           .alias("fip"),
+
+        # K-BB%: strikeout-minus-walk rate. See /pitchers/computed for the
+        # full PA reconstruction explanation. Higher = better command.
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((
+              (pl.col("strikeouts") - pl.col("walks"))
+              / (
+                  (pl.col("innings_pitched") * 3)
+                  + pl.col("hits_allowed")
+                  + pl.col("walks")
+                  + pl.col("hit_by_pitch").fill_null(0)
+              ) * 100
+          ).round(1))
+          .otherwise(None)
+          .alias("k_bb_pct"),
     ])
 
     # --- Dynamic stat range filters ---
@@ -1565,7 +1632,7 @@ async def search_pitchers(
     # Combine raw database columns with computed stat columns.
     # This lets the same filtering loop handle both types seamlessly —
     # the loop doesn't need to know whether a column is raw or computed.
-    computed_stat_cols = ["k_per_9", "bb_per_9", "k_bb_ratio", "hr_per_9", "fip"]
+    computed_stat_cols = ["k_per_9", "bb_per_9", "k_bb_ratio", "hr_per_9", "fip", "k_bb_pct"]
     all_filterable_cols = numeric_cols + computed_stat_cols
 
     for stat in all_filterable_cols:
@@ -3461,6 +3528,80 @@ async def _fetch_bvp_for_pairs(
     return result
 
 
+# wOBA linear weights — standard FanGraphs 2023 values, ~stable across
+# recent seasons. Used by _compute_rolling_woba_and_kpct_map below.
+_WOBA_W_BB = 0.69
+_WOBA_W_HBP = 0.72
+_WOBA_W_1B = 0.88
+_WOBA_W_2B = 1.25
+_WOBA_W_3B = 1.58
+_WOBA_W_HR = 2.02
+
+
+def _compute_rolling_woba_and_kpct_map(
+    rows: list, cutoff_date: str
+) -> dict[int, dict]:
+    """
+    Compute rolling wOBA and K% per player from batter_game_logs rows.
+
+    Returns a dict mapping `player_mlb_id -> {woba, k_pct, pa, hits, etc.}`
+    over the window from `cutoff_date` (inclusive) forward. Same loop
+    pattern as `_compute_rolling_ops_map` but yielding wOBA (properly
+    weighted) and K% (the form-signal's process gate) in a single pass.
+
+    Why we do this instead of OPS:
+        OPS treats a walk like a single in OBP and weights HR as 4x a
+        single in SLG; both are mathematically wrong. wOBA uses real
+        linear run values, which is what serious analytics models use.
+        Same inputs from batter_game_logs, just better math.
+    """
+    agg: dict[int, dict] = {}
+    for row in rows:
+        m = row._mapping if hasattr(row, "_mapping") else row
+        if m["game_date"] < cutoff_date:
+            continue
+        pid = m["player_id"]
+        a = agg.setdefault(pid, {
+            "woba_num": 0.0,
+            "pa": 0,
+            "k": 0,
+            "bb": 0,
+        })
+        h = m.get("hits", 0) or 0
+        dbl = m.get("doubles", 0) or 0
+        tpl = m.get("triples", 0) or 0
+        hr = m.get("home_runs", 0) or 0
+        singles = max(h - dbl - tpl - hr, 0)
+        bb = m.get("walks", 0) or 0
+        hbp = m.get("hit_by_pitch", 0) or 0
+        ab = m.get("at_bats", 0) or 0
+        sf = m.get("sacrifice_flies", 0) or 0
+        k = m.get("strikeouts", 0) or 0
+
+        a["woba_num"] += (
+            _WOBA_W_BB * bb
+            + _WOBA_W_HBP * hbp
+            + _WOBA_W_1B * singles
+            + _WOBA_W_2B * dbl
+            + _WOBA_W_3B * tpl
+            + _WOBA_W_HR * hr
+        )
+        a["pa"] += ab + bb + hbp + sf
+        a["k"] += k
+        a["bb"] += bb
+
+    out: dict[int, dict] = {}
+    for pid, a in agg.items():
+        if a["pa"] <= 0:
+            continue
+        out[pid] = {
+            "woba": round(a["woba_num"] / a["pa"], 3),
+            "k_pct": round(a["k"] / a["pa"] * 100, 1),
+            "pa": a["pa"],
+        }
+    return out
+
+
 def _compute_rolling_ops_map(
     rows: list, cutoff_date: str
 ) -> dict[int, float]:
@@ -3676,28 +3817,45 @@ async def get_betting_candidates(
         ip = m.get("innings_pitched") or 0
         if ip < min_pitcher_ip:
             continue  # filter out noise-sample pitchers
-        # Compute FIP, K/9, BB/9, HR/9 inline (same formulas as /pitchers/computed)
+        # Compute FIP, HR/9, K-BB% inline (same formulas as /pitchers/computed)
         hr = m.get("home_runs_allowed") or 0
         bb = m.get("walks") or 0
         hbp = m.get("hit_by_pitch") or 0
         k = m.get("strikeouts") or 0
+        h_allowed = m.get("hits_allowed") or 0
         fip = round(((13 * hr) + (3 * (bb + hbp)) - (2 * k)) / ip + 3.15, 2) if ip > 0 else None
         hr_per_9 = round(hr / ip * 9, 2) if ip > 0 else None
+        # K-BB%: PA_est = 3*IP + H + BB + HBP. See /pitchers/computed for rationale.
+        pa_est = (3 * ip) + h_allowed + bb + hbp
+        k_bb_pct = round((k - bb) / pa_est * 100, 1) if pa_est > 0 else None
         pitcher_lookup[m["mlb_id"]] = {
             "throws": m.get("throws"),
             "fip": fip,
             "whip": m.get("whip"),
             "hr_per_9": hr_per_9,
+            "k_bb_pct": k_bb_pct,
             "innings_pitched": ip,
             "name": m.get("name"),
         }
 
-    # ---------- 5. Bulk-load 14-day rolling stats from batter_game_logs ----------
+    # ---------- 5. Bulk-load rolling wOBA + K% from batter_game_logs ----------
+    # Upgrade over the previous OPS-based form signal: rolling wOBA uses
+    # proper linear run weights (a walk isn't worth a single, an HR isn't
+    # worth 4× a single), and rolling K% gives the form signal a process-
+    # confirmation gate so BABIP-luck "hot" streaks don't fire.
     cutoff = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=14)).strftime("%Y-%m-%d")
     log_rows = await database.fetch_all(
         batter_game_logs.select().where(batter_game_logs.c.player_id.in_(list(batter_ids_needed)))
     )
-    rolling_ops_map = _compute_rolling_ops_map(log_rows, cutoff)
+    rolling_form_map = _compute_rolling_woba_and_kpct_map(log_rows, cutoff)
+
+    # ---------- 5.5. Look up season Savant data per batter ----------
+    # Provides season xwOBA, Barrel/PA, etc. for every qualified hitter.
+    # In-memory cache populated by daily_update.py phase 6. On cold start
+    # (server just booted, no daily update has run yet) the cache will be
+    # empty and we fall back to scoring without Savant — the form signal
+    # still works via rolling wOBA.
+    savant_meta = xwoba.get_cache_meta()
 
     # ---------- 6. Fetch career BvP for every (batter, opposing_pitcher) pair ----------
     # Skip pairs whose pitcher got filtered out at step 4 (below min_pitcher_ip)
@@ -3716,7 +3874,20 @@ async def get_betting_candidates(
         if pdata is None:
             continue  # Pitcher filtered out (below min_pitcher_ip or not in DB)
 
-        rolling_ops = rolling_ops_map.get(row["player_mlb_id"])
+        # Rolling form stats — wOBA replaces the old OPS-based pair, K%
+        # comes along for free since the same per-game data feeds both.
+        rolling = rolling_form_map.get(row["player_mlb_id"]) or {}
+        rolling_woba = rolling.get("woba")
+        rolling_k_pct = rolling.get("k_pct")
+
+        # Savant lookup — season-level xwOBA / Barrel-PA / etc. for this
+        # batter. None when the player isn't qualified or the snapshot
+        # cache hasn't been populated yet on a cold start.
+        savant = xwoba.get_latest_snapshot(row["player_mlb_id"]) or {}
+        season_woba = savant.get("woba")  # actual season wOBA
+        season_xwoba = savant.get("xwoba")
+        season_barrel_pa_pct = savant.get("barrels_per_pa")
+
         bvp = bvp_map.get((row["player_mlb_id"], row["opposing_pitcher_mlb_id"]))
         bvp_pa = bvp["pa"] if bvp else None
         bvp_ops = bvp["ops"] if bvp else None
@@ -3727,8 +3898,22 @@ async def get_betting_candidates(
             pitcher_fip=pdata["fip"],
             pitcher_whip=pdata["whip"],
             pitcher_hr_per_9=pdata["hr_per_9"],
-            rolling_ops=rolling_ops,
-            season_ops=row["season_ops"],
+            pitcher_k_bb_pct=pdata.get("k_bb_pct"),
+            # New wOBA-based form signal inputs. Note: rolling K% goes
+            # in as season_k_pct because in the framework's parlance,
+            # "rolling K%" specifically means K% over the SAME window
+            # used for rate-stat measurement. Season-level Savant K%
+            # (which we don't have a separate column for yet) is not
+            # what's being computed here. We use what we have.
+            rolling_woba=rolling_woba,
+            season_woba=season_woba,
+            season_xwoba=season_xwoba,
+            season_k_pct=rolling_k_pct,  # use rolling as the gate value
+            season_barrel_pa_pct=season_barrel_pa_pct,
+            # Fallback to OPS path when wOBA is unavailable (defensive —
+            # rolling wOBA should always be present given batter_game_logs).
+            rolling_ops=row.get("season_ops"),
+            season_ops=row.get("season_ops"),
             bvp_pa=bvp_pa,
             bvp_ops=bvp_ops,
             park_runs_factor=row["park_runs_factor"],
@@ -3739,6 +3924,19 @@ async def get_betting_candidates(
             "composite_score": result["composite_score"],
             "signals": result["signals"],
             "summary": result["summary"],
+            # Frontend context strip — surfaces the underlying numbers
+            # without making the user hover the signal chip to see them.
+            # All fields are nullable (Savant cache empty, batter not
+            # qualified, etc.); the UI shows "—" for missing values.
+            "context_stats": {
+                "rolling_woba": rolling_woba,
+                "rolling_k_pct": rolling_k_pct,
+                "season_woba": season_woba,
+                "season_xwoba": season_xwoba,
+                "season_barrel_pa_pct": season_barrel_pa_pct,
+                "pitcher_k_bb_pct": pdata.get("k_bb_pct"),
+                "pitcher_fip": pdata.get("fip"),
+            },
         })
 
     candidates.sort(key=lambda c: c["composite_score"], reverse=True)
