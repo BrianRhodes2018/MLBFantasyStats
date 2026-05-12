@@ -181,6 +181,30 @@ function BettingPage({ onPlayerClick }) {
             </div>
 
             <div className="betting-summary">{c.summary}</div>
+
+            {/* Context strip — surfaces the underlying numbers behind
+                the signals without requiring the user to hover the chips.
+                "—" for missing values lets cold-start (Savant cache empty)
+                degrade gracefully. */}
+            {c.context_stats && (
+              <div className="betting-context-stats">
+                <span title="14-day rolling wOBA">
+                  rolling wOBA: <strong>{c.context_stats.rolling_woba?.toFixed(3) ?? '—'}</strong>
+                </span>
+                <span title="Season expected wOBA from Baseball Savant">
+                  season xwOBA: <strong>{c.context_stats.season_xwoba?.toFixed(3) ?? '—'}</strong>
+                </span>
+                <span title="Season Barrels per Plate Appearance (Savant)">
+                  Brls/PA: <strong>{c.context_stats.season_barrel_pa_pct?.toFixed(1) ?? '—'}%</strong>
+                </span>
+                <span title="14-day rolling strikeout rate">
+                  K% (14d): <strong>{c.context_stats.rolling_k_pct?.toFixed(1) ?? '—'}%</strong>
+                </span>
+                <span title="Opposing pitcher's season strikeout-minus-walk rate (K-BB%)">
+                  vs. K-BB%: <strong>{c.context_stats.pitcher_k_bb_pct?.toFixed(1) ?? '—'}%</strong>
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </div>

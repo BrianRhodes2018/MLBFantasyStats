@@ -103,15 +103,16 @@ def test_pitcher_vulnerability_missing_treated_as_elite():
 # ---------------------------------------------------------------------------
 
 def test_recent_form_red_hot_full_credit():
-    # Rolling 1.500 OPS vs season 1.000 -> ratio 1.5 -> max
-    value, fired, _ = score_recent_form(1.500, 1.000)
+    # Rolling .500 wOBA vs season .333 -> ratio 1.5 -> max rate score.
+    # No K/Barrel gates supplied so no caps apply.
+    value, fired, _ = score_recent_form(rolling_woba=0.500, season_woba=0.333)
     assert value == 1.0
     assert fired is True
 
 
 def test_recent_form_ice_cold_zero():
-    # Rolling .300 OPS vs season .800 -> ratio 0.375 -> floor
-    value, fired, _ = score_recent_form(0.300, 0.800)
+    # Rolling .100 wOBA vs season .333 -> ratio 0.30 -> floor
+    value, fired, _ = score_recent_form(rolling_woba=0.100, season_woba=0.333)
     assert value == 0.0
     assert fired is False
 
@@ -119,23 +120,54 @@ def test_recent_form_ice_cold_zero():
 def test_recent_form_at_season_average_neutral():
     # Rolling = season -> neutral 0.444... not exactly 0.5 due to formula
     # (ratio 1.0 -> (1.0 - 0.6) / 0.9 = 0.444)
-    value, _, _ = score_recent_form(0.800, 0.800)
+    value, _, _ = score_recent_form(rolling_woba=0.333, season_woba=0.333)
     assert abs(value - 0.444) < 0.01
 
 
 def test_recent_form_fires_when_clearly_hot():
-    # Avoiding the exact 1.10 threshold here because 0.880 / 0.800 is
-    # 1.0999...9 in float, which would test the boundary unreliably.
-    # 1.15x is unambiguously hot.
-    value, fired, _ = score_recent_form(0.920, 0.800)
+    # 1.15x rate ratio + no K-gate disqualification -> fires
+    value, fired, _ = score_recent_form(rolling_woba=0.383, season_woba=0.333)
     assert fired is True
     assert value > 0.5
 
 
 def test_recent_form_missing_data_neutral():
-    value, fired, _ = score_recent_form(None, 0.800)
+    value, fired, _ = score_recent_form(rolling_woba=None, season_woba=0.333)
     assert value == 0.5
     assert fired is False
+
+
+def test_recent_form_high_k_pct_caps_score():
+    # Same ratio as the "red hot" test, but with a 31% K rate. Should be
+    # capped at 0.5x. 1.0 -> 0.5.
+    value, fired, _ = score_recent_form(
+        rolling_woba=0.500, season_woba=0.333, season_k_pct=31.0,
+    )
+    assert value == 0.5
+    # Still fires per the rate, BUT the K-gate disqualifies it from firing.
+    assert fired is False
+
+
+def test_recent_form_elite_barrels_boosts_score():
+    # Ratio gives base 0.444; +10 barrel rate over league avg should
+    # bump us via the 1.2x bonus.
+    value, _, _ = score_recent_form(
+        rolling_woba=0.333, season_woba=0.333, season_barrel_pa_pct=12.0,
+    )
+    # 0.444 * 1.2 = 0.533
+    assert value > 0.5
+
+
+def test_recent_form_prefers_xwoba_when_available():
+    # When both xwOBA and wOBA pairs are available, xwOBA should win.
+    # Use ratios that would point in opposite directions to confirm.
+    value, _, detail = score_recent_form(
+        rolling_woba=0.500, season_woba=0.333,    # wOBA says ratio 1.50 (max)
+        rolling_xwoba=0.300, season_xwoba=0.333,  # xwOBA says ratio 0.90 (below neutral)
+    )
+    assert "xwOBA" in detail
+    # If xwOBA logic was picked, value will be around 0.333 (ratio 0.9 -> (0.9 - 0.6)/0.9 = 0.333)
+    assert value < 0.5
 
 
 # ---------------------------------------------------------------------------

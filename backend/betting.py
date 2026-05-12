@@ -116,24 +116,58 @@ def _normalize_hr9(hr_per_9: Optional[float]) -> float:
     return (hr_per_9 - 0.80) / 0.70
 
 
+def _normalize_k_bb_pct(k_bb_pct: Optional[float]) -> float:
+    """
+    K-BB% > 18% is elite (low vulnerability); K-BB% < 8% is vulnerable.
+    Captures both strikeout ability AND walk control in one number —
+    one of the most stable single-stat pitcher quality indicators.
+    Higher is better, so we invert into a "vulnerability score" where
+    1.0 = vulnerable.
+    """
+    if k_bb_pct is None:
+        return 0.0
+    if k_bb_pct >= 18.0:
+        return 0.0
+    if k_bb_pct <= 8.0:
+        return 1.0
+    # Linear: 18% maps to 0, 8% maps to 1
+    return (18.0 - k_bb_pct) / 10.0
+
+
 def score_pitcher_vulnerability(
     fip: Optional[float],
     whip: Optional[float],
     hr_per_9: Optional[float],
+    k_bb_pct: Optional[float] = None,
 ) -> tuple[float, bool, str]:
     """
-    0.0 = elite/dominant pitcher, 1.0 = batting practice. Average of three
-    normalized metrics so one outlier doesn't dominate.
+    0.0 = elite/dominant pitcher, 1.0 = batting practice. Average of
+    normalized rate-stat metrics so one outlier doesn't dominate.
+
+    Components (each [0, 1]):
+        - FIP        — defense-independent run prevention
+        - WHIP       — baserunners allowed per IP
+        - HR/9       — long-ball vulnerability
+        - K-BB%      — strikeout-minus-walk rate (NEW). Captures
+                       command + strikeout ability in one number,
+                       independent of HR luck. Adds robustness to the
+                       composite when k_bb_pct is provided.
+
+    Backward-compatible: callers passing only the original three args
+    still work; k_bb_pct defaults to None and is excluded from the
+    average when missing.
 
     Fires when the average exceeds 0.40 — roughly "this pitcher has at
-    least one materially below-average rate stat". Threshold is a guess;
-    Phase 3 will tune it.
+    least one materially below-average rate stat".
     """
     components = [
         _normalize_fip(fip),
         _normalize_whip(whip),
         _normalize_hr9(hr_per_9),
     ]
+    if k_bb_pct is not None:
+        components.append(_normalize_k_bb_pct(k_bb_pct))
+
     score = sum(components) / len(components)
     fired = score >= 0.40
 
@@ -144,6 +178,8 @@ def score_pitcher_vulnerability(
         detail_parts.append(f"WHIP {whip:.2f}")
     if hr_per_9 is not None:
         detail_parts.append(f"HR/9 {hr_per_9:.2f}")
+    if k_bb_pct is not None:
+        detail_parts.append(f"K-BB% {k_bb_pct:.1f}")
     detail = ", ".join(detail_parts) if detail_parts else "no pitcher rate stats available"
 
     return score, fired, detail
@@ -154,33 +190,100 @@ def score_pitcher_vulnerability(
 # ---------------------------------------------------------------------------
 
 def score_recent_form(
-    rolling_ops: Optional[float],
-    season_ops: Optional[float],
+    *,
+    # Rate stats — primary signal. Always at least the wOBA pair is available
+    # (computable from batter_game_logs from day 1). The xwOBA pair only
+    # populates once Savant snapshots have ~2 weeks of accumulation.
+    rolling_woba: Optional[float] = None,
+    season_woba: Optional[float] = None,
+    rolling_xwoba: Optional[float] = None,
+    season_xwoba: Optional[float] = None,
+    # Process-confirmation gates. These prevent BABIP-luck hot streaks from
+    # firing as if they were real. We accept rolling versions when they're
+    # available (post-snapshot accumulation), season-level otherwise.
+    rolling_k_pct: Optional[float] = None,
+    season_k_pct: Optional[float] = None,
+    rolling_barrel_pa_pct: Optional[float] = None,
+    season_barrel_pa_pct: Optional[float] = None,
+    # League averages — rough constants, updatable annually. ~22% K rate
+    # and ~6.5% Brls/PA are MLB league averages in recent seasons.
+    league_k_pct: float = 22.0,
+    league_barrel_pa_pct: float = 6.5,
 ) -> tuple[float, bool, str]:
     """
-    Reward hitters whose 14-day rolling OPS is meaningfully higher than
-    their season OPS, penalize the opposite. Linearly interpolated between
-    "rolling = 0.6 * season" (score 0) and "rolling = 1.5 * season" (score 1).
-    Equal rolling and season OPS yields 0.5.
+    Multi-factor form signal. Rewards hitters whose recent production is
+    above their season baseline, BUT gates the signal by process stats so
+    BABIP-luck hot streaks don't fire as if they were real.
 
-    The fired threshold is "rolling at least 1.10x season OPS" — clearly
-    hot, not just bouncing around the mean.
+    Rate stat selection (priority order):
+        1. Rolling xwOBA / Season xwOBA  — preferred when both available
+           (post-snapshot warmup, day 14+ of accumulation)
+        2. Rolling wOBA / Season wOBA    — fallback, available immediately
+
+    Process gates (priority order, same fallback pattern):
+        - K% gate: if elevated K rate (>league avg + 4 pts), score is
+          capped at 0.7×. If extreme (>league avg + 8 pts), capped at 0.5×.
+          A hitter who strikes out 30% of the time has a fragile floor
+          regardless of contact quality.
+        - Barrel/PA gate: bonus 1.2× when elite (>=league avg + 3 pts).
+          Penalty 0.7× when weak (<league avg - 2 pts). Process-stat
+          confirmation that the hot streak is real.
+
+    Score interpolation (rate stat alone, before gates):
+        ratio = current / baseline
+        ratio >= 1.50 -> 1.0
+        ratio <= 0.60 -> 0.0
+        linear between
+
+    Fired when:
+        - ratio >= 1.10 (clearly hot, not noise), AND
+        - K% doesn't disqualify (within league avg + 4 pts)
     """
-    if rolling_ops is None or season_ops is None or season_ops <= 0:
-        return 0.5, False, "no rolling/season data"
+    # ----- Pick rate stat -----
+    if rolling_xwoba is not None and season_xwoba is not None and season_xwoba > 0:
+        rate_now, rate_baseline, rate_name = rolling_xwoba, season_xwoba, "xwOBA"
+    elif rolling_woba is not None and season_woba is not None and season_woba > 0:
+        rate_now, rate_baseline, rate_name = rolling_woba, season_woba, "wOBA"
+    else:
+        return 0.5, False, "no rolling/season rate-stat data"
 
-    ratio = rolling_ops / season_ops
+    ratio = rate_now / rate_baseline
 
     if ratio >= 1.5:
         score = 1.0
     elif ratio <= 0.6:
         score = 0.0
     else:
-        # Linear from 0.6 -> 0 to 1.5 -> 1
         score = (ratio - 0.6) / 0.9
 
-    fired = ratio >= 1.10
-    detail = f".{int(rolling_ops * 1000):03d} rolling OPS vs .{int(season_ops * 1000):03d} season ({ratio:.2f}x)"
+    # ----- Apply process gates -----
+    k_value = rolling_k_pct if rolling_k_pct is not None else season_k_pct
+    barrel_value = rolling_barrel_pa_pct if rolling_barrel_pa_pct is not None else season_barrel_pa_pct
+
+    if k_value is not None:
+        if k_value > league_k_pct + 8:    # ≥30% K rate — fragile
+            score *= 0.5
+        elif k_value > league_k_pct + 4:  # 26-30% K rate — caution
+            score *= 0.7
+
+    if barrel_value is not None:
+        if barrel_value >= league_barrel_pa_pct + 3:    # elite contact
+            score = min(score * 1.2, 1.0)
+        elif barrel_value < league_barrel_pa_pct - 2:   # weak contact
+            score *= 0.7
+
+    score = max(0.0, min(score, 1.0))
+
+    # Only fire when rate is clearly hot AND K% gate doesn't disqualify
+    fired = ratio >= 1.10 and (k_value is None or k_value <= league_k_pct + 4)
+
+    detail_parts = [f"{rate_now:.3f} rolling {rate_name} vs {rate_baseline:.3f} ({ratio:.2f}x)"]
+    if k_value is not None:
+        detail_parts.append(f"K% {k_value:.1f}")
+    if barrel_value is not None:
+        detail_parts.append(f"Brls/PA {barrel_value:.1f}")
+    detail = "; ".join(detail_parts)
+
     return score, fired, detail
 
 
@@ -261,11 +364,23 @@ def compute_composite_score(
     pitcher_fip: Optional[float],
     pitcher_whip: Optional[float],
     pitcher_hr_per_9: Optional[float],
-    rolling_ops: Optional[float],
-    season_ops: Optional[float],
-    bvp_pa: Optional[int],
-    bvp_ops: Optional[float],
-    park_runs_factor: Optional[int],
+    pitcher_k_bb_pct: Optional[float] = None,
+    # New rate-stat inputs (replaces the old rolling_ops / season_ops pair).
+    rolling_woba: Optional[float] = None,
+    season_woba: Optional[float] = None,
+    rolling_xwoba: Optional[float] = None,
+    season_xwoba: Optional[float] = None,
+    rolling_k_pct: Optional[float] = None,
+    season_k_pct: Optional[float] = None,
+    rolling_barrel_pa_pct: Optional[float] = None,
+    season_barrel_pa_pct: Optional[float] = None,
+    # Legacy OPS args kept so existing tests and callers still work; if
+    # neither wOBA pair is supplied, we fall back to OPS as a last resort.
+    rolling_ops: Optional[float] = None,
+    season_ops: Optional[float] = None,
+    bvp_pa: Optional[int] = None,
+    bvp_ops: Optional[float] = None,
+    park_runs_factor: Optional[int] = None,
 ) -> dict:
     """
     Run all five signals and combine into a single composite score.
@@ -280,8 +395,32 @@ def compute_composite_score(
     rather than the 0–1 floats inside the math.
     """
     platoon_v, platoon_fired, platoon_d = score_platoon(bats, throws)
-    pitcher_v, pitcher_fired, pitcher_d = score_pitcher_vulnerability(pitcher_fip, pitcher_whip, pitcher_hr_per_9)
-    form_v, form_fired, form_d = score_recent_form(rolling_ops, season_ops)
+    pitcher_v, pitcher_fired, pitcher_d = score_pitcher_vulnerability(
+        pitcher_fip, pitcher_whip, pitcher_hr_per_9, k_bb_pct=pitcher_k_bb_pct,
+    )
+
+    # Form-signal fallback: if no wOBA data was provided, synthesize a
+    # rolling/season wOBA pair from the legacy OPS args by treating OPS as
+    # a rough proxy. Mathematically dirty but keeps the signal alive on
+    # callers that haven't migrated. New /betting/candidates path passes
+    # the proper wOBA pair so this branch only fires for older test cases.
+    _rolling_woba = rolling_woba
+    _season_woba = season_woba
+    if _rolling_woba is None and rolling_ops is not None:
+        _rolling_woba = rolling_ops
+        if _season_woba is None and season_ops is not None:
+            _season_woba = season_ops
+
+    form_v, form_fired, form_d = score_recent_form(
+        rolling_woba=_rolling_woba,
+        season_woba=_season_woba,
+        rolling_xwoba=rolling_xwoba,
+        season_xwoba=season_xwoba,
+        rolling_k_pct=rolling_k_pct,
+        season_k_pct=season_k_pct,
+        rolling_barrel_pa_pct=rolling_barrel_pa_pct,
+        season_barrel_pa_pct=season_barrel_pa_pct,
+    )
     bvp_v, bvp_fired, bvp_d = score_bvp(bvp_pa, bvp_ops)
     park_mult, park_fired, park_d = park_factor_multiplier(park_runs_factor)
 

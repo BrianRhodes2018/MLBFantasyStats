@@ -186,6 +186,13 @@ const COLUMNS = [
     mobileHide: true,
   },
   {
+    key: 'k_bb_pct',
+    label: 'K-BB%',
+    tooltip: 'Strikeout-minus-walk rate (K-BB%)\n(K − BB) ÷ PA × 100\nOne of the most stable single-stat indicators of pitcher quality — captures both strikeout ability AND walk control in one number, independent of HR luck. Higher is better.\nAverage: 13% | Good: 16% | Elite: 20%+',
+    isComputed: true,
+    mobileHide: true,
+  },
+  {
     key: 'fantasy_pts',
     label: 'Fantasy Pts',
     tooltip: 'Fantasy Points\nComputed based on the selected ESPN fantasy league\'s scoring settings.\nSelect a league in the header bar to see fantasy points.\nPoints = SUM(stat × league_point_value) for each scored category.',

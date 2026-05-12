@@ -440,3 +440,72 @@ bet_suggestions = Table(
     # UI show the row clearly as "no data" instead of "pending".
     Column("actual_skip_reason", String(200)),
 )
+
+
+# =============================================================================
+# HITTER SAVANT SNAPSHOTS
+# =============================================================================
+# Daily season-to-date snapshots of each qualified hitter's Baseball Savant
+# expected-stats / Statcast totals. Two reasons we store these:
+#
+# 1. Rolling-window stats via subtraction math.
+#    Savant publishes season aggregates only. But the underlying numerator/
+#    denominator is additive: snapshot today and 14 days ago, subtract, and
+#    you have a true rolling 14-day window. We store the count fields
+#    (`barrel_ct`, `hard_hit_ct`, `pa`) explicitly so the subtraction is
+#    exact rather than reconstructed from rate stats with rounding error.
+#
+# 2. Context display.
+#    Even before 2 weeks of accumulation makes rolling windows usable, the
+#    latest snapshot gives us season xwOBA, Barrel/PA, K%, etc. for every
+#    qualified hitter. That goes on the betting candidate cards as context
+#    and into the form-signal's "process gate" logic immediately.
+#
+# Uniqueness: (player_mlb_id, snapshot_date). Multiple writes within a day
+# (e.g. manual workflow re-trigger) upsert harmlessly.
+#
+# Scale: ~250 qualified hitters × 1 row/day = ~50K rows per full season.
+# Trivially small.
+hitter_savant_snapshots = Table(
+    "hitter_savant_snapshots",
+    metadata,
+    Column("id", Integer, primary_key=True),
+
+    # MLB Stats API player ID — same key used everywhere else (players.mlb_id,
+    # bet_suggestions.player_mlb_id). Lets us join by player without going
+    # through name-matching.
+    Column("player_mlb_id", Integer, nullable=False),
+
+    # ISO date string "YYYY-MM-DD" — sortable lexicographically.
+    Column("snapshot_date", String(10), nullable=False),
+
+    # Season-to-date PA count. Critical denominator for subtraction math:
+    # rolling_window_PA = latest.pa - earlier.pa
+    Column("pa", Integer, nullable=False),
+
+    # Rate stats from Savant's expected-statistics leaderboard. Stored
+    # alongside the counts so we have both the raw inputs (for rolling math)
+    # AND the published season-level rates (for direct display without
+    # extra computation).
+    Column("xwoba", Float),       # expected wOBA — primary form signal
+    Column("woba", Float),        # actual wOBA — useful for "due to regress" calls
+    Column("xba", Float),         # expected batting average
+    Column("xslg", Float),        # expected slugging
+    Column("ba", Float),          # actual batting average
+    Column("slg", Float),         # actual slugging
+
+    # Count fields — these are the additive numerators for the subtraction
+    # math. Savant publishes both counts and rates; we keep the counts so
+    # rolling rates are exact rather than reconstructed.
+    Column("barrel_ct", Integer),       # count of barrels
+    Column("hard_hit_ct", Integer),     # count of 95+ mph batted balls
+
+    # Convenience: also store the published rates so single-day lookups
+    # don't have to recompute from counts.
+    Column("barrels_per_pa", Float),    # Brls/PA% (already as percentage)
+    Column("hard_hit_percent", Float),  # Hard-Hit% (already as percentage)
+    Column("exit_velocity_avg", Float), # avg exit velo (mph)
+
+    # ISO-8601 UTC timestamp of when this snapshot was written.
+    Column("recorded_at", String(30), nullable=False),
+)

@@ -46,7 +46,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 from database import database, engine, metadata
-from models import bet_suggestions
+from models import bet_suggestions, hitter_savant_snapshots
 
 # Set up logging
 log_file = Path(__file__).parent / 'logs' / 'mlb_updates.log'
@@ -102,6 +102,105 @@ def record_successful_update_timestamp() -> None:
         # Don't fail the whole update just because we couldn't write the timestamp.
         # The stats data is what matters; the banner is a nicety.
         logger.warning(f"Failed to record last_stats_update timestamp: {e}")
+
+
+async def snapshot_hitter_savant_stats() -> dict:
+    """
+    Phase 6 of the daily update — scrape Baseball Savant's expected-stats
+    leaderboard and store one row per qualified hitter as today's snapshot.
+
+    Why snapshots and not just "latest values":
+        Savant publishes season aggregates. To derive rolling-window stats
+        (last 50 PAs xwOBA, rolling Barrel/PA, etc.) we need the season
+        numbers at TWO points in time and subtract. Each daily run records
+        one point; after ~2 weeks of accumulation, the rolling subtraction
+        math has usable data.
+
+    Idempotency:
+        Upsert by (player_mlb_id, snapshot_date) so re-running the workflow
+        on the same day is a no-op rather than a dupe.
+
+    Resilience:
+        - Network or parse errors log a warning and exit cleanly — the
+          rest of the daily update still completes.
+        - Per-row errors during the bulk insert are absorbed (the row is
+          skipped rather than aborting the whole batch).
+
+    Returns:
+        {"scraped_count": int, "inserted_count": int, "error": str | None}
+    """
+    import xwoba
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    now_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    needs_disconnect = False
+    if not database.is_connected:
+        await database.connect()
+        needs_disconnect = True
+
+    try:
+        try:
+            rows = await xwoba.fetch_savant_expected_stats()
+        except Exception as e:
+            logger.warning(f"Savant expected-stats scrape failed: {e}; skipping snapshot phase")
+            return {"scraped_count": 0, "inserted_count": 0, "error": str(e)}
+
+        logger.info(f"Scraped {len(rows)} hitter snapshots from Savant")
+
+        inserted = 0
+        for row in rows:
+            payload = {
+                "player_mlb_id": row["player_mlb_id"],
+                "snapshot_date": today_str,
+                "pa": row["pa"],
+                "xwoba": row.get("xwoba"),
+                "woba": row.get("woba"),
+                "xba": row.get("xba"),
+                "xslg": row.get("xslg"),
+                "ba": row.get("ba"),
+                "slg": row.get("slg"),
+                "barrel_ct": row.get("barrel_ct"),
+                "hard_hit_ct": row.get("hard_hit_ct"),
+                "barrels_per_pa": row.get("barrels_per_pa"),
+                "hard_hit_percent": row.get("hard_hit_percent"),
+                "exit_velocity_avg": row.get("exit_velocity_avg"),
+                "recorded_at": now_iso,
+            }
+
+            try:
+                # Upsert pattern: delete any existing row for this
+                # (player, date), then insert. Avoids needing a unique
+                # constraint at the DB level — same approach we already
+                # use elsewhere in the codebase.
+                await database.execute(
+                    hitter_savant_snapshots.delete().where(
+                        (hitter_savant_snapshots.c.player_mlb_id == row["player_mlb_id"])
+                        & (hitter_savant_snapshots.c.snapshot_date == today_str)
+                    )
+                )
+                await database.execute(
+                    hitter_savant_snapshots.insert().values(**payload)
+                )
+                inserted += 1
+            except Exception as e:
+                logger.warning(
+                    f"Skipping Savant snapshot for player {row['player_mlb_id']}: {e}"
+                )
+                continue
+
+        # Refresh the in-memory cache the betting endpoint reads from.
+        # Pulling from the local `rows` list rather than the DB so even on
+        # cold-start the cache is populated immediately after the daily
+        # update finishes.
+        xwoba.cache_latest_snapshots(rows)
+
+        logger.info(f"Snapshot phase complete: {inserted}/{len(rows)} rows persisted")
+        return {"scraped_count": len(rows), "inserted_count": inserted, "error": None}
+
+    finally:
+        if needs_disconnect:
+            await database.disconnect()
 
 
 async def backfill_bet_suggestion_actuals() -> dict:
@@ -309,9 +408,10 @@ async def run_daily_update(skip_gamelogs: bool = False):
         return
 
     current_year = datetime.now().year
-    # Phase 5 (bet-suggestion backfill) always runs — it's cheap and
-    # decouples audit data from the heavy game-log refresh.
-    total_phases = 3 if skip_gamelogs else 5
+    # Phases 5 (bet-suggestion backfill) and 6 (Savant snapshot) always
+    # run — both are cheap and decouple analytics features from the
+    # heavier game-log refresh.
+    total_phases = 4 if skip_gamelogs else 6
     logger.info(f"Updating stats for {current_year} season ({total_phases} phases)")
 
     try:
@@ -338,13 +438,21 @@ async def run_daily_update(skip_gamelogs: bool = False):
             await populate_game_logs(season=current_year, player_type='pitchers', clear_existing=True)
             logger.info("Pitcher game logs refreshed successfully")
 
-        # Phase 5 (or 3 if --skip-gamelogs): Backfill actuals for past
-        # bet_suggestions rows. Cheap (~1 API call per unique player), so
-        # always runs — it's how the Bet Audit page fills in over time.
-        backfill_phase_num = total_phases
+        # Phase N-1: Backfill actuals for past bet_suggestions rows.
+        # Cheap (~1 API call per unique player), so always runs — it's how
+        # the Bet Audit page fills in over time.
+        backfill_phase_num = total_phases - 1
         logger.info(f"Phase {backfill_phase_num}/{total_phases}: Backfilling bet-suggestion actuals...")
         await backfill_bet_suggestion_actuals()
         logger.info("Bet-suggestion backfill complete")
+
+        # Phase N: Snapshot today's Savant expected-stats for every
+        # qualified hitter. Feeds the betting form-signal upgrade
+        # (rolling xwOBA / Barrel-PA / Hard-Hit% via subtraction math)
+        # once ~2 weeks of snapshots accumulate.
+        logger.info(f"Phase {total_phases}/{total_phases}: Snapshotting Savant hitter stats...")
+        await snapshot_hitter_savant_stats()
+        logger.info("Savant snapshot complete")
 
         logger.info(f"Daily update completed successfully! (all {total_phases} phases)")
         record_successful_update_timestamp()

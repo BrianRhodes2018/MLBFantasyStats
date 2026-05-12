@@ -321,6 +321,26 @@ body {
   line-height: 1.4;
 }
 
+/* Per-card context strip — exposes the underlying Savant + rolling
+   numbers without requiring a hover on the signal chip. Sits below
+   the italic summary, muted in color so it doesn't compete for
+   attention but is glanceable. */
+.betting-context-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(74, 144, 217, 0.18);
+  font-size: 0.78rem;
+  color: #8da4c0;
+}
+
+.betting-context-stats strong {
+  color: #e8ecf0;
+  font-weight: 600;
+}
+
 /* ===========================================================================
    BET AUDIT PAGE
    ===========================================================================
