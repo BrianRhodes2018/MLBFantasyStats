@@ -3850,12 +3850,27 @@ async def get_betting_candidates(
     rolling_form_map = _compute_rolling_woba_and_kpct_map(log_rows, cutoff)
 
     # ---------- 5.5. Look up season Savant data per batter ----------
-    # Provides season xwOBA, Barrel/PA, etc. for every qualified hitter.
-    # In-memory cache populated by daily_update.py phase 6. On cold start
-    # (server just booted, no daily update has run yet) the cache will be
-    # empty and we fall back to scoring without Savant — the form signal
-    # still works via rolling wOBA.
-    savant_meta = xwoba.get_cache_meta()
+    # Query directly from `hitter_savant_snapshots` instead of the
+    # in-memory xwoba cache. The cache is process-local — Render's
+    # long-running FastAPI process never sees rows written by the
+    # daily-update GH Actions runner, so the cache went stale between
+    # Render's startup and the next daily-update. One batch query per
+    # request (~270 IDs, single query) trades a tiny perf cost for
+    # correctness. The cache module stays for tests/future use but the
+    # endpoint no longer depends on it.
+    savant_rows = await database.fetch_all(
+        hitter_savant_snapshots.select()
+        .where(hitter_savant_snapshots.c.player_mlb_id.in_(list(batter_ids_needed)))
+        .order_by(hitter_savant_snapshots.c.snapshot_date.desc())
+    )
+    # Keep only the most recent snapshot per player (rows are pre-sorted
+    # newest-first by snapshot_date).
+    savant_lookup: dict[int, dict] = {}
+    for r in savant_rows:
+        m = dict(r._mapping)
+        pid = m["player_mlb_id"]
+        if pid not in savant_lookup:
+            savant_lookup[pid] = m
 
     # ---------- 6. Fetch career BvP for every (batter, opposing_pitcher) pair ----------
     # Skip pairs whose pitcher got filtered out at step 4 (below min_pitcher_ip)
@@ -3880,10 +3895,10 @@ async def get_betting_candidates(
         rolling_woba = rolling.get("woba")
         rolling_k_pct = rolling.get("k_pct")
 
-        # Savant lookup — season-level xwOBA / Barrel-PA / etc. for this
-        # batter. None when the player isn't qualified or the snapshot
-        # cache hasn't been populated yet on a cold start.
-        savant = xwoba.get_latest_snapshot(row["player_mlb_id"]) or {}
+        # Savant lookup from the batch query above — season-level xwOBA /
+        # Barrel-PA / etc. None when the batter isn't qualified or no
+        # snapshot has been written yet for them.
+        savant = savant_lookup.get(row["player_mlb_id"]) or {}
         season_woba = savant.get("woba")  # actual season wOBA
         season_xwoba = savant.get("xwoba")
         season_barrel_pa_pct = savant.get("barrels_per_pa")
