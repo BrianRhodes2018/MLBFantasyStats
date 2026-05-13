@@ -75,6 +75,22 @@ def run_migrations():
                     conn.execute(text(f"ALTER TABLE pitchers ADD COLUMN {col_name} {col_type}"))
             conn.commit()
 
+    # --- Bet suggestions table migrations ---
+    # game_time was added later to let the Betting Edge page (and audit)
+    # group historical suggestions by game start time. Old rows have NULL
+    # and can't be retrofitted, but new generations will populate it.
+    if inspector.has_table("bet_suggestions"):
+        existing_bs_cols = [col["name"] for col in inspector.get_columns("bet_suggestions")]
+        bs_missing = {
+            "game_time": "VARCHAR(30)",  # ISO-8601 game datetime
+        }
+
+        with engine.connect() as conn:
+            for col_name, col_type in bs_missing.items():
+                if col_name not in existing_bs_cols:
+                    conn.execute(text(f"ALTER TABLE bet_suggestions ADD COLUMN {col_name} {col_type}"))
+            conn.commit()
+
     # --- Pitcher game logs table migrations ---
     # Add HBP at the per-game level so rolling FIP windows can be computed.
     if inspector.has_table("pitcher_game_logs"):

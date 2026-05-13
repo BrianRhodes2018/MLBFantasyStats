@@ -3672,26 +3672,48 @@ def _compute_rolling_ops_map(
 @app.get("/betting/candidates", response_model=ApiResponse)
 async def get_betting_candidates(
     date: Optional[str] = Query(None, description="Game date YYYY-MM-DD (defaults to today)"),
-    top_n: int = Query(8, ge=1, le=20, description="How many top candidates to return"),
+    top_n: int = Query(50, ge=1, le=100, description="Maximum candidates to return (default 50 — effectively uncapped for one day)"),
     min_pitcher_ip: float = Query(20.0, ge=0.0, description="Min innings pitched for the opposing pitcher to count (filters tiny-sample noise)"),
+    min_composite_score: float = Query(50.0, ge=0.0, description="Minimum composite score for a candidate to be returned (quality floor)"),
+    min_fired_signals: int = Query(3, ge=0, le=5, description="Minimum number of signals that must fire for a candidate to be returned"),
 ):
     """
-    Generate today's top hitter betting candidates by composite scoring.
+    Generate today's hitter betting candidates by composite scoring.
 
-    Orchestrates the data foundation (handedness, pitcher rate stats, rolling
-    form, park factors) into a single ranked list. Persists every row to
-    bet_suggestions so the Phase 2 audit page can join actual game results
-    against what we suggested.
+    Returns every candidate that clears the quality floors — no fixed
+    "top 8 of the day" cap. The frontend groups candidates by game so
+    you can pick what to bet on each round of game start times. As new
+    lineups post throughout the day, hitting this endpoint again picks
+    them up automatically (idempotent on suggested_date in bet_suggestions).
+
+    Orchestrates the data foundation (handedness, pitcher rate stats,
+    rolling form, park factors, BvP, Savant snapshots) into a ranked
+    list. Persists every qualifying row to bet_suggestions so the audit
+    page can join actual game results against what we suggested.
 
     Query params:
-        date            ISO date "YYYY-MM-DD". Defaults to today.
-        top_n           1..20. Default 8 (matches the spec's 5-8 candidates).
-        min_pitcher_ip  Minimum IP for the opposing pitcher to be considered.
-                        Default 20 — filters out small-sample relievers whose
-                        FIP is statistical noise.
+        date                ISO date "YYYY-MM-DD". Defaults to today.
+        top_n               Max candidates returned. Default 50 = effectively
+                            uncapped for a full slate (~30 games × ~9 hitters/lineup
+                            ≈ 270 raw matchups, of which most fail the quality bar).
+        min_pitcher_ip      Min IP for the opposing pitcher to be considered.
+                            Default 20 — filters out small-sample relievers
+                            whose FIP is statistical noise.
+        min_composite_score Min composite score (default 50) below which a
+                            candidate isn't returned. Lets us return fewer
+                            picks on thin slates rather than filling the
+                            list with junk just to hit a fixed count.
+        min_fired_signals   Min number of signals (out of 5) that must fire
+                            for a candidate to qualify. Default 3 — ensures
+                            recommendations have meaningful corroboration,
+                            not just "park happens to be hitter-friendly".
 
     Returns:
-        ApiResponse with data={"date", "candidates": [...], "generated_at"}
+        ApiResponse with data={
+            "date", "candidates": [...], "generated_at",
+            "thresholds": {min_composite_score, min_fired_signals, ...},
+            "park_factor_meta": {...}
+        }
     """
     # Resolve target date
     target_date = date or datetime.now().strftime("%Y-%m-%d")
@@ -3772,6 +3794,13 @@ async def get_betting_candidates(
                     "opposing_pitcher_name": opposing_pname,
                     "venue": venue_name,
                     "park_runs_factor": runs_factor,
+                    # Game-time + status are propagated through so the frontend
+                    # can group candidates by start time and hide games that
+                    # have already started ("In Progress", "Final"). ISO-8601
+                    # game_datetime from statsapi.schedule; status comes from
+                    # the same source (e.g. "Scheduled", "Pre-Game", "In Progress").
+                    "game_time": sched_game.get("game_datetime", ""),
+                    "game_status": sched_game.get("status", ""),
                 })
 
     if not matchup_rows:
@@ -3954,8 +3983,29 @@ async def get_betting_candidates(
             },
         })
 
-    candidates.sort(key=lambda c: c["composite_score"], reverse=True)
-    top = candidates[:top_n]
+    # ---------- 7.5. Apply quality thresholds ----------
+    # Before this PR we returned exactly `top_n` candidates regardless of
+    # quality, which let cold hitters slip through on thin slates (e.g.
+    # only one game's lineup announced, so the top of the day was just
+    # "the best of what's available", even if no one was actually a good
+    # pick). Now we filter by:
+    #   - composite_score >= min_composite_score   (default 50)
+    #   - fired signal count >= min_fired_signals  (default 3 of 5)
+    # and only THEN take top_n. On thin slates we return fewer picks,
+    # which is the right behavior.
+    qualified = []
+    for c in candidates:
+        if c["composite_score"] < min_composite_score:
+            continue
+        fired_count = sum(
+            1 for sig in c["signals"].values() if sig.get("fired")
+        )
+        if fired_count < min_fired_signals:
+            continue
+        qualified.append(c)
+
+    qualified.sort(key=lambda c: c["composite_score"], reverse=True)
+    top = qualified[:top_n]
     for i, c in enumerate(top, start=1):
         c["rank"] = i
 
@@ -3978,6 +4028,7 @@ async def get_betting_candidates(
                 "opposing_pitcher_mlb_id": c.get("opposing_pitcher_mlb_id"),
                 "opposing_pitcher_name": c.get("opposing_pitcher_name"),
                 "venue": c.get("venue"),
+                "game_time": c.get("game_time"),
                 "composite_score": c["composite_score"],
                 "signals_json": signals_to_json(c["signals"]),
                 "summary": c["summary"],
@@ -3988,13 +4039,22 @@ async def get_betting_candidates(
 
     return ApiResponse(
         code=200,
-        message=f"Top {len(top)} betting candidates for {target_date}",
+        message=f"{len(top)} betting candidates for {target_date} (after quality filtering)",
         data={
             "date": target_date,
             "generated_at": generated_at,
             "park_factor_meta": {
                 "source": park_meta["source"],
                 "year_range": park_meta["year_range"],
+            },
+            # Thresholds applied — surfaced so the UI can tell the user
+            # WHY they got fewer than N picks ("3 of 8 candidates met the
+            # quality bar"). Also makes audit replay deterministic if we
+            # ever want to re-score historical days with new thresholds.
+            "thresholds": {
+                "min_composite_score": min_composite_score,
+                "min_fired_signals": min_fired_signals,
+                "min_pitcher_ip": min_pitcher_ip,
             },
             "candidates": top,
         },
