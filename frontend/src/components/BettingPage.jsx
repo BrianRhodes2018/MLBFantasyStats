@@ -114,8 +114,12 @@ function BettingPage({ onPlayerClick }) {
           looking at. Phase 2's audit page will be the place to drill in. */}
       <div className="betting-methodology">
         Composite score combines platoon advantage, opposing pitcher
-        vulnerability (FIP / WHIP / HR/9), 14-day rolling OPS vs season
-        OPS, career batter-vs-pitcher history (≥10 PA), and park factor.
+        vulnerability (FIP / WHIP / HR/9 / K-BB%), recent form
+        (14-day rolling wOBA vs season xwOBA, gated by rolling K% and
+        season Barrel/PA from Baseball Savant), career batter-vs-pitcher
+        history (≥10 PA), and park factor. Once ~14 daily Savant
+        snapshots have accumulated, the rate-stat ratio auto-upgrades to
+        rolling xwOBA vs season xwOBA.
         {' '}
         Park factors:{' '}
         {data?.park_factor_meta?.source === 'baseball_savant' ? (
