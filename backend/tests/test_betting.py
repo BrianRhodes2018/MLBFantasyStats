@@ -105,14 +105,14 @@ def test_pitcher_vulnerability_missing_treated_as_elite():
 def test_recent_form_red_hot_full_credit():
     # Rolling .500 wOBA vs season .333 -> ratio 1.5 -> max rate score.
     # No K/Barrel gates supplied so no caps apply.
-    value, fired, _ = score_recent_form(rolling_woba=0.500, season_woba=0.333)
+    value, fired, _, _ = score_recent_form(rolling_woba=0.500, season_woba=0.333)
     assert value == 1.0
     assert fired is True
 
 
 def test_recent_form_ice_cold_zero():
     # Rolling .100 wOBA vs season .333 -> ratio 0.30 -> floor
-    value, fired, _ = score_recent_form(rolling_woba=0.100, season_woba=0.333)
+    value, fired, _, _ = score_recent_form(rolling_woba=0.100, season_woba=0.333)
     assert value == 0.0
     assert fired is False
 
@@ -120,19 +120,19 @@ def test_recent_form_ice_cold_zero():
 def test_recent_form_at_season_average_neutral():
     # Rolling = season -> neutral 0.444... not exactly 0.5 due to formula
     # (ratio 1.0 -> (1.0 - 0.6) / 0.9 = 0.444)
-    value, _, _ = score_recent_form(rolling_woba=0.333, season_woba=0.333)
+    value, _, _, _ = score_recent_form(rolling_woba=0.333, season_woba=0.333)
     assert abs(value - 0.444) < 0.01
 
 
 def test_recent_form_fires_when_clearly_hot():
     # 1.15x rate ratio + no K-gate disqualification -> fires
-    value, fired, _ = score_recent_form(rolling_woba=0.383, season_woba=0.333)
+    value, fired, _, _ = score_recent_form(rolling_woba=0.383, season_woba=0.333)
     assert fired is True
     assert value > 0.5
 
 
 def test_recent_form_missing_data_neutral():
-    value, fired, _ = score_recent_form(rolling_woba=None, season_woba=0.333)
+    value, fired, _, _ = score_recent_form(rolling_woba=None, season_woba=0.333)
     assert value == 0.5
     assert fired is False
 
@@ -140,7 +140,7 @@ def test_recent_form_missing_data_neutral():
 def test_recent_form_high_k_pct_caps_score():
     # Same ratio as the "red hot" test, but with a 31% K rate. Should be
     # capped at 0.5x. 1.0 -> 0.5.
-    value, fired, _ = score_recent_form(
+    value, fired, _, _ = score_recent_form(
         rolling_woba=0.500, season_woba=0.333, season_k_pct=31.0,
     )
     assert value == 0.5
@@ -151,7 +151,7 @@ def test_recent_form_high_k_pct_caps_score():
 def test_recent_form_elite_barrels_boosts_score():
     # Ratio gives base 0.444; +10 barrel rate over league avg should
     # bump us via the 1.2x bonus.
-    value, _, _ = score_recent_form(
+    value, _, _, _ = score_recent_form(
         rolling_woba=0.333, season_woba=0.333, season_barrel_pa_pct=12.0,
     )
     # 0.444 * 1.2 = 0.533
@@ -161,13 +161,82 @@ def test_recent_form_elite_barrels_boosts_score():
 def test_recent_form_prefers_xwoba_when_available():
     # When both xwOBA and wOBA pairs are available, xwOBA should win.
     # Use ratios that would point in opposite directions to confirm.
-    value, _, detail = score_recent_form(
+    value, _, detail, _ = score_recent_form(
         rolling_woba=0.500, season_woba=0.333,    # wOBA says ratio 1.50 (max)
         rolling_xwoba=0.300, season_xwoba=0.333,  # xwOBA says ratio 0.90 (below neutral)
     )
     assert "xwOBA" in detail
     # If xwOBA logic was picked, value will be around 0.333 (ratio 0.9 -> (0.9 - 0.6)/0.9 = 0.333)
     assert value < 0.5
+
+
+def test_recent_form_returns_ratio_when_data_present():
+    _, _, _, ratio = score_recent_form(rolling_woba=0.400, season_woba=0.333)
+    assert ratio is not None
+    assert abs(ratio - (0.400 / 0.333)) < 1e-6
+
+
+def test_recent_form_returns_none_ratio_when_data_missing():
+    _, _, _, ratio = score_recent_form(rolling_woba=None, season_woba=0.333)
+    assert ratio is None
+
+
+# ---------------------------------------------------------------------------
+# COLD-FORM MULTIPLIER (composite-score brake)
+# ---------------------------------------------------------------------------
+
+def test_composite_cold_form_multiplier_applied_when_clearly_cold():
+    # ratio = 0.250 / 0.333 = 0.75 — right at the deep-cold threshold,
+    # composite should be heavily damped (0.30x or 0.50x depending on
+    # which side of the cut).
+    result_cold = compute_composite_score(
+        bats="L", throws="R",
+        pitcher_fip=4.80, pitcher_whip=1.42, pitcher_hr_per_9=1.50,
+        rolling_woba=0.250, season_woba=0.333,
+        park_runs_factor=104,
+    )
+    # And an otherwise-identical hitter without cold-form data:
+    result_neutral = compute_composite_score(
+        bats="L", throws="R",
+        pitcher_fip=4.80, pitcher_whip=1.42, pitcher_hr_per_9=1.50,
+        rolling_woba=None, season_woba=None,  # no form data -> no penalty
+        park_runs_factor=104,
+    )
+    # Cold version should be materially lower than the no-data baseline.
+    assert result_cold["composite_score"] < result_neutral["composite_score"] * 0.7
+
+
+def test_composite_no_cold_penalty_when_hitter_is_hot():
+    # ratio 1.20 — clearly hot, no multiplier should apply.
+    result_hot = compute_composite_score(
+        bats="L", throws="R",
+        pitcher_fip=4.80, pitcher_whip=1.42, pitcher_hr_per_9=1.50,
+        rolling_woba=0.400, season_woba=0.333,  # ratio ~1.20
+        park_runs_factor=104,
+    )
+    result_neutral = compute_composite_score(
+        bats="L", throws="R",
+        pitcher_fip=4.80, pitcher_whip=1.42, pitcher_hr_per_9=1.50,
+        rolling_woba=None, season_woba=None,
+        park_runs_factor=104,
+    )
+    # Hot hitter should score AT LEAST the no-data baseline (no penalty
+    # AND benefit from positive form contribution).
+    assert result_hot["composite_score"] >= result_neutral["composite_score"]
+
+
+def test_composite_no_cold_penalty_when_form_data_missing():
+    # No rolling data -> ratio is None -> no multiplier applies.
+    # Confirms we don't penalize recent call-ups for whom we have no info.
+    result = compute_composite_score(
+        bats="L", throws="R",
+        pitcher_fip=4.80, pitcher_whip=1.42, pitcher_hr_per_9=1.50,
+        rolling_woba=None, season_woba=None,
+        park_runs_factor=104,
+    )
+    # The signal value should be the neutral 0.5 (no data), and the
+    # composite shouldn't be zeroed out.
+    assert result["composite_score"] > 30
 
 
 # ---------------------------------------------------------------------------

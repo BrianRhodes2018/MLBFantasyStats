@@ -341,6 +341,90 @@ body {
   font-weight: 600;
 }
 
+/* ---- Per-game grouped sections on the Betting Edge page ----
+   Each section's header shows the game start time, the matchup, and a
+   pick count. Started games render dimmed and behind a toggle. */
+
+.betting-toggle-row {
+  margin: 12px 0 16px 0;
+  font-size: 0.85rem;
+  color: #8da4c0;
+}
+
+.betting-toggle-row label {
+  cursor: pointer;
+  user-select: none;
+}
+
+.betting-toggle-row input[type="checkbox"] {
+  cursor: pointer;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+.betting-game-group {
+  margin-top: 24px;
+}
+
+.betting-game-group.started {
+  opacity: 0.55;
+}
+
+.betting-game-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #162236;
+  border: 1px solid #2a3f5f;
+  border-left: 3px solid #4a90d9;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  color: #c4ced4;
+}
+
+.betting-game-group.started .betting-game-header {
+  border-left-color: #8da4c0;
+}
+
+.betting-game-time {
+  font-weight: 700;
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.betting-game-separator {
+  color: #8da4c0;
+  margin: 0 2px;
+}
+
+.betting-game-matchup {
+  font-weight: 500;
+  color: #e8ecf0;
+}
+
+.betting-game-venue {
+  color: #8da4c0;
+}
+
+.betting-game-status {
+  color: #f0c659;
+  font-size: 0.78rem;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.betting-game-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: #8da4c0;
+  background: rgba(74, 144, 217, 0.15);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 /* ===========================================================================
    BET AUDIT PAGE
    ===========================================================================

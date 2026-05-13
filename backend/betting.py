@@ -245,7 +245,10 @@ def score_recent_form(
     elif rolling_woba is not None and season_woba is not None and season_woba > 0:
         rate_now, rate_baseline, rate_name = rolling_woba, season_woba, "wOBA"
     else:
-        return 0.5, False, "no rolling/season rate-stat data"
+        # No data -> neutral score, no fire, no ratio. Returning ratio=None
+        # lets the composite-score caller skip the cold-form multiplier
+        # for hitters we have no rolling info on (recent call-ups, etc.).
+        return 0.5, False, "no rolling/season rate-stat data", None
 
     ratio = rate_now / rate_baseline
 
@@ -284,7 +287,11 @@ def score_recent_form(
         detail_parts.append(f"Brls/PA {barrel_value:.1f}")
     detail = "; ".join(detail_parts)
 
-    return score, fired, detail
+    # Ratio is returned alongside the score so compute_composite_score can
+    # apply a cold-form multiplier when ratio is meaningfully below 1.0.
+    # This is what stops cold hitters from sneaking onto the recommended
+    # list just because they happen to be platoon-advantaged.
+    return score, fired, detail, ratio
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +418,7 @@ def compute_composite_score(
         if _season_woba is None and season_ops is not None:
             _season_woba = season_ops
 
-    form_v, form_fired, form_d = score_recent_form(
+    form_v, form_fired, form_d, form_ratio = score_recent_form(
         rolling_woba=_rolling_woba,
         season_woba=_season_woba,
         rolling_xwoba=rolling_xwoba,
@@ -430,7 +437,27 @@ def compute_composite_score(
         + WEIGHT_FORM * form_v
         + WEIGHT_BVP * bvp_v
     )
-    composite = round(raw * park_mult * 100, 1)
+
+    # Cold-form multiplier — acts as a brake on the entire composite when
+    # the batter's rolling production is clearly below their season baseline.
+    # Necessary because form is an additive contributor with weight 0.20 and
+    # a realistic swing of ~±0.10, while platoon swings ±0.30 binary — so a
+    # cold hitter who happens to be platoon-advantaged was mathematically
+    # guaranteed to outscore a slightly-hot hitter who wasn't. This makes
+    # form act like park: a multiplier that can drag the score down
+    # regardless of how good the rest of the matchup looks.
+    #
+    # Thresholds chosen so genuine slumps (clearly below baseline) get
+    # penalized hard, marginal sub-baseline ratios don't. ratio is None
+    # when there's no rolling data — leave the composite alone in that
+    # case rather than penalizing players we have no info on.
+    cold_form_mult = 1.0
+    if form_ratio is not None:
+        if form_ratio < 0.75:
+            cold_form_mult = 0.30
+        elif form_ratio < 0.85:
+            cold_form_mult = 0.50
+    composite = round(raw * park_mult * cold_form_mult * 100, 1)
 
     # Build a one-line summary that names the strongest signals. Avoids
     # generic "great matchup" language so the user sees *why* this row.

@@ -408,6 +408,13 @@ bet_suggestions = Table(
     Column("opposing_pitcher_name", String(100)),
     Column("venue", String(100)),
 
+    # ISO-8601 game datetime from MLB Stats API (e.g.
+    # "2026-05-13T17:05:00Z"). Captured so the audit page can group
+    # historical suggestions by game start time the same way the live
+    # Betting Edge page does. Nullable because older rows pre-date this
+    # column and the daily-update backfill doesn't have a way to retrofit.
+    Column("game_time", String(30)),
+
     # Scoring output. composite_score is what we ranked on; signals_json is
     # the full per-signal breakdown serialized as JSON so the audit page can
     # filter "show me only suggestions where 'platoon' fired" without a
