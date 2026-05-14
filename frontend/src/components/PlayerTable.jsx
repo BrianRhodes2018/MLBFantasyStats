@@ -202,16 +202,18 @@ const COLUMNS = [
     inputStep: '0.001'
   },
   {
-    key: 'power_index',
-    label: 'Power Idx',
-    tooltip: 'Power Index (Custom)\nHR × OPS\nCombines home run volume with overall hitting efficiency.\nAverage: 20 | Good: 35 | Elite: 50+',
+    key: 'woba',
+    label: 'wOBA',
+    tooltip: 'Weighted On-Base Average (wOBA)\n(0.69×BB + 0.72×HBP + 0.88×1B + 1.25×2B + 1.58×3B + 2.02×HR) ÷ PA\nThe "correct" version of OPS — each offensive event weighted by its actual run value, instead of OPS\'s sloppy approximations (a walk isn\'t worth a single; a HR isn\'t worth exactly 4× a single).\nAverage: .320 | Good: .350 | Elite: .400+',
+    format: (v) => v != null ? v.toFixed(3) : '—',
     isComputed: true,
     mobileHide: true,    // Hidden on phones — advanced stat, tap player for detail
   },
   {
-    key: 'speed_score',
-    label: 'Speed',
-    tooltip: 'Speed Score (Custom)\nSB / (SB + 10) × 100\nNormalized 0-100 scale with diminishing returns at high SB counts.\nAverage: 30 | Good: 60 | Elite: 80+',
+    key: 'xwoba',
+    label: 'xwOBA',
+    tooltip: 'Expected Weighted On-Base Average (xwOBA)\nwOBA computed from Statcast contact quality (exit velocity + launch angle) rather than actual outcomes. Strips out BABIP luck, defense, and park effects — the cleanest read on how a hitter is actually performing.\nSource: Baseball Savant. Shows "—" for non-qualified hitters.\nAverage: .320 | Good: .350 | Elite: .400+',
+    format: (v) => v != null ? v.toFixed(3) : '—',
     isComputed: true,
     mobileHide: true,    // Hidden on phones — advanced stat, tap player for detail
   },
