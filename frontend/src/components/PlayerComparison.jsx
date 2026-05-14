@@ -52,8 +52,8 @@ const BATTER_COMPARE_STATS = [
   { key: 'total_bases', label: 'TB', numeric: true },
   { key: 'obp', label: 'OBP', format: (v) => v?.toFixed(3), numeric: true },
   { key: 'ops', label: 'OPS', format: (v) => v?.toFixed(3), numeric: true },
-  { key: 'power_index', label: 'Power Idx', format: (v) => v != null ? v.toFixed(1) : '—', numeric: true },
-  { key: 'speed_score', label: 'Speed', format: (v) => v != null ? v.toFixed(1) : '—', numeric: true },
+  { key: 'woba', label: 'wOBA', format: (v) => v != null ? v.toFixed(3) : '—', numeric: true },
+  { key: 'xwoba', label: 'xwOBA', format: (v) => v != null ? v.toFixed(3) : '—', numeric: true },
   { key: 'fantasy_pts', label: 'Fantasy Pts', format: (v) => v != null ? v.toFixed(1) : '—', numeric: true, isFantasy: true },
   { key: 'fantasy_pts_per_game', label: 'Pts/G', format: (v) => v != null ? v.toFixed(1) : '—', numeric: true, isFantasy: true },
 ]

@@ -61,6 +61,19 @@ function displayStat(value) {
   return String(value)
 }
 
+/**
+ * Format a rate stat (wOBA / xwOBA) to 3 decimal places, or "—" when the
+ * value is missing. wOBA/xwOBA come back as floats (e.g. 0.351) from the
+ * Savant snapshot join; plain String() would render "0.351" inconsistently
+ * vs other rate stats, so we normalize to a fixed 3-decimal string.
+ */
+function displayRate(value) {
+  if (value === null || value === undefined) return '—'
+  const n = Number(value)
+  if (Number.isNaN(n)) return '—'
+  return n.toFixed(3)
+}
+
 export default function MatchupsPage({ season }) {
   // The season prop comes from App.jsx's global season toggle.
   // When null, we show the current year's label. When set (e.g., "2025"),
@@ -523,6 +536,12 @@ export default function MatchupsPage({ season }) {
                   <th>RBI</th>
                   <th>OBP</th>
                   <th>OPS</th>
+                  {/* wOBA / xwOBA are season-level Savant values — they
+                      don't change with the range toggle, so they're read
+                      straight off the batter object rather than the
+                      range-dependent stats object. */}
+                  <th title="Weighted On-Base Average (season)">wOBA</th>
+                  <th title="Expected wOBA from Baseball Savant (season)">xwOBA</th>
                   <th>K</th>
                   <th>AB</th>
                   {showVs && <>
@@ -548,6 +567,10 @@ export default function MatchupsPage({ season }) {
                       <td>{displayStat(stats.rbi)}</td>
                       <td>{displayStat(stats.obp)}</td>
                       <td>{displayStat(stats.ops)}</td>
+                      {/* Season wOBA / xwOBA — off the batter object directly,
+                          not the range-dependent stats. */}
+                      <td>{displayRate(batter.woba)}</td>
+                      <td>{displayRate(batter.xwoba)}</td>
                       <td>{displayStat(stats.strikeouts)}</td>
                       <td>{displayStat(stats.at_bats)}</td>
                       {showVs && (

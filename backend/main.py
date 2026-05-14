@@ -776,11 +776,15 @@ async def get_computed_stats(season: Optional[str] = None):
     Computed stats:
     - OBP: On-Base Percentage — (H + BB + HBP) / (AB + BB + HBP + SF).
       Measures how often a batter reaches base. Average: .320, Elite: .400+.
-    - Power Index: home_runs * ops — measures raw power output.
-      Higher HR count combined with high OPS indicates elite power.
-    - Speed Score: stolen_bases / (stolen_bases + 10) * 100 — a normalized
-      speed metric. The "+10" prevents division by zero and creates a curve
-      where diminishing returns kick in at high SB counts.
+    - wOBA: Weighted On-Base Average — each offensive event weighted by its
+      actual run value (BB .69, HBP .72, 1B .88, 2B 1.25, 3B 1.58, HR 2.02),
+      divided by PA. The "correct" version of OPS — replaces the old custom
+      Power Index. Computed inline from the players table.
+    - xwOBA: Expected wOBA from Baseball Savant — wOBA based on contact
+      quality (exit velocity + launch angle), stripping out BABIP luck,
+      defense, and park effects. Joined in from hitter_savant_snapshots
+      (latest snapshot per player). Null for non-qualified hitters or
+      before the snapshot scrape has run. Replaces the old Speed Score.
 
     Returns:
         A JSON array of objects, each with player name, team, and computed stats.
@@ -828,31 +832,80 @@ async def get_computed_stats(season: Optional[str] = None):
         .round(3)
         .alias("obp"),
 
-        # Power Index: Multiply home_runs by OPS.
-        # pl.col("home_runs") selects the column, then * pl.col("ops") does element-wise multiplication.
-        # .round(2) rounds to 2 decimal places. .alias("power_index") names the new column.
-        (pl.col("home_runs") * pl.col("ops")).round(2).alias("power_index"),
-
-        # Speed Score: A normalized metric using the formula: SB / (SB + 10) * 100.
-        # The denominator (SB + 10) ensures we never divide by zero and creates
-        # a logarithmic-style curve — going from 0 to 10 SB has more impact
-        # than going from 50 to 60 SB. Max possible score approaches 100.
-        (pl.col("stolen_bases") / (pl.col("stolen_bases") + 10) * 100).round(1).alias("speed_score"),
+        # wOBA (Weighted On-Base Average): each offensive event weighted by
+        # its actual run value, divided by plate appearances. The "correct"
+        # version of OPS — OPS double-counts walks and mis-weights extra-base
+        # hits; wOBA uses calibrated linear weights instead.
+        #
+        # Formula: (0.69*BB + 0.72*HBP + 0.88*1B + 1.25*2B + 1.58*3B + 2.02*HR)
+        #          / (AB + BB + HBP + SF)
+        #
+        # Weights are the standard FanGraphs ~2023 values (stable year to year).
+        # We derive total hits as batting_average * at_bats (same approach the
+        # OBP calc above uses, for consistency), then 1B = hits - 2B - 3B - HR.
+        # pl.max_horizontal guards 1B >= 0 against any data weirdness.
+        pl.when(
+            (pl.col("at_bats").fill_null(0) + pl.col("walks").fill_null(0)
+             + pl.col("hit_by_pitch").fill_null(0) + pl.col("sacrifice_flies").fill_null(0)) > 0
+        )
+        .then(
+            (
+                0.69 * pl.col("walks").fill_null(0)
+                + 0.72 * pl.col("hit_by_pitch").fill_null(0)
+                + 0.88 * pl.max_horizontal(
+                    (pl.col("batting_average").fill_null(0.0) * pl.col("at_bats").fill_null(0)).round(0)
+                    - pl.col("doubles").fill_null(0)
+                    - pl.col("triples").fill_null(0)
+                    - pl.col("home_runs").fill_null(0),
+                    pl.lit(0),
+                )
+                + 1.25 * pl.col("doubles").fill_null(0)
+                + 1.58 * pl.col("triples").fill_null(0)
+                + 2.02 * pl.col("home_runs").fill_null(0)
+            ).cast(pl.Float64)
+            / (
+                pl.col("at_bats").fill_null(0)
+                + pl.col("walks").fill_null(0)
+                + pl.col("hit_by_pitch").fill_null(0)
+                + pl.col("sacrifice_flies").fill_null(0)
+            ).cast(pl.Float64)
+        )
+        .otherwise(None)
+        .round(3)
+        .alias("woba"),
     ])
 
     # .select() picks only the columns we want to return to the frontend.
-    # Without this, we'd return ALL columns including the raw stats (which the
-    # /players/ endpoint already provides).
+    # mlb_id is kept so we can join the Savant xwOBA snapshot below; it's
+    # left in the response (harmless — the frontend just ignores it).
     result = computed.select([
-        "id", "name", "team",
-        "obp", "power_index", "speed_score"
+        "id", "name", "team", "mlb_id",
+        "obp", "woba"
     ])
+    result_dicts = result.to_dicts()
 
-    # .to_dicts() converts the DataFrame to a list of dictionaries.
-    # Unlike .to_dict(as_series=False) which gives {col: [values]},
-    # .to_dicts() gives [{col: value}, {col: value}] — one dict per row.
-    # This format matches what the frontend expects for mapping over players.
-    return result.to_dicts()
+    # ---- Join in xwOBA from the latest Savant snapshot per player ----
+    # xwOBA can't be computed from the players table (it needs Statcast
+    # exit-velo/launch-angle data). We pull the most recent snapshot per
+    # player from hitter_savant_snapshots and merge by mlb_id. Players not
+    # in the snapshot set (non-qualified, or before the scrape ran) get
+    # xwoba=None, which the frontend renders as "—".
+    snapshot_rows = await database.fetch_all(
+        hitter_savant_snapshots.select().order_by(
+            hitter_savant_snapshots.c.snapshot_date.desc()
+        )
+    )
+    xwoba_by_mlb_id: dict[int, Optional[float]] = {}
+    for r in snapshot_rows:
+        m = dict(r._mapping)
+        pid = m.get("player_mlb_id")
+        if pid is not None and pid not in xwoba_by_mlb_id:
+            xwoba_by_mlb_id[pid] = m.get("xwoba")
+
+    for row in result_dicts:
+        row["xwoba"] = xwoba_by_mlb_id.get(row.get("mlb_id"))
+
+    return result_dicts
 
 
 @app.get("/players/team-stats")
@@ -3201,6 +3254,25 @@ async def get_game_lineup(game_id: int):
                 career_stats_map[pid] = _format_batter_stats(extracted.get("career"))
                 bats_map[pid] = (person.get("batSide") or {}).get("code")
 
+        # Step 3.5: Look up season wOBA / xwOBA from the latest Savant snapshot
+        # per batter. xwOBA is Statcast-derived (can't be computed from the
+        # boxscore stats), and wOBA is the properly-weighted version of OPS —
+        # both are far more useful than the AVG/OPS the boxscore gives us.
+        # Batters not in the snapshot set (non-qualified, recent call-ups, or
+        # before the daily scrape ran) get None, rendered as "—" on the page.
+        savant_map: dict[int, dict] = {}
+        if all_batter_ids:
+            savant_rows = await database.fetch_all(
+                hitter_savant_snapshots.select()
+                .where(hitter_savant_snapshots.c.player_mlb_id.in_(all_batter_ids))
+                .order_by(hitter_savant_snapshots.c.snapshot_date.desc())
+            )
+            for r in savant_rows:
+                m = dict(r._mapping)
+                pid = m["player_mlb_id"]
+                if pid not in savant_map:  # rows are newest-first, keep the first
+                    savant_map[pid] = {"woba": m.get("woba"), "xwoba": m.get("xwoba")}
+
         # Step 4: Build lineup arrays with season stats (from boxscore) + career stats.
         for side in ["home", "away"]:
             team_data = teams.get(side, {})
@@ -3217,6 +3289,7 @@ async def get_game_lineup(game_id: int):
                 # Season stats come free from the boxscore — no extra API call needed
                 season_batting = player.get("seasonStats", {}).get("batting", {})
 
+                savant = savant_map.get(pid, {})
                 lineup.append({
                     "mlb_id": pid,
                     "name": person.get("fullName", "Unknown"),
@@ -3225,6 +3298,10 @@ async def get_game_lineup(game_id: int):
                     "season_stats": _format_batter_stats(season_batting),
                     "career_stats": career_stats_map.get(pid, _format_batter_stats(None)),
                     "bats": bats_map.get(pid),
+                    # Season wOBA / xwOBA from the Savant snapshot. None when
+                    # the batter isn't in the qualified-hitter snapshot set.
+                    "woba": savant.get("woba"),
+                    "xwoba": savant.get("xwoba"),
                 })
 
             result[f"{side}_lineup"] = lineup
