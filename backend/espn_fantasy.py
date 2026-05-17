@@ -33,6 +33,7 @@ import httpx
 import json
 from typing import Optional
 import polars as pl
+from baseball_math import decimal_innings_to_outs
 
 
 # =============================================================================
@@ -93,15 +94,15 @@ ESPN_BATTING_STAT_MAP = {
 # Pitching stat IDs → pitchers table column names
 #
 # IMPORTANT NOTE ON STAT ID 34 (OUTS):
-# ESPN stores Innings Pitched as total OUTS (IP × 3), not actual innings.
+# ESPN stores Innings Pitched as total OUTS (IP x 3), not actual innings.
 # Example: 207 IP = 621 outs in ESPN's system.
 # When the league scores "1 point per out" (statId 34), it means 3 points
-# per full inning. Our DB stores IP in baseball notation (e.g., 207.0),
-# so we need a special conversion in the compute function.
+# per full inning. Our DB stores true decimal innings, so we convert to outs
+# in the compute function.
 ESPN_PITCHING_STAT_MAP = {
     32: "games_pitched",        # GP - Games Pitched / Appearances (not stored)
     33: "games_started",        # GS - Games Started (not stored)
-    34: "outs",                 # OUTS - Total Outs (IP × 3, SPECIAL HANDLING NEEDED)
+    34: "outs",                 # OUTS - Total Outs (IP x 3, special handling)
     # 35: TBF - Total Batters Faced (not stored)
     # 36: P - Total Pitches (not stored)
     37: "hits_allowed",         # H - Hits Allowed
@@ -389,9 +390,9 @@ def compute_fantasy_points_pitchers(
     - Negative: L, ER, H, BB, HRA
 
     Handles special cases:
-    - "outs" (statId 34): ESPN stores IP as total outs (IP × 3). The point value
+    - "outs" (statId 34): ESPN stores IP as total outs (IP x 3). The point value
       from ESPN is "per out", so we convert our innings_pitched column to outs
-      before multiplying. Baseball notation 205.1 = 205 full innings + 1 out = 616.
+      before multiplying.
     - Missing columns: If a scored stat isn't in our data (e.g., holds), it's
       skipped. The player won't earn/lose points for that category.
 
@@ -424,26 +425,15 @@ def compute_fantasy_points_pitchers(
         col_name = ESPN_PITCHING_STAT_MAP[stat_id]
 
         # --- Special case: OUTS (statId 34) ---
-        # ESPN stores Innings Pitched as total outs (IP × 3). Our DB stores
-        # innings_pitched in baseball notation (e.g., 207.0, 205.1, 195.2).
-        #
-        # Baseball notation: the decimal part is thirds, NOT tenths:
-        #   205.0 = 205 innings = 615 outs
-        #   205.1 = 205 + 1/3 innings = 616 outs
-        #   205.2 = 205 + 2/3 innings = 617 outs
-        #
-        # Conversion: outs = floor(IP) * 3 + round((IP - floor(IP)) * 10)
-        # This correctly handles the baseball notation quirk.
+        # ESPN stores innings pitched as total outs. Our DB stores true
+        # decimal innings, so 205.666... becomes 617 outs.
         if col_name == "outs":
             if "innings_pitched" in df.columns:
-                ip_col = pl.col("innings_pitched").cast(pl.Float64).fill_null(0.0)
-                # Convert baseball IP notation to total outs:
-                # floor(IP) gives full innings, multiply by 3 for outs
-                # The fractional part (.1, .2) represents additional outs
-                # so multiply by 10 to get the out count (1 or 2)
                 outs_expr = (
-                    ip_col.floor() * 3
-                    + ((ip_col - ip_col.floor()) * 10).round(0)
+                    pl.col("innings_pitched")
+                    .cast(pl.Float64)
+                    .fill_null(0.0)
+                    .map_elements(decimal_innings_to_outs, return_dtype=pl.Int64)
                 )
                 points_expr = points_expr + (outs_expr * point_value)
             continue

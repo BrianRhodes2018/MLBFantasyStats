@@ -50,6 +50,7 @@ def run_migrations():
             "doubles": "INTEGER",         # 2B - Doubles (needed for fantasy points)
             "triples": "INTEGER",         # 3B - Triples (needed for fantasy points)
             "caught_stealing": "INTEGER", # CS - Caught stealing (needed for fantasy points)
+            "games_played": "INTEGER",    # G - Games played (needed for fantasy Pts/G)
             "bats": "VARCHAR(2)",         # Batting handedness: 'R', 'L', or 'S' (switch)
         }
 

@@ -36,6 +36,7 @@ import base64
 from typing import Optional
 from datetime import datetime, timedelta
 import polars as pl
+from baseball_math import decimal_innings_to_outs
 
 
 # =============================================================================
@@ -111,8 +112,8 @@ YAHOO_PITCHING_STAT_MAP = {
     "K": "strikeouts",          # Strikeouts (pitching, usually positive)
     "ERA": "era",               # Earned Run Average (rate stat)
     "WHIP": "whip",             # Walks + Hits per IP (rate stat)
-    "IP": "innings_pitched",    # Innings Pitched (special: baseball notation)
-    "OUT": "outs",              # Outs (IP × 3, SPECIAL HANDLING like ESPN)
+    "IP": "innings_pitched",    # Innings Pitched
+    "OUT": "outs",              # Outs (IP x 3, special handling like ESPN)
     "H": "hits_allowed",        # Hits Allowed
     "ER": "earned_runs",        # Earned Runs
     "HR": "home_runs_allowed",  # Home Runs Allowed (usually negative)
@@ -505,8 +506,8 @@ def compute_yahoo_fantasy_points_pitchers(
     Yahoo pitching stats are prefixed with "P_" (e.g., "P_K" → "strikeouts").
 
     Handles special cases:
-    - "outs" (OUT): Yahoo stores outs like ESPN — need to convert from our
-      baseball notation innings_pitched column (e.g., 207.0 → 621 outs).
+    - "outs" (OUT): Yahoo stores outs like ESPN, so convert true decimal
+      innings_pitched values to total outs.
     - "innings_pitched" (IP): Direct column match, but Yahoo scores it as
       actual innings (not outs), so no conversion needed.
 
@@ -537,15 +538,14 @@ def compute_yahoo_fantasy_points_pitchers(
         col_name = YAHOO_PITCHING_STAT_MAP[display_name]
 
         # --- Special case: OUTS (OUT) ---
-        # Same handling as ESPN statId 34. Yahoo's "OUT" stat counts total outs
-        # (IP × 3). Our DB stores innings_pitched in baseball notation.
-        # Conversion: outs = floor(IP) * 3 + round((IP - floor(IP)) * 10)
+        # Same handling as ESPN statId 34. Yahoo's "OUT" stat counts total outs.
         if col_name == "outs":
             if "innings_pitched" in df.columns:
-                ip_col = pl.col("innings_pitched").cast(pl.Float64).fill_null(0.0)
                 outs_expr = (
-                    ip_col.floor() * 3
-                    + ((ip_col - ip_col.floor()) * 10).round(0)
+                    pl.col("innings_pitched")
+                    .cast(pl.Float64)
+                    .fill_null(0.0)
+                    .map_elements(decimal_innings_to_outs, return_dtype=pl.Int64)
                 )
                 points_expr = points_expr + (outs_expr * point_value)
             continue

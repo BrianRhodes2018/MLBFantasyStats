@@ -69,6 +69,7 @@ import json
 import polars as pl
 import statsapi
 from sqlalchemy import text, inspect
+from baseball_math import parse_mlb_innings_pitched
 
 # Create the FastAPI application instance.
 # This object is what uvicorn serves. All routes are registered on it.
@@ -1959,7 +1960,7 @@ async def get_pitcher_rolling_stats(
         # Count games (appearances) in the window
         pl.col("game_date").count().alias("games"),
 
-        # Sum innings pitched — note: IP uses baseball notation (6.1 = 6 1/3)
+        # Sum true decimal innings pitched.
         # but for our average calculations, the decimal form works fine.
         pl.col("innings_pitched").sum(),
         pl.col("hits_allowed").sum(),
@@ -2789,10 +2790,7 @@ async def get_pitcher_game_logs(mlb_id: int):
                         opponent = game.get('opponent', {}).get('name', 'Unknown')
                         opponent = opponent.replace('New York ', 'NY ').replace('Los Angeles ', 'LA ')
 
-                        try:
-                            ip = float(game_stat.get('inningsPitched', '0'))
-                        except (ValueError, TypeError):
-                            ip = 0.0
+                        ip = parse_mlb_innings_pitched(game_stat.get('inningsPitched', '0'))
 
                         wins = 1 if game_stat.get('wins', 0) > 0 else 0
                         losses = 1 if game_stat.get('losses', 0) > 0 else 0

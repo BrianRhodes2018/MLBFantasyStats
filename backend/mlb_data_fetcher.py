@@ -45,6 +45,7 @@ import polars as pl
 from datetime import datetime
 from typing import Optional
 import asyncio
+from baseball_math import parse_mlb_innings_pitched
 
 
 def fetch_handedness_map(mlb_ids: list, hand_field: str) -> dict:
@@ -474,10 +475,7 @@ def get_qualified_pitchers(season: int, limit: int = 1000, qualified_only: bool 
         except (ValueError, TypeError):
             whip = 0.0
 
-        try:
-            ip = float(stat.get('inningsPitched', '0'))
-        except (ValueError, TypeError):
-            ip = 0.0
+        ip = parse_mlb_innings_pitched(stat.get('inningsPitched', '0'))
 
         # Compute Quality Starts from season totals.
         # A Quality Start is a start with 6+ IP and 3 or fewer ER.
@@ -590,12 +588,8 @@ def get_all_pitchers(season: int) -> pl.DataFrame:
                                     pitching_stats = splits[0].get('stat', {})
                                     break
 
-                        # Only include pitchers with innings pitched
-                        ip_str = pitching_stats.get('inningsPitched', '0')
-                        try:
-                            ip = float(ip_str) if ip_str else 0.0
-                        except (ValueError, TypeError):
-                            ip = 0.0
+                        # Only include pitchers with innings pitched.
+                        ip = parse_mlb_innings_pitched(pitching_stats.get('inningsPitched', '0'))
 
                         if ip > 0:
                             try:
@@ -798,14 +792,9 @@ def get_pitcher_game_logs(player_id: int, player_name: str, team: str, season: i
                     opponent = game.get('opponent', {}).get('team', {}).get('name', 'Unknown')
                     opponent = opponent.replace('New York ', 'NY ').replace('Los Angeles ', 'LA ')
 
-                    # Parse innings pitched — the API returns it as a string like "6.2"
-                    # which actually means 6 and 2/3 innings (NOT 6.2 decimal).
-                    # However, for our aggregation purposes, the decimal representation
-                    # from the API works fine since we'll be summing IP across games.
-                    try:
-                        ip = float(game_stat.get('inningsPitched', '0'))
-                    except (ValueError, TypeError):
-                        ip = 0.0
+                    # MLB returns "6.2" for 6 and 2/3 innings, so convert it
+                    # before storing. Rate stats and rolling sums depend on this.
+                    ip = parse_mlb_innings_pitched(game_stat.get('inningsPitched', '0'))
 
                     earned_runs = game_stat.get('earnedRuns', 0)
 
