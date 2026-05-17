@@ -3260,6 +3260,55 @@ h2 {
   color: #e0e6ed;
 }
 
+.edge-formula {
+  margin-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 14px;
+}
+
+.edge-formula-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.edge-formula-heading span {
+  color: #8fa3b5;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.edge-formula-heading strong {
+  color: #e0e6ed;
+  font-size: 0.9rem;
+}
+
+.edge-formula-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.edge-formula-row span {
+  color: #8fa3b5;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.edge-formula-row strong {
+  color: #e0e6ed;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.edge-formula-row-muted strong {
+  color: #b0bec5;
+}
+
 /* --- Stat period toggle bar --- */
 .matchups-period-bar {
   display: flex;
@@ -3882,6 +3931,15 @@ h2 {
   .betting-form-grid,
   .edge-grid {
     grid-template-columns: 1fr;
+  }
+
+  .edge-formula-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .edge-formula-row strong {
+    text-align: left;
   }
 
   .pitcher-panels {
