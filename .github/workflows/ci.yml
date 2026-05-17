@@ -11,6 +11,8 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/backend
     defaults:
       run:
         working-directory: backend
@@ -33,7 +35,7 @@ jobs:
         run: python -m py_compile main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py
 
       - name: Run backend tests
-        run: pytest -q
+        run: python -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
