@@ -208,6 +208,15 @@ function BettingPage({ onPlayerClick }) {
         <em>Each generation fans out ~270 BvP calls and takes 5-10 seconds.</em>
       </div>
 
+      <div className="betting-formula-callout">
+        <span>Edge formula</span>
+        <strong>model probability - no-vig market probability = edge</strong>
+        <p>
+          Positive edge means our projection is stronger than the sportsbook's
+          vig-free price. Negative edge means the market is richer than our model.
+        </p>
+      </div>
+
       {!error && data && data.candidates?.length === 0 && (
         <div className="betting-empty">
           No candidates cleared the quality bar

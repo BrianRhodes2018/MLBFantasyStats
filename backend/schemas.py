@@ -270,6 +270,37 @@ class ApiResponse(BaseModel):
     data: Optional[dict | list] = None
 
 
+class HitterPropEdgeIn(BaseModel):
+    """Request body for calculating a hitter prop betting edge."""
+
+    player_name: str
+    market_type: str = "total_bases"
+    line: float = 1.5
+    model_over_probability: float
+    over_odds: int
+    under_odds: int
+    sportsbook: Optional[str] = None
+
+
+class HitterPropEdgeOut(BaseModel):
+    """Calculated no-vig market probabilities and edge."""
+
+    player_name: str
+    market_type: str
+    line: float
+    sportsbook: Optional[str] = None
+    model_over_probability: float
+    model_under_probability: float
+    market_over_probability: float
+    market_under_probability: float
+    no_vig_over_probability: float
+    no_vig_under_probability: float
+    over_edge: float
+    under_edge: float
+    recommended_side: str
+    recommended_edge: float
+
+
 # =============================================================================
 # FANTASY LEAGUE SCHEMAS
 # =============================================================================

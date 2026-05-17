@@ -197,6 +197,36 @@ body {
   font-style: normal;
 }
 
+.betting-formula-callout {
+  background: #101b2e;
+  border: 1px solid #31527a;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.betting-formula-callout span {
+  display: block;
+  color: #8da4c0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.betting-formula-callout strong {
+  color: #e8ecf0;
+  display: block;
+  font-size: 0.95rem;
+}
+
+.betting-formula-callout p {
+  color: #b7c7d8;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  margin: 6px 0 0;
+}
+
 .betting-loading,
 .betting-empty {
   text-align: center;
@@ -3106,6 +3136,130 @@ h2 {
   background: rgba(74, 144, 217, 0.1);
 }
 
+.top-nav-links {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: -20px;
+  margin-bottom: 20px;
+}
+
+.betting-page {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.betting-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.betting-title {
+  margin: 0;
+  font-size: 1.7rem;
+}
+
+.betting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 18px;
+}
+
+.betting-panel {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.betting-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.betting-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #b0bec5;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.betting-form-grid input,
+.betting-form-grid select {
+  border: 1px solid #2b3a46;
+  border-radius: 6px;
+  background: #07131f;
+  color: #e0e6ed;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.betting-result-panel {
+  min-height: 245px;
+}
+
+.betting-empty {
+  color: #8fa3b5;
+}
+
+.edge-callout {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.edge-callout span {
+  color: #b0bec5;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.edge-callout strong {
+  font-size: 2rem;
+}
+
+.edge-callout.positive strong {
+  color: #66bb6a;
+}
+
+.edge-callout.negative strong {
+  color: #ff8a80;
+}
+
+.edge-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.edge-grid div {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.edge-grid span {
+  display: block;
+  color: #8fa3b5;
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+
+.edge-grid strong {
+  color: #e0e6ed;
+}
+
 /* --- Stat period toggle bar --- */
 .matchups-period-bar {
   display: flex;
@@ -3724,6 +3878,12 @@ h2 {
    =========================================================================== */
 
 @media (max-width: 768px) {
+  .betting-layout,
+  .betting-form-grid,
+  .edge-grid {
+    grid-template-columns: 1fr;
+  }
+
   .pitcher-panels {
     padding: 12px;
   }

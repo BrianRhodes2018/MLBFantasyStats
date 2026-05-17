@@ -141,7 +141,7 @@ export default defineConfig({
         runtimeCaching: [
           {
             // Match any request to our backend API endpoints
-            urlPattern: /^https:\/\/.*\/(players|pitchers|fantasy)/,
+            urlPattern: /^https:\/\/.*\/(players|pitchers|fantasy|betting)/,
 
             // "NetworkFirst" strategy:
             //   1. Try to fetch from the network (get fresh data)
@@ -204,6 +204,11 @@ export default defineConfig({
       // Forward matchup routes — today's games, lineups, and vs-pitcher stats.
       // Covers: /matchups/today, /matchups/lineup/{game_id}, /matchups/vs-pitcher
       '/matchups': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
+      // Forward betting routes — edge calculators and future odds/projection APIs.
+      '/betting': {
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
