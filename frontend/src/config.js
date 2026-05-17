@@ -30,6 +30,8 @@
  *   Value: https://your-backend-name.onrender.com
  */
 
+const DEFAULT_PRODUCTION_API_BASE = 'https://mlbfantasystats.onrender.com'
+
 // API base URL — prepended to all backend API calls.
-// Empty string in development (uses Vite proxy), full URL in production.
-export const API_BASE = import.meta.env.VITE_API_URL || ''
+// Empty string in local development (uses Vite proxy), full URL in deployed builds.
+export const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? DEFAULT_PRODUCTION_API_BASE : '')
