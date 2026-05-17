@@ -32,7 +32,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Compile backend modules
-        run: python -m py_compile baseball_math.py main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py
+        run: python -m py_compile baseball_math.py settings.py routers/system.py main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py
 
       - name: Run backend tests
         run: python -m pytest -q

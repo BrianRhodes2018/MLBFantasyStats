@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from database import database, engine, metadata, get_db, snapshot_databases, available_seasons
+from database import database, engine, metadata, get_db, snapshot_databases
 from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata, bet_suggestions, hitter_savant_snapshots
 import xwoba
 from betting import compute_composite_score, signals_to_json
@@ -70,6 +70,8 @@ import polars as pl
 import statsapi
 from sqlalchemy import text, inspect
 from baseball_math import parse_mlb_innings_pitched
+from routers.system import router as system_router
+from settings import get_cors_origins
 
 # Create the FastAPI application instance.
 # This object is what uvicorn serves. All routes are registered on it.
@@ -97,22 +99,15 @@ app = FastAPI(
 # allow_headers: ["*"] allows any HTTP headers (like Content-Type).
 # allow_credentials: Allows cookies/auth headers to be sent cross-origin.
 
-# Build the allowed origins list from environment variable + localhost default.
-# CORS_ORIGINS env var should be comma-separated, e.g.:
-#   "https://your-app.vercel.app,https://custom-domain.com"
-cors_origins = ["http://localhost:5173"]  # Always allow local dev server
-extra_origins = os.environ.get("CORS_ORIGINS", "")
-if extra_origins:
-    # Split on commas and strip whitespace from each origin
-    cors_origins.extend([origin.strip() for origin in extra_origins.split(",") if origin.strip()])
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(system_router)
 
 # ---------------------------------------------------------------------------
 # Database Table Creation & Migration
@@ -143,29 +138,6 @@ run_migrations()
 # These lifecycle hooks run when the server starts and stops.
 # On startup: connect to the database and seed sample data if the table is empty.
 # On shutdown: cleanly disconnect from the database.
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint — used by keep-alive pings to prevent Render cold starts."""
-    return {"status": "ok"}
-
-
-@app.get("/seasons")
-async def get_available_seasons():
-    """
-    Return available season snapshots for the frontend season toggle.
-
-    The current season is always available (it's the primary database).
-    Additional seasons are available if their DATABASE_URL_<YEAR> env var is set,
-    pointing to a frozen Neon branch with historical data.
-    """
-    from datetime import datetime
-    current_year = str(datetime.now().year)
-    return {
-        "current": current_year,
-        "available": sorted(available_seasons + [current_year]),
-    }
-
 
 @app.get("/parks/factors", response_model=ApiResponse)
 async def get_park_factors():
@@ -224,7 +196,6 @@ async def get_last_updated():
         message="Last update timestamp",
         data={"last_updated": last_updated},
     )
-
 
 # ---------------------------------------------------------------------------
 # Keep-Alive Background Task
