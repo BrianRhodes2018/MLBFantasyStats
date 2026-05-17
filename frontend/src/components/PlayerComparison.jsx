@@ -14,8 +14,8 @@
  * Batters and pitchers are compared separately (type locks on first add).
  */
 
-import { useState, useRef, useEffect } from 'react'
-import { fuzzyNameMatch, fuzzyMatchScore } from '../utils/fuzzyMatch'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { fuzzyMatchScore } from '../utils/fuzzyMatch'
 import { formatBatterName, formatPitcherName } from '../utils/handedness'
 
 // Pick the right handedness suffix based on whether `player` is a batter
@@ -103,7 +103,6 @@ function PlayerComparison({
   fantasyPitcherPts,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const searchRef = useRef(null)
 
@@ -118,13 +117,8 @@ function PlayerComparison({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Update suggestions when search query changes
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSuggestions([])
-      return
-    }
-
+  const suggestions = useMemo(() => {
+    if (!searchQuery.trim()) return []
     const results = []
     const existingIds = new Set(comparisonPlayers.map(p => p.id ?? p.player_id))
 
@@ -155,8 +149,7 @@ function PlayerComparison({
 
     // Sort by match quality (lower score = better match) and take top 8
     results.sort((a, b) => a._matchScore - b._matchScore)
-    setSuggestions(results.slice(0, 8))
-    setShowSuggestions(results.length > 0)
+    return results.slice(0, 8)
   }, [searchQuery, comparisonType, comparisonPlayers, allBatters, allPitchers, computed, pitcherComputed])
 
   /**
@@ -239,10 +232,13 @@ function PlayerComparison({
                     : 'Search players to compare...'
                 }
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setShowSuggestions(true)
+                }}
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
               />
-              {showSuggestions && (
+              {showSuggestions && suggestions.length > 0 && (
                 <div className="comparison-suggestions">
                   {suggestions.map((player, idx) => (
                     <div

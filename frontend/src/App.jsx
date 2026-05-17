@@ -34,7 +34,7 @@
  *   GET /pitchers/search?... -> Filtered pitcher results (Polars .filter())
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import PlayerTable from './components/PlayerTable'
 import PitcherTable from './components/PitcherTable'
 import PlayerForm from './components/PlayerForm'
@@ -189,7 +189,7 @@ function App() {
    * @param {string} url - The endpoint path (e.g., "/players/")
    * @returns {Promise<any|null>} The parsed JSON data, or null if the fetch failed
    */
-  const safeFetch = async (url, { includeSeason = true } = {}) => {
+  const safeFetch = useCallback(async (url, { includeSeason = true } = {}) => {
     try {
       // Append ?season=XXXX to route queries to the historical snapshot database.
       // The includeSeason flag lets callers opt out (e.g., /seasons, /fantasy/leagues
@@ -209,7 +209,7 @@ function App() {
       console.error(`Fetch ${url} failed:`, err)
       return null
     }
-  }
+  }, [season])
 
   /**
    * Fetch all data from the backend API.
@@ -226,7 +226,7 @@ function App() {
    * The fetch() calls use relative URLs (e.g., "/players/") which work because
    * the Vite proxy forwards them to http://localhost:8001. See vite.config.js.
    */
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       // Fire all requests simultaneously — including pitcher filterable-stats
       // so the PitcherSearch filter panel can render as soon as the page loads.
@@ -275,7 +275,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [safeFetch])
 
   // ---------------------------------------------------------------------------
   // EFFECTS
@@ -304,7 +304,7 @@ function App() {
       }
     }
     loadOnMount()
-  }, [])
+  }, [safeFetch])
 
   // Fetch all data on mount AND when the season changes.
   // When switching seasons, we re-fetch everything from the appropriate database.
@@ -318,7 +318,7 @@ function App() {
     setNameSearch('')
     setLoading(true)
     fetchData()
-  }, [season])  // Re-run when season changes
+  }, [season, fetchData])  // Re-run when season changes
 
   /**
    * Fetch fantasy points whenever the active league changes.
@@ -355,7 +355,7 @@ function App() {
     }
 
     fetchFantasyPoints()
-  }, [activeLeagueId])  // Re-run whenever the selected league changes
+  }, [activeLeagueId, safeFetch])  // Re-run whenever the selected league changes
 
   // ---------------------------------------------------------------------------
   // EVENT HANDLERS
