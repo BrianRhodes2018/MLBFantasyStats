@@ -47,7 +47,7 @@ import PlayerComparison from './components/PlayerComparison'
 import MatchupsPage from './components/MatchupsPage'
 import BettingPage from './components/BettingPage'
 import BetAuditPage from './components/BetAuditPage'
-import { fuzzyNameMatch, fuzzyMatchScore } from './utils/fuzzyMatch'
+import { fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
 // time period toggle visually grouped with the stat filter panel.
