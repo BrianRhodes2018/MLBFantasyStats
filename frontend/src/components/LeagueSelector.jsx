@@ -276,6 +276,8 @@ function LeagueSelector({ leagues, activeLeagueId, onLeagueChange, onLeagueAdded
         if (onLeagueRemoved) onLeagueRemoved()
         setAddMessage({ text: `League "${league.league_name}" removed`, type: 'success' })
         setTimeout(() => setAddMessage(null), 3000)
+      } else {
+        setAddMessage({ text: data.message || 'Failed to remove league', type: 'error' })
       }
     } catch (err) {
       console.error('Failed to remove league:', err)

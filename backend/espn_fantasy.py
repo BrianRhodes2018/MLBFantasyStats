@@ -294,7 +294,7 @@ def compute_fantasy_points_batters(
     """
     # Handle empty DataFrame — return with a null fantasy_pts column
     if df.is_empty():
-        return df.with_columns(pl.lit(None).cast(pl.Float64).alias("fantasy_pts"))
+        return df.with_columns(pl.Series("fantasy_pts", [], dtype=pl.Float64))
 
     # Build a Polars expression that sums (stat_column * point_value) for each
     # scoring item that maps to a column we have.
@@ -410,7 +410,7 @@ def compute_fantasy_points_pitchers(
         The same DataFrame with an additional "fantasy_pts" column (Float64)
     """
     if df.is_empty():
-        return df.with_columns(pl.lit(None).cast(pl.Float64).alias("fantasy_pts"))
+        return df.with_columns(pl.Series("fantasy_pts", [], dtype=pl.Float64))
 
     points_expr = pl.lit(0.0)
 
