@@ -516,3 +516,43 @@ hitter_savant_snapshots = Table(
     # ISO-8601 UTC timestamp of when this snapshot was written.
     Column("recorded_at", String(30), nullable=False),
 )
+
+
+# =============================================================================
+# BETTING ODDS AND EDGE TABLES
+# =============================================================================
+# Persistence layer for sportsbook snapshots and model-vs-market prop edges.
+# The live candidate generator can continue to use bet_suggestions, while these
+# tables give us a structured place for line shopping, future odds ingestion,
+# and backtests tied directly to no-vig market probabilities.
+
+betting_odds_snapshots = Table(
+    "betting_odds_snapshots",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("game_id", String(50), nullable=True),
+    Column("sportsbook", String(100), nullable=False),
+    Column("market_type", String(50), nullable=False),
+    Column("subject", String(150), nullable=False),
+    Column("line", Float, nullable=True),
+    Column("over_odds", Integer, nullable=True),
+    Column("under_odds", Integer, nullable=True),
+    Column("captured_at", String(30), nullable=False),
+    Column("source", String(50), nullable=True),
+)
+
+hitter_prop_projections = Table(
+    "hitter_prop_projections",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("player_mlb_id", Integer, nullable=True),
+    Column("player_name", String(150), nullable=False),
+    Column("game_id", String(50), nullable=True),
+    Column("market_type", String(50), nullable=False),
+    Column("line", Float, nullable=True),
+    Column("model_probability", Float, nullable=False),
+    Column("no_vig_market_probability", Float, nullable=True),
+    Column("edge", Float, nullable=True),
+    Column("recommended_side", String(10), nullable=True),
+    Column("created_at", String(30), nullable=False),
+)

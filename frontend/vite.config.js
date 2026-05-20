@@ -141,7 +141,7 @@ export default defineConfig({
         runtimeCaching: [
           {
             // Match any request to our backend API endpoints
-            urlPattern: /^https:\/\/.*\/(players|pitchers|fantasy)/,
+            urlPattern: /^https:\/\/.*\/(players|pitchers|fantasy|betting)/,
 
             // "NetworkFirst" strategy:
             //   1. Try to fetch from the network (get fresh data)
@@ -207,6 +207,11 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward betting routes — edge calculators and future odds/projection APIs.
+      '/betting': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
       // Forward season metadata route — returns available season snapshots.
       '/seasons': {
         target: 'http://localhost:8001',
@@ -221,11 +226,6 @@ export default defineConfig({
       // Forward park factor routes (used on the matchups page to surface
       // hitter-friendly / pitcher-friendly venues).
       '/parks': {
-        target: 'http://localhost:8001',
-        changeOrigin: true,
-      },
-      // Forward betting routes — /betting/candidates and (Phase 2) /betting/audit.
-      '/betting': {
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
