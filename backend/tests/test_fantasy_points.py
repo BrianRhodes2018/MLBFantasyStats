@@ -1,6 +1,6 @@
 import polars as pl
 
-from espn_fantasy import compute_fantasy_points_batters
+from espn_fantasy import compute_fantasy_points_batters, compute_fantasy_points_pitchers
 
 
 def test_compute_espn_batter_fantasy_points_counts_standard_and_derived_stats():
@@ -40,3 +40,11 @@ def test_compute_espn_batter_fantasy_points_handles_empty_frames():
 
     assert "fantasy_pts" in result.columns
     assert result.is_empty()
+
+
+def test_compute_espn_pitcher_outs_uses_true_decimal_innings():
+    df = pl.DataFrame([{"name": "Test Starter", "innings_pitched": 6 + 2 / 3}])
+
+    result = compute_fantasy_points_pitchers(df, {"34": 1.0})
+
+    assert result.select("fantasy_pts").item() == 20.0

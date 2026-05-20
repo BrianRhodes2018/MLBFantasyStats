@@ -179,7 +179,7 @@ class PitcherIn(BaseModel):
         whip: Walks + Hits per Inning Pitched (float)
         games: Games appeared (integer). Optional.
         games_started: Games started (integer). Optional.
-        innings_pitched: Innings pitched, e.g., 6.2 = 6 2/3 innings (float)
+        innings_pitched: True decimal innings pitched, e.g. 6.666... = 6 2/3 innings.
         hits_allowed: Hits allowed (integer)
         earned_runs: Earned runs allowed (integer)
         walks: Walks issued (integer)

@@ -124,7 +124,7 @@ pitchers = Table(
     # Games and innings
     Column("games", Integer, nullable=True),           # G - Games appeared
     Column("games_started", Integer, nullable=True),   # GS - Games started
-    Column("innings_pitched", Float),                  # IP - Innings pitched (e.g., 6.2 = 6 2/3 innings)
+    Column("innings_pitched", Float),                  # IP - true decimal innings (6.666... = 6 2/3)
 
     # Pitching stats
     Column("hits_allowed", Integer),                   # H - Hits allowed
@@ -232,7 +232,7 @@ pitcher_game_logs = Table(
     Column("opponent", String(50)),
 
     # Per-game pitching stats
-    Column("innings_pitched", Float, default=0.0),     # IP (e.g., 6.2 = 6 2/3 innings)
+    Column("innings_pitched", Float, default=0.0),     # IP - true decimal innings (6.666... = 6 2/3)
     Column("hits_allowed", Integer, default=0),        # H
     Column("earned_runs", Integer, default=0),         # ER
     Column("walks", Integer, default=0),               # BB
