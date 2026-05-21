@@ -149,8 +149,20 @@ function BettingPage({ onPlayerClick }) {
     return gameGroups.filter(g => !gameHasStarted(g.game_status))
   }, [gameGroups, showStarted])
 
-  // Count of started groups, for the toggle's label text.
-  const hiddenStartedCount = gameGroups.length - visibleGroups.length
+  // Counts for the toggle and subtitle. The backend can return useful
+  // historical candidates for the audit log, but betting decisions only
+  // matter before first pitch.
+  const openCandidateCount = useMemo(() => (
+    gameGroups
+      .filter(g => !gameHasStarted(g.game_status))
+      .reduce((sum, g) => sum + g.candidates.length, 0)
+  ), [gameGroups])
+  const hiddenStartedGameCount = gameGroups.length - visibleGroups.length
+  const hiddenStartedCandidateCount = useMemo(() => (
+    gameGroups
+      .filter(g => gameHasStarted(g.game_status))
+      .reduce((sum, g) => sum + g.candidates.length, 0)
+  ), [gameGroups])
 
   if (loading) {
     return (
@@ -168,6 +180,9 @@ function BettingPage({ onPlayerClick }) {
           {data?.date && (
             <div className="betting-subtitle">
               {data.candidates?.length || 0} candidates for {data.date}
+              {hiddenStartedCandidateCount > 0 && (
+                <> · {openCandidateCount} before first pitch</>
+              )}
               {data.generated_at && (
                 <> · generated {new Date(data.generated_at).toLocaleTimeString()}</>
               )}
@@ -231,7 +246,7 @@ function BettingPage({ onPlayerClick }) {
 
       {/* "Show started games" toggle. Only render when there's something
           to toggle (i.e. some games have already started). */}
-      {hiddenStartedCount > 0 && (
+      {hiddenStartedGameCount > 0 && (
         <div className="betting-toggle-row">
           <label>
             <input
@@ -239,8 +254,15 @@ function BettingPage({ onPlayerClick }) {
               checked={showStarted}
               onChange={(e) => setShowStarted(e.target.checked)}
             />
-            {' '}Show {hiddenStartedCount} game{hiddenStartedCount === 1 ? '' : 's'} already in progress
+            {' '}Show {hiddenStartedCandidateCount} pick{hiddenStartedCandidateCount === 1 ? '' : 's'} from {hiddenStartedGameCount} game{hiddenStartedGameCount === 1 ? '' : 's'} already started or final
           </label>
+        </div>
+      )}
+
+      {!error && data?.candidates?.length > 0 && visibleGroups.length === 0 && !showStarted && (
+        <div className="betting-empty">
+          All current candidates are from games that already started. Show
+          started games to review them, or regenerate after later lineups post.
         </div>
       )}
 

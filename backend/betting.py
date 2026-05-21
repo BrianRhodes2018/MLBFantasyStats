@@ -406,14 +406,14 @@ def compute_composite_score(
         pitcher_fip, pitcher_whip, pitcher_hr_per_9, k_bb_pct=pitcher_k_bb_pct,
     )
 
-    # Form-signal fallback: if no wOBA data was provided, synthesize a
+    # Form-signal fallback: if no wOBA data was provided at all, synthesize a
     # rolling/season wOBA pair from the legacy OPS args by treating OPS as
-    # a rough proxy. Mathematically dirty but keeps the signal alive on
-    # callers that haven't migrated. New /betting/candidates path passes
-    # the proper wOBA pair so this branch only fires for older test cases.
+    # a rough proxy. This must only run when both preferred wOBA values are
+    # absent; mixing season OPS with season wOBA makes cold/no-data hitters
+    # look falsely hot.
     _rolling_woba = rolling_woba
     _season_woba = season_woba
-    if _rolling_woba is None and rolling_ops is not None:
+    if _rolling_woba is None and _season_woba is None and rolling_ops is not None:
         _rolling_woba = rolling_ops
         if _season_woba is None and season_ops is not None:
             _season_woba = season_ops

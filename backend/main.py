@@ -4003,8 +4003,8 @@ async def get_betting_candidates(
             season_k_pct=rolling_k_pct,  # use rolling as the gate value
             season_barrel_pa_pct=season_barrel_pa_pct,
             # Fallback to OPS path when wOBA is unavailable (defensive —
-            # rolling wOBA should always be present given batter_game_logs).
-            rolling_ops=row.get("season_ops"),
+            # legacy rolling_ops is intentionally not passed here.
+            # Important: no rolling_ops here. Season OPS is not recent form.
             season_ops=row.get("season_ops"),
             bvp_pa=bvp_pa,
             bvp_ops=bvp_ops,
