@@ -181,6 +181,23 @@ def test_recent_form_returns_none_ratio_when_data_missing():
     assert ratio is None
 
 
+def test_composite_does_not_mix_season_ops_with_season_woba_as_form():
+    # Live candidates can have season Savant wOBA but no rolling game-log
+    # value. A previous fallback paired season OPS as "rolling" against
+    # season wOBA, creating fake hot-bat signals for cold hitters.
+    result = compute_composite_score(
+        bats="L", throws="R",
+        pitcher_fip=3.68, pitcher_whip=1.06, pitcher_hr_per_9=0.68,
+        rolling_woba=None, season_woba=0.264,
+        rolling_ops=0.566, season_ops=0.566,
+        park_runs_factor=104,
+    )
+
+    assert result["signals"]["recent_form"]["fired"] is False
+    assert result["signals"]["recent_form"]["detail"] == "no rolling/season rate-stat data"
+    assert "hot bat" not in result["summary"].lower()
+
+
 # ---------------------------------------------------------------------------
 # COLD-FORM MULTIPLIER (composite-score brake)
 # ---------------------------------------------------------------------------
