@@ -4149,13 +4149,19 @@ async def get_betting_candidates(
         if pid not in savant_lookup:
             savant_lookup[pid] = m
 
-    # ---------- 6. Fetch career BvP for every (batter, opposing_pitcher) pair ----------
+    # ---------- 6. Fetch career BvP for confirmed-lineup batter/pitcher pairs ----------
     # Skip pairs whose pitcher got filtered out at step 4 (below min_pitcher_ip)
     # so we don't waste calls on hitters who'd be skipped during scoring anyway.
+    # Projected full-slate boards can include ~270 hitters before official
+    # lineups post; doing one career BvP network call for each projected row
+    # makes the endpoint too slow for Render. BvP is useful context, but it is
+    # the noisiest signal in the model, so early projected boards treat it as
+    # neutral and lean on platoon, pitcher vulnerability, form, and park.
     bvp_pairs = [
         (row["player_mlb_id"], row["opposing_pitcher_mlb_id"])
         for row in matchup_rows
         if row["opposing_pitcher_mlb_id"] in pitcher_lookup
+        and row.get("lineup_source") != "projected"
     ]
     bvp_map = await _fetch_bvp_for_pairs(bvp_pairs)
 
