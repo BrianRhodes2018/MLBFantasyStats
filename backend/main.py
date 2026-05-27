@@ -3792,7 +3792,7 @@ async def get_betting_candidates(
     projected_lineup_edge_threshold: float = Query(PROJECTED_LINEUP_EDGE_THRESHOLD, ge=0.0, le=0.25, description="Projected lineup risk premium; 0.08 means +8 composite points"),
     projection_lookback_days: int = Query(DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS, ge=7, le=30, description="Days of MLB batting orders to use for free internal lineup projections"),
     min_projected_lineup_confidence: float = Query(DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR, ge=0.0, le=1.0, description="Minimum recent-start confidence for internal projected lineup hitters"),
-    max_bvp_pairs: int = Query(50, ge=0, le=300, description="Maximum confirmed-lineup BvP pairs to hydrate per generation"),
+    max_bvp_pairs: int = Query(15, ge=0, le=300, description="Maximum confirmed-lineup BvP pairs to hydrate per generation"),
 ):
     """
     Generate today's hitter betting candidates by composite scoring.
