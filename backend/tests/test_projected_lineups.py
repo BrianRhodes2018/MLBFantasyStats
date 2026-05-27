@@ -5,6 +5,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from projected_lineups import (
     PROJECTED_LINEUP_EDGE_THRESHOLD,
+    ProjectedLineupsResult,
+    build_lineup_meta,
     candidate_score_floor,
     group_lineups_by_team,
     parse_sportsdataio_starting_lineups,
@@ -82,3 +84,23 @@ def test_projected_lineup_score_floor_adds_eight_point_premium():
         min_composite_score=50.0,
         projected_lineup_edge_threshold=PROJECTED_LINEUP_EDGE_THRESHOLD,
     ) == 50.0
+
+
+def test_build_lineup_meta_handles_empty_not_configured_provider():
+    meta = build_lineup_meta(
+        lineup_mode="hybrid",
+        projected_result=ProjectedLineupsResult(
+            players=[],
+            provider="sportsdataio",
+            status="not_configured",
+            message="SPORTSDATAIO_API_KEY is not configured",
+        ),
+        unresolved_projected_players=[],
+        rows=[],
+    )
+
+    assert meta["mode"] == "hybrid"
+    assert meta["provider"] == "sportsdataio"
+    assert meta["status"] == "not_configured"
+    assert meta["message"] == "SPORTSDATAIO_API_KEY is not configured"
+    assert meta["lineup_counts"] == {"confirmed": 0, "projected": 0}

@@ -49,6 +49,7 @@ from park_factors import (
 from projected_lineups import (
     CONFIRMED_LINEUP_EDGE_THRESHOLD,
     PROJECTED_LINEUP_EDGE_THRESHOLD,
+    build_lineup_meta,
     candidate_score_floor,
     fetch_sportsdataio_lineups,
     group_lineups_by_team,
@@ -3985,7 +3986,24 @@ async def get_betting_candidates(
         return ApiResponse(
             code=200,
             message=f"No batters with announced lineups for {target_date}",
-            data={"date": target_date, "candidates": [], "generated_at": None},
+            data={
+                "date": target_date,
+                "generated_at": None,
+                "thresholds": {
+                    "min_composite_score": min_composite_score,
+                    "min_fired_signals": min_fired_signals,
+                    "min_pitcher_ip": min_pitcher_ip,
+                    "confirmed_lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
+                    "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
+                },
+                "lineup_meta": build_lineup_meta(
+                    lineup_mode=lineup_mode,
+                    projected_result=projected_result,
+                    unresolved_projected_players=unresolved_projected_players,
+                    rows=matchup_rows,
+                ),
+                "candidates": [],
+            },
         )
 
     # ---------- 3.5. Hydrate batter handedness via /people ----------
@@ -4226,20 +4244,12 @@ async def get_betting_candidates(
         ]
         await database.execute_many(bet_suggestions.insert(), rows_to_insert)
 
-    lineup_counts = {
-        "confirmed": sum(1 for c in top if c.get("lineup_source") == "confirmed"),
-        "projected": sum(1 for c in top if c.get("lineup_source") == "projected"),
-    }
-    projected_lineup_meta = {
-        "mode": lineup_mode,
-        "provider": projected_result.provider if projected_result else None,
-        "status": projected_result.status if projected_result else "disabled",
-        "fetched_at": projected_result.fetched_at if projected_result else None,
-        "message": projected_result.message if projected_result else None,
-        "available_players": len(projected_result.players) if projected_result else 0,
-        "unresolved_players": unresolved_projected_players[:20],
-        "lineup_counts": lineup_counts,
-    }
+    projected_lineup_meta = build_lineup_meta(
+        lineup_mode=lineup_mode,
+        projected_result=projected_result,
+        unresolved_projected_players=unresolved_projected_players,
+        rows=top,
+    )
 
     return ApiResponse(
         code=200,
