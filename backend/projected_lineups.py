@@ -545,9 +545,8 @@ async def fetch_recent_mlb_lineups(
             message=str(exc),
         )
 
-    game_ids = sorted({
-        _to_int(game.get("game_id"))
-        for game in schedule
+    recent_games = [
+        game for game in schedule
         if _to_int(game.get("game_id"))
         and str(game.get("status") or "").lower() in {"final", "game over"}
         and (
@@ -555,18 +554,38 @@ async def fetch_recent_mlb_lineups(
             or team_key(game.get("home_name")) in target_team_keys
             or team_key(game.get("away_name")) in target_team_keys
         )
-    })
+    ]
 
-    semaphore = asyncio.Semaphore(8)
+    semaphore = asyncio.Semaphore(12)
 
-    async def fetch_game(game_id: int):
+    async def fetch_boxscore(client: httpx.AsyncClient, game: Mapping[str, Any]):
+        game_id = _to_int(game.get("game_id"))
+        if not game_id:
+            return None
         async with semaphore:
-            return await asyncio.to_thread(statsapi.get, "game", {"gamePk": game_id})
+            response = await client.get(f"https://statsapi.mlb.com/api/v1/game/{game_id}/boxscore")
+            response.raise_for_status()
+            boxscore = response.json()
+            return {
+                "gameData": {
+                    "game": {"pk": game_id},
+                    "datetime": {"officialDate": game.get("game_date")},
+                    "teams": {
+                        "away": {"name": game.get("away_name")},
+                        "home": {"name": game.get("home_name")},
+                    },
+                    "probablePitchers": {},
+                    "players": {},
+                },
+                "liveData": {"boxscore": boxscore},
+            }
 
-    game_results = await asyncio.gather(
-        *[fetch_game(game_id) for game_id in game_ids],
-        return_exceptions=True,
-    )
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        game_results = await asyncio.gather(
+            *[fetch_boxscore(client, game) for game in recent_games],
+            return_exceptions=True,
+        )
+
     result = build_recent_mlb_lineup_projections(
         game_results,
         target_date=date,
