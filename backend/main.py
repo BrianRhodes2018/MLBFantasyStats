@@ -3792,6 +3792,7 @@ async def get_betting_candidates(
     projected_lineup_edge_threshold: float = Query(PROJECTED_LINEUP_EDGE_THRESHOLD, ge=0.0, le=0.25, description="Projected lineup risk premium; 0.08 means +8 composite points"),
     projection_lookback_days: int = Query(DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS, ge=7, le=30, description="Days of MLB batting orders to use for free internal lineup projections"),
     min_projected_lineup_confidence: float = Query(DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR, ge=0.0, le=1.0, description="Minimum recent-start confidence for internal projected lineup hitters"),
+    max_bvp_pairs: int = Query(50, ge=0, le=300, description="Maximum confirmed-lineup BvP pairs to hydrate per generation"),
 ):
     """
     Generate today's hitter betting candidates by composite scoring.
@@ -4047,6 +4048,7 @@ async def get_betting_candidates(
                     "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
                     "projection_lookback_days": projection_lookback_days,
                     "min_projected_lineup_confidence": min_projected_lineup_confidence,
+                    "max_bvp_pairs": max_bvp_pairs,
                 },
                 "lineup_meta": build_lineup_meta(
                     lineup_mode=lineup_mode,
@@ -4157,11 +4159,18 @@ async def get_betting_candidates(
     # makes the endpoint too slow for Render. BvP is useful context, but it is
     # the noisiest signal in the model, so early projected boards treat it as
     # neutral and lean on platoon, pitcher vulnerability, form, and park.
-    bvp_pairs = [
-        (row["player_mlb_id"], row["opposing_pitcher_mlb_id"])
+    # Confirmed rows keep a capped BvP pass, favoring earlier batting-order
+    # slots so we spend the network budget where plate appearances are likelier.
+    bvp_source_rows = [
+        row
         for row in matchup_rows
         if row["opposing_pitcher_mlb_id"] in pitcher_lookup
         and row.get("lineup_source") != "projected"
+    ]
+    bvp_source_rows.sort(key=lambda row: (row.get("batting_order") or 99, row.get("game_time") or ""))
+    bvp_pairs = [
+        (row["player_mlb_id"], row["opposing_pitcher_mlb_id"])
+        for row in bvp_source_rows[:max_bvp_pairs]
     ]
     bvp_map = await _fetch_bvp_for_pairs(bvp_pairs)
 
@@ -4328,10 +4337,11 @@ async def get_betting_candidates(
                 "min_fired_signals": min_fired_signals,
                 "min_pitcher_ip": min_pitcher_ip,
                 "confirmed_lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
-                "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
-                "projection_lookback_days": projection_lookback_days,
-                "min_projected_lineup_confidence": min_projected_lineup_confidence,
-            },
+                    "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
+                    "projection_lookback_days": projection_lookback_days,
+                    "min_projected_lineup_confidence": min_projected_lineup_confidence,
+                    "max_bvp_pairs": max_bvp_pairs,
+                },
             "lineup_meta": projected_lineup_meta,
             "candidates": top,
         },
