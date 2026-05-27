@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
 import re
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 import httpx
 
@@ -179,6 +179,29 @@ def group_lineups_by_team(
     for team_players in grouped.values():
         team_players.sort(key=lambda p: p.batting_order)
     return grouped
+
+
+def build_lineup_meta(
+    *,
+    lineup_mode: str,
+    projected_result: Optional[ProjectedLineupsResult],
+    unresolved_projected_players: Sequence[str],
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build response metadata for both populated and empty betting boards."""
+    return {
+        "mode": lineup_mode,
+        "provider": projected_result.provider if projected_result else None,
+        "status": projected_result.status if projected_result else "disabled",
+        "fetched_at": projected_result.fetched_at if projected_result else None,
+        "message": projected_result.message if projected_result else None,
+        "available_players": len(projected_result.players) if projected_result else 0,
+        "unresolved_players": list(unresolved_projected_players[:20]),
+        "lineup_counts": {
+            "confirmed": sum(1 for row in rows if row.get("lineup_source") == "confirmed"),
+            "projected": sum(1 for row in rows if row.get("lineup_source") == "projected"),
+        },
+    }
 
 
 async def fetch_sportsdataio_lineups(date: str) -> ProjectedLineupsResult:
