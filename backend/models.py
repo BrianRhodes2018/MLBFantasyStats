@@ -415,6 +415,15 @@ bet_suggestions = Table(
     # column and the daily-update backfill doesn't have a way to retrofit.
     Column("game_time", String(30)),
 
+    # Lineup provenance. "confirmed" rows come from MLB StatsAPI official
+    # batting orders when available; "projected" rows are early-day provider
+    # overlays and should clear a higher edge/quality threshold.
+    Column("batting_order", Integer),
+    Column("lineup_source", String(20)),
+    Column("lineup_provider", String(50)),
+    Column("lineup_confirmed", String(10)),
+    Column("lineup_edge_threshold", Float),
+
     # Scoring output. composite_score is what we ranked on; signals_json is
     # the full per-signal breakdown serialized as JSON so the audit page can
     # filter "show me only suggestions where 'platoon' fired" without a

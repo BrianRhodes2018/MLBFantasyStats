@@ -227,6 +227,36 @@ body {
   margin: 6px 0 0;
 }
 
+.betting-lineup-meta {
+  background: #122033;
+  border: 1px solid #2f4b65;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+}
+
+.betting-lineup-meta span {
+  display: block;
+  color: #8da4c0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.betting-lineup-meta strong {
+  color: #e8ecf0;
+  display: block;
+  font-size: 0.9rem;
+  text-transform: capitalize;
+}
+
+.betting-lineup-meta p {
+  color: #b7c7d8;
+  font-size: 0.8rem;
+  margin: 5px 0 0;
+}
+
 .betting-loading,
 .betting-empty {
   text-align: center;
@@ -293,6 +323,28 @@ body {
 .betting-team {
   font-size: 0.8rem;
   color: #8da4c0;
+}
+
+.lineup-source-chip {
+  align-self: flex-start;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+}
+
+.lineup-source-chip.confirmed {
+  background: rgba(76, 175, 80, 0.16);
+  border: 1px solid rgba(76, 175, 80, 0.38);
+  color: #8edb91;
+}
+
+.lineup-source-chip.projected {
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.34);
+  color: #ffd15c;
 }
 
 .betting-context {

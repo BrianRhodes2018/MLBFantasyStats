@@ -84,6 +84,11 @@ def run_migrations():
         existing_bs_cols = [col["name"] for col in inspector.get_columns("bet_suggestions")]
         bs_missing = {
             "game_time": "VARCHAR(30)",  # ISO-8601 game datetime
+            "batting_order": "INTEGER",
+            "lineup_source": "VARCHAR(20)",
+            "lineup_provider": "VARCHAR(50)",
+            "lineup_confirmed": "VARCHAR(10)",
+            "lineup_edge_threshold": "DOUBLE PRECISION",
         }
 
         with engine.connect() as conn:

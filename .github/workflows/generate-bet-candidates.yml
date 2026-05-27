@@ -2,7 +2,7 @@
 # GitHub Actions — Daily Bet-Candidate Auto-Generation
 # ===========================================================================
 #
-# Hits the deployed /betting/candidates endpoint once a day so the audit
+# Hits the deployed /betting/candidates endpoint several times a day so the audit
 # table fills in even when nobody visits the Betting Edge page. This is
 # the gap-filler called out in PLAN_BETTING_PAGE.md design question #4.
 #
@@ -15,18 +15,10 @@
 #   - If this workflow fails one day, the next day's run picks up — the
 #     audit just has a one-day gap, which is acceptable.
 #
-# Timing — why 19:00 UTC:
-#   That's 3 PM EDT / 12 PM PDT.
-#   - East Coast 1 PM games: in progress, lineups long since out.
-#   - East Coast 7 PM games: ~4 hours before first pitch — most teams
-#     have posted lineups by then (typical lineup post is 2-3 hours
-#     before first pitch).
-#   - West Coast 7 PM games: 8 hours before first pitch — lineups may
-#     not be out yet for some teams. Those days we'll miss them in the
-#     audit.
-#   We accept the West Coast gap rather than running multiple times per
-#   day. If the audit shows systematically missing West Coast games we
-#   can add a second run at 22:00 UTC.
+# Timing:
+#   - 13:00 UTC / 9 AM EDT: early projected-lineup board.
+#   - 19:00 UTC / 3 PM EDT: afternoon confirmed-lineup refresh.
+#   - 22:00 UTC / 6 PM EDT: late-slate confirmed-lineup refresh.
 #
 # Required secret:
 #   None. The endpoint is unauthenticated. (Pre-launch this should change
@@ -39,8 +31,10 @@ name: Generate Bet Candidates
 
 on:
   schedule:
-    # 19:00 UTC daily — see header comment for rationale.
+    # See header comment for why we run three times.
+    - cron: '0 13 * * *'
     - cron: '0 19 * * *'
+    - cron: '0 22 * * *'
 
   # Manual trigger — useful for testing the workflow itself or forcing a
   # regeneration after a hot-fix lands mid-day.
@@ -70,7 +64,7 @@ jobs:
       # start. fail-on-curl-error so a non-2xx makes the workflow red.
       - name: Generate betting candidates
         run: |
-          response=$(curl -fsS --max-time 180 https://mlbfantasystats.onrender.com/betting/candidates)
+          response=$(curl -fsS --max-time 180 "https://mlbfantasystats.onrender.com/betting/candidates?lineup_mode=hybrid&projected_lineup_edge_threshold=0.08")
 
           # Pretty summary in the workflow log so you can debug at a glance
           # whether candidates landed or this was a "no lineups yet" run.
@@ -81,8 +75,9 @@ jobs:
           print(f\"Date: {d.get('date')}\")
           print(f\"Generated at: {d.get('generated_at')}\")
           print(f\"Candidates: {len(candidates)}\")
+          print(f\"Lineups: {d.get('lineup_meta')}\")
           if not candidates:
-              print('Note: zero candidates — most likely lineups not announced yet')
+              print('Note: zero candidates after confirmed/projected lineup filtering')
           else:
               for c in candidates:
                   fired = [k for k, v in c.get('signals', {}).items() if v.get('fired')]
