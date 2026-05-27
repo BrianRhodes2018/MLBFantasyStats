@@ -244,6 +244,12 @@ function BettingPage({ onPlayerClick }) {
           <strong>{data.lineup_meta.mode || 'hybrid'}</strong>
           <p>
             Provider: {data.lineup_meta.provider || 'MLB confirmed only'} | status: {data.lineup_meta.status || 'disabled'}
+            {data.lineup_meta.provider_meta?.lookback_days && (
+              <> | {data.lineup_meta.provider_meta.lookback_days}-day lookback</>
+            )}
+            {data.lineup_meta.provider_meta?.confidence_floor != null && (
+              <> | confidence floor {formatPct(data.lineup_meta.provider_meta.confidence_floor)}</>
+            )}
           </p>
         </div>
       )}
@@ -387,6 +393,11 @@ function BettingPage({ onPlayerClick }) {
                       <span title="Lineup-risk edge floor">
                         edge floor: <strong>{formatPct(c.lineup_edge_threshold)}</strong>
                       </span>
+                      {c.lineup_confidence != null && (
+                        <span title={`Recent lineup sample: ${c.lineup_sample_size ?? '-'} of ${c.lineup_games_considered ?? '-'} games${c.lineup_split ? ` (${c.lineup_split})` : ''}`}>
+                          lineup conf: <strong>{formatPct(c.lineup_confidence)}</strong>
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

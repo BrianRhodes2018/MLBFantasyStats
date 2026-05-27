@@ -48,9 +48,12 @@ from park_factors import (
 )
 from projected_lineups import (
     CONFIRMED_LINEUP_EDGE_THRESHOLD,
+    DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR,
+    DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS,
     PROJECTED_LINEUP_EDGE_THRESHOLD,
     build_lineup_meta,
     candidate_score_floor,
+    fetch_recent_mlb_lineups,
     fetch_sportsdataio_lineups,
     group_lineups_by_team,
     normalize_name,
@@ -3787,6 +3790,8 @@ async def get_betting_candidates(
     min_fired_signals: int = Query(3, ge=0, le=5, description="Minimum number of signals that must fire for a candidate to be returned"),
     lineup_mode: str = Query("hybrid", pattern="^(confirmed|projected|hybrid)$", description="Lineup source mode"),
     projected_lineup_edge_threshold: float = Query(PROJECTED_LINEUP_EDGE_THRESHOLD, ge=0.0, le=0.25, description="Projected lineup risk premium; 0.08 means +8 composite points"),
+    projection_lookback_days: int = Query(DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS, ge=7, le=30, description="Days of MLB batting orders to use for free internal lineup projections"),
+    min_projected_lineup_confidence: float = Query(DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR, ge=0.0, le=1.0, description="Minimum recent-start confidence for internal projected lineup hitters"),
 ):
     """
     Generate today's hitter betting candidates by composite scoring.
@@ -3849,10 +3854,50 @@ async def get_betting_candidates(
         return_exceptions=True,
     )
 
+    target_team_keys: set[str] = set()
+    opposing_throws_by_team_key: dict[str, Optional[str]] = {}
+    for sched_game, game_data in zip(schedule, game_data_results):
+        if isinstance(game_data, Exception):
+            continue
+        prob = game_data.get("gameData", {}).get("probablePitchers", {})
+        game_teams = game_data.get("gameData", {}).get("teams", {})
+        game_players = game_data.get("gameData", {}).get("players", {})
+        boxscore = game_data.get("liveData", {}).get("boxscore", {}).get("teams", {})
+        for offense_side in ["home", "away"]:
+            opposing = "away" if offense_side == "home" else "home"
+            team_data = boxscore.get(offense_side, {})
+            team_name = (
+                team_data.get("team", {}).get("name")
+                or game_teams.get(offense_side, {}).get("name")
+                or sched_game.get(f"{offense_side}_name")
+                or ""
+            )
+            tkey = team_key(team_name)
+            if not tkey:
+                continue
+            target_team_keys.add(tkey)
+            opposing_pid = (prob.get(opposing) or {}).get("id")
+            pitcher = game_players.get(f"ID{opposing_pid}", {}) if opposing_pid else {}
+            opposing_throw = (pitcher.get("pitchHand") or {}).get("code")
+            if opposing_throw in {"L", "R"}:
+                opposing_throws_by_team_key[tkey] = opposing_throw
+
     projected_result = None
     projected_by_team = {}
     if lineup_mode in {"hybrid", "projected"}:
-        projected_result = await fetch_sportsdataio_lineups(target_date)
+        sportsdata_result = await fetch_sportsdataio_lineups(target_date)
+        projected_result = sportsdata_result
+        if not sportsdata_result.players:
+            projected_result = await fetch_recent_mlb_lineups(
+                target_date,
+                target_team_keys=target_team_keys,
+                opposing_throws_by_team_key=opposing_throws_by_team_key,
+                lookback_days=projection_lookback_days,
+                min_confidence=min_projected_lineup_confidence,
+            )
+            if projected_result.meta is not None:
+                projected_result.meta["fallback_from_provider"] = sportsdata_result.provider
+                projected_result.meta["fallback_from_status"] = sportsdata_result.status
         projected_by_team = group_lineups_by_team(projected_result.players)
 
     # ---------- 3. Park factor lookup (cached, sync) ----------
@@ -3921,6 +3966,11 @@ async def get_betting_candidates(
                             if projected_player.confirmed
                             else projected_lineup_edge_threshold
                         ),
+                        "lineup_confidence": projected_player.confidence,
+                        "lineup_sample_size": projected_player.sample_size,
+                        "lineup_games_considered": projected_player.games_considered,
+                        "lineup_split": projected_player.split,
+                        "lineup_last_seen": projected_player.last_seen,
                         "game_id": sched_game["game_id"],
                         "opposing_pitcher_mlb_id": opposing_pid,
                         "opposing_pitcher_name": opposing_pname,
@@ -3995,6 +4045,8 @@ async def get_betting_candidates(
                     "min_pitcher_ip": min_pitcher_ip,
                     "confirmed_lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
                     "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
+                    "projection_lookback_days": projection_lookback_days,
+                    "min_projected_lineup_confidence": min_projected_lineup_confidence,
                 },
                 "lineup_meta": build_lineup_meta(
                     lineup_mode=lineup_mode,
@@ -4271,6 +4323,8 @@ async def get_betting_candidates(
                 "min_pitcher_ip": min_pitcher_ip,
                 "confirmed_lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
                 "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
+                "projection_lookback_days": projection_lookback_days,
+                "min_projected_lineup_confidence": min_projected_lineup_confidence,
             },
             "lineup_meta": projected_lineup_meta,
             "candidates": top,

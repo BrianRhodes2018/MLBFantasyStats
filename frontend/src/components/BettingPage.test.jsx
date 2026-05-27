@@ -119,8 +119,12 @@ describe('BettingPage', () => {
           },
           lineup_meta: {
             mode: 'hybrid',
-            provider: 'sportsdataio',
+            provider: 'mlb_recent_lineups',
             status: 'ok',
+            provider_meta: {
+              lookback_days: 14,
+              confidence_floor: 0.5,
+            },
             lineup_counts: { confirmed: 0, projected: 1 },
           },
           candidates: [
@@ -137,8 +141,12 @@ describe('BettingPage', () => {
               composite_score: 66.2,
               batting_order: 2,
               lineup_source: 'projected',
-              lineup_provider: 'sportsdataio',
+              lineup_provider: 'mlb_recent_lineups',
               lineup_edge_threshold: 0.08,
+              lineup_confidence: 0.75,
+              lineup_sample_size: 9,
+              lineup_games_considered: 12,
+              lineup_split: 'all',
               signals: {},
               summary: 'Projected pick.',
               context_stats: {},
@@ -160,5 +168,8 @@ describe('BettingPage', () => {
     expect(screen.getByText('Projected')).toBeInTheDocument()
     expect(screen.getByText('batting #2')).toBeInTheDocument()
     expect(screen.getAllByText('8%').length).toBeGreaterThan(0)
+    expect(screen.getByText(/14-day lookback/)).toBeInTheDocument()
+    expect(screen.getByText('lineup conf:')).toBeInTheDocument()
+    expect(screen.getByText('75%')).toBeInTheDocument()
   })
 })

@@ -137,7 +137,7 @@ services:
 
       # SPORTSDATAIO_API_KEY: optional projected-lineup provider for the
       # early-day Betting Edge board. When unset, the API falls back to
-      # MLB-confirmed lineups only.
+      # free MLB StatsAPI projections built from recent batting orders.
       - key: SPORTSDATAIO_API_KEY
         sync: false
 
