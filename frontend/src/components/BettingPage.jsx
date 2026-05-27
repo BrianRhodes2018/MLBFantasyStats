@@ -67,6 +67,11 @@ function formatGameTime(iso) {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
+function formatPct(value) {
+  if (value === null || value === undefined) return '-'
+  return `${(Number(value) * 100).toFixed(0)}%`
+}
+
 
 function BettingPage({ onPlayerClick }) {
   const [data, setData] = useState(null)
@@ -183,6 +188,9 @@ function BettingPage({ onPlayerClick }) {
               {hiddenStartedCandidateCount > 0 && (
                 <> · {openCandidateCount} before first pitch</>
               )}
+              {data.lineup_meta && (
+                <> | {data.lineup_meta.lineup_counts?.confirmed || 0} confirmed / {data.lineup_meta.lineup_counts?.projected || 0} projected</>
+              )}
               {data.generated_at && (
                 <> · generated {new Date(data.generated_at).toLocaleTimeString()}</>
               )}
@@ -205,13 +213,11 @@ function BettingPage({ onPlayerClick }) {
       {/* Methodology footer up top so the user understands what they're
           looking at. Phase 2's audit page will be the place to drill in. */}
       <div className="betting-methodology">
-        Composite score combines platoon advantage, opposing pitcher
-        vulnerability (FIP / WHIP / HR/9 / K-BB%), recent form
-        (14-day rolling wOBA vs season xwOBA, gated by rolling K% and
-        season Barrel/PA from Baseball Savant), career batter-vs-pitcher
-        history (≥10 PA), and park factor. Once ~14 daily Savant
-        snapshots have accumulated, the rate-stat ratio auto-upgrades to
-        rolling xwOBA vs season xwOBA.
+        Composite score combines platoon, pitcher vulnerability, recent form,
+        career batter-vs-pitcher history, and park factor. Projected lineup
+        candidates must clear an extra {formatPct(data?.thresholds?.projected_lineup_edge_threshold)}
+        quality floor before they appear. Confirmed lineups stay primary when
+        MLB publishes them.
         {' '}
         Park factors:{' '}
         {data?.park_factor_meta?.source === 'baseball_savant' ? (
@@ -231,6 +237,16 @@ function BettingPage({ onPlayerClick }) {
           vig-free price. Negative edge means the market is richer than our model.
         </p>
       </div>
+
+      {data?.lineup_meta && (
+        <div className="betting-lineup-meta">
+          <span>Lineups</span>
+          <strong>{data.lineup_meta.mode || 'hybrid'}</strong>
+          <p>
+            Provider: {data.lineup_meta.provider || 'MLB confirmed only'} | status: {data.lineup_meta.status || 'disabled'}
+          </p>
+        </div>
+      )}
 
       {!error && data && data.candidates?.length === 0 && (
         <div className="betting-empty">
@@ -316,12 +332,19 @@ function BettingPage({ onPlayerClick }) {
                       {c.player_name}
                     </span>
                     <span className="betting-team">{c.player_team}</span>
+                    <span
+                      className={`lineup-source-chip ${c.lineup_source === 'projected' ? 'projected' : 'confirmed'}`}
+                      title={`${c.lineup_provider || 'lineup'}${c.lineup_edge_threshold != null ? ` | floor ${formatPct(c.lineup_edge_threshold)}` : ''}`}
+                    >
+                      {c.lineup_source === 'projected' ? 'Projected' : 'Confirmed'}
+                    </span>
                   </div>
 
                   <div className="betting-context">
                     <span className="betting-vs">vs</span>{' '}
                     <span className="betting-pitcher">{c.opposing_pitcher_name}</span>
                     {c.venue && <> · <span className="betting-venue">{c.venue}</span></>}
+                    {c.batting_order && <> | <span className="betting-venue">batting #{c.batting_order}</span></>}
                   </div>
 
                   <div className="betting-signals">
@@ -360,6 +383,9 @@ function BettingPage({ onPlayerClick }) {
                       </span>
                       <span title="Opposing pitcher's season strikeout-minus-walk rate (K-BB%)">
                         vs. K-BB%: <strong>{c.context_stats.pitcher_k_bb_pct?.toFixed(1) ?? '—'}%</strong>
+                      </span>
+                      <span title="Lineup-risk edge floor">
+                        edge floor: <strong>{formatPct(c.lineup_edge_threshold)}</strong>
                       </span>
                     </div>
                   )}

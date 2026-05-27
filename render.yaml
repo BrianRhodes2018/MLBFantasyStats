@@ -135,6 +135,12 @@ services:
       - key: DATABASE_URL_2025
         sync: false
 
+      # SPORTSDATAIO_API_KEY: optional projected-lineup provider for the
+      # early-day Betting Edge board. When unset, the API falls back to
+      # MLB-confirmed lineups only.
+      - key: SPORTSDATAIO_API_KEY
+        sync: false
+
   # ---------------------------------------------------------------------------
   # DAILY STATS UPDATE — Now handled by GitHub Actions
   # ---------------------------------------------------------------------------

@@ -102,4 +102,63 @@ describe('BettingPage', () => {
 
     expect(screen.getByText('Started Game Bat')).toBeInTheDocument()
   })
+
+  it('shows projected lineup source and the 8 percent edge floor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: 200,
+        data: {
+          date: '2026-05-27',
+          generated_at: '2026-05-27T12:00:00Z',
+          park_factor_meta: { source: 'baseball_savant', year_range: '2024-2026' },
+          thresholds: {
+            min_composite_score: 50,
+            min_fired_signals: 3,
+            projected_lineup_edge_threshold: 0.08,
+          },
+          lineup_meta: {
+            mode: 'hybrid',
+            provider: 'sportsdataio',
+            status: 'ok',
+            lineup_counts: { confirmed: 0, projected: 1 },
+          },
+          candidates: [
+            {
+              rank: 1,
+              player_mlb_id: 99,
+              player_name: 'Projected Bat',
+              player_team: 'New York Yankees',
+              game_id: 300,
+              opposing_pitcher_name: 'Projected Pitcher',
+              venue: 'Yankee Stadium',
+              game_time: '2026-05-27T23:05:00Z',
+              game_status: 'Pre-Game',
+              composite_score: 66.2,
+              batting_order: 2,
+              lineup_source: 'projected',
+              lineup_provider: 'sportsdataio',
+              lineup_edge_threshold: 0.08,
+              signals: {},
+              summary: 'Projected pick.',
+              context_stats: {},
+            },
+          ],
+        },
+      }),
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<BettingPage onBack={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Projected Bat')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/0 confirmed \/ 1 projected/)).toBeInTheDocument()
+    expect(screen.getByText('Projected')).toBeInTheDocument()
+    expect(screen.getByText('batting #2')).toBeInTheDocument()
+    expect(screen.getAllByText('8%').length).toBeGreaterThan(0)
+  })
 })

@@ -46,6 +46,15 @@ from park_factors import (
     classify_park_factor,
     refresh_park_factors_cache,
 )
+from projected_lineups import (
+    CONFIRMED_LINEUP_EDGE_THRESHOLD,
+    PROJECTED_LINEUP_EDGE_THRESHOLD,
+    candidate_score_floor,
+    fetch_sportsdataio_lineups,
+    group_lineups_by_team,
+    normalize_name,
+    team_key,
+)
 from schemas import (
     PlayerIn, PlayerOut, PlayerUpdate,
     PitcherIn, PitcherOut, PitcherUpdate,
@@ -3717,6 +3726,57 @@ def _compute_rolling_ops_map(
     return out
 
 
+def _build_player_identity_lookup(player_rows: list) -> tuple[dict[tuple[str, str], dict], dict[str, list[dict]]]:
+    """Build name/team indexes for mapping projected-lineup rows to MLB IDs."""
+    by_team_name: dict[tuple[str, str], dict] = {}
+    by_name: dict[str, list[dict]] = {}
+    for row in player_rows:
+        m = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+        name_key = normalize_name(m.get("name"))
+        if not name_key:
+            continue
+        team_name_key = team_key(m.get("team"))
+        if team_name_key:
+            by_team_name[(team_name_key, name_key)] = m
+        by_name.setdefault(name_key, []).append(m)
+    return by_team_name, by_name
+
+
+def _resolve_projected_matchup_rows(
+    matchup_rows: list[dict],
+    player_rows: list,
+) -> tuple[list[dict], list[str]]:
+    """Attach MLB player IDs to projected rows by name/team, dropping misses."""
+    by_team_name, by_name = _build_player_identity_lookup(player_rows)
+    resolved: list[dict] = []
+    unresolved: list[str] = []
+
+    for row in matchup_rows:
+        if row.get("player_mlb_id"):
+            resolved.append(row)
+            continue
+
+        name_key = normalize_name(row.get("player_name"))
+        team_name_key = team_key(row.get("player_team"))
+        match = by_team_name.get((team_name_key, name_key))
+        if match is None:
+            name_matches = by_name.get(name_key, [])
+            if len(name_matches) == 1:
+                match = name_matches[0]
+
+        if not match or not match.get("mlb_id"):
+            unresolved.append(row.get("player_name") or "Unknown")
+            continue
+
+        row["player_mlb_id"] = match.get("mlb_id")
+        row["bats"] = row.get("bats") or match.get("bats")
+        row["season_ops"] = row.get("season_ops") if row.get("season_ops") is not None else match.get("ops")
+        row["projected_position"] = row.get("projected_position") or match.get("position")
+        resolved.append(row)
+
+    return resolved, unresolved
+
+
 @app.get("/betting/candidates", response_model=ApiResponse)
 async def get_betting_candidates(
     date: Optional[str] = Query(None, description="Game date YYYY-MM-DD (defaults to today)"),
@@ -3724,6 +3784,8 @@ async def get_betting_candidates(
     min_pitcher_ip: float = Query(20.0, ge=0.0, description="Min innings pitched for the opposing pitcher to count (filters tiny-sample noise)"),
     min_composite_score: float = Query(50.0, ge=0.0, description="Minimum composite score for a candidate to be returned (quality floor)"),
     min_fired_signals: int = Query(3, ge=0, le=5, description="Minimum number of signals that must fire for a candidate to be returned"),
+    lineup_mode: str = Query("hybrid", pattern="^(confirmed|projected|hybrid)$", description="Lineup source mode"),
+    projected_lineup_edge_threshold: float = Query(PROJECTED_LINEUP_EDGE_THRESHOLD, ge=0.0, le=0.25, description="Projected lineup risk premium; 0.08 means +8 composite points"),
 ):
     """
     Generate today's hitter betting candidates by composite scoring.
@@ -3786,6 +3848,12 @@ async def get_betting_candidates(
         return_exceptions=True,
     )
 
+    projected_result = None
+    projected_by_team = {}
+    if lineup_mode in {"hybrid", "projected"}:
+        projected_result = await fetch_sportsdataio_lineups(target_date)
+        projected_by_team = group_lineups_by_team(projected_result.players)
+
     # ---------- 3. Park factor lookup (cached, sync) ----------
     park_meta = get_all_factors_with_meta()
 
@@ -3799,6 +3867,7 @@ async def get_betting_candidates(
         if isinstance(game_data, Exception):
             continue
         prob = game_data.get("gameData", {}).get("probablePitchers", {})
+        game_teams = game_data.get("gameData", {}).get("teams", {})
         boxscore = game_data.get("liveData", {}).get("boxscore", {}).get("teams", {})
         venue_name = sched_game.get("venue_name", "")
         park = get_park_factor(venue_name)
@@ -3816,10 +3885,52 @@ async def get_betting_candidates(
 
             pitcher_ids_needed.add(opposing_pid)
             team_data = boxscore.get(offense_side, {})
+            team_name = (
+                team_data.get("team", {}).get("name")
+                or game_teams.get(offense_side, {}).get("name")
+                or sched_game.get(f"{offense_side}_name")
+                or ""
+            )
             batting_order = team_data.get("battingOrder", [])
             players_dict = team_data.get("players", {})
+            projected_players = projected_by_team.get(team_key(team_name), [])
+            use_projected = (
+                lineup_mode == "projected" and projected_players
+            ) or (
+                lineup_mode == "hybrid" and not batting_order and projected_players
+            )
 
-            for pid in batting_order:
+            if use_projected:
+                for projected_player in projected_players:
+                    matchup_rows.append({
+                        "player_mlb_id": None,
+                        "provider_player_id": projected_player.provider_player_id,
+                        "player_name": projected_player.name,
+                        "player_team": team_name or projected_player.team,
+                        "bats": None,
+                        "season_ops": None,
+                        "batting_order": projected_player.batting_order,
+                        "projected_position": projected_player.position,
+                        "lineup_source": projected_player.lineup_source,
+                        "lineup_provider": projected_player.provider,
+                        "lineup_confirmed": projected_player.confirmed,
+                        "lineup_fetched_at": projected_player.fetched_at,
+                        "lineup_edge_threshold": (
+                            CONFIRMED_LINEUP_EDGE_THRESHOLD
+                            if projected_player.confirmed
+                            else projected_lineup_edge_threshold
+                        ),
+                        "game_id": sched_game["game_id"],
+                        "opposing_pitcher_mlb_id": opposing_pid,
+                        "opposing_pitcher_name": opposing_pname,
+                        "venue": venue_name,
+                        "park_runs_factor": runs_factor,
+                        "game_time": sched_game.get("game_datetime", ""),
+                        "game_status": sched_game.get("status", ""),
+                    })
+                continue
+
+            for batting_slot, pid in enumerate(batting_order, start=1):
                 player = players_dict.get(f"ID{pid}", {})
                 person = player.get("person", {})
                 bats = (person.get("batSide") or {}).get("code")  # 'L'/'R'/'S' or None
@@ -3834,9 +3945,15 @@ async def get_betting_candidates(
                 matchup_rows.append({
                     "player_mlb_id": pid,
                     "player_name": person.get("fullName", "Unknown"),
-                    "player_team": team_data.get("team", {}).get("name", ""),
+                    "player_team": team_name,
                     "bats": bats,
                     "season_ops": season_ops,
+                    "batting_order": batting_slot,
+                    "lineup_source": "confirmed",
+                    "lineup_provider": "mlb_statsapi",
+                    "lineup_confirmed": True,
+                    "lineup_fetched_at": None,
+                    "lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
                     "game_id": sched_game["game_id"],
                     "opposing_pitcher_mlb_id": opposing_pid,
                     "opposing_pitcher_name": opposing_pname,
@@ -3850,6 +3967,19 @@ async def get_betting_candidates(
                     "game_time": sched_game.get("game_datetime", ""),
                     "game_status": sched_game.get("status", ""),
                 })
+
+    unresolved_projected_players: list[str] = []
+    if any(row.get("player_mlb_id") is None for row in matchup_rows):
+        player_identity_rows = await database.fetch_all(players.select())
+        matchup_rows, unresolved_projected_players = _resolve_projected_matchup_rows(
+            matchup_rows,
+            player_identity_rows,
+        )
+        batter_ids_needed = {
+            int(row["player_mlb_id"])
+            for row in matchup_rows
+            if row.get("player_mlb_id")
+        }
 
     if not matchup_rows:
         return ApiResponse(
@@ -4043,7 +4173,13 @@ async def get_betting_candidates(
     # which is the right behavior.
     qualified = []
     for c in candidates:
-        if c["composite_score"] < min_composite_score:
+        score_floor = candidate_score_floor(
+            lineup_source=c.get("lineup_source") or "confirmed",
+            min_composite_score=min_composite_score,
+            projected_lineup_edge_threshold=projected_lineup_edge_threshold,
+        )
+        c["lineup_score_floor"] = round(score_floor, 1)
+        if c["composite_score"] < score_floor:
             continue
         fired_count = sum(
             1 for sig in c["signals"].values() if sig.get("fired")
@@ -4077,6 +4213,11 @@ async def get_betting_candidates(
                 "opposing_pitcher_name": c.get("opposing_pitcher_name"),
                 "venue": c.get("venue"),
                 "game_time": c.get("game_time"),
+                "batting_order": c.get("batting_order"),
+                "lineup_source": c.get("lineup_source"),
+                "lineup_provider": c.get("lineup_provider"),
+                "lineup_confirmed": str(bool(c.get("lineup_confirmed"))).lower(),
+                "lineup_edge_threshold": c.get("lineup_edge_threshold"),
                 "composite_score": c["composite_score"],
                 "signals_json": signals_to_json(c["signals"]),
                 "summary": c["summary"],
@@ -4084,6 +4225,21 @@ async def get_betting_candidates(
             for c in top
         ]
         await database.execute_many(bet_suggestions.insert(), rows_to_insert)
+
+    lineup_counts = {
+        "confirmed": sum(1 for c in top if c.get("lineup_source") == "confirmed"),
+        "projected": sum(1 for c in top if c.get("lineup_source") == "projected"),
+    }
+    projected_lineup_meta = {
+        "mode": lineup_mode,
+        "provider": projected_result.provider if projected_result else None,
+        "status": projected_result.status if projected_result else "disabled",
+        "fetched_at": projected_result.fetched_at if projected_result else None,
+        "message": projected_result.message if projected_result else None,
+        "available_players": len(projected_result.players) if projected_result else 0,
+        "unresolved_players": unresolved_projected_players[:20],
+        "lineup_counts": lineup_counts,
+    }
 
     return ApiResponse(
         code=200,
@@ -4103,7 +4259,10 @@ async def get_betting_candidates(
                 "min_composite_score": min_composite_score,
                 "min_fired_signals": min_fired_signals,
                 "min_pitcher_ip": min_pitcher_ip,
+                "confirmed_lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
+                "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
             },
+            "lineup_meta": projected_lineup_meta,
             "candidates": top,
         },
     )
