@@ -44,6 +44,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -59,10 +60,16 @@ SAVANT_URL_TEMPLATE = (
     "https://baseballsavant.mlb.com/leaderboard/expected_statistics"
     "?type=batter&year={year}&minPA=q"
 )
+SAVANT_PITCHER_URL_TEMPLATE = (
+    "https://baseballsavant.mlb.com/leaderboard/expected_statistics"
+    "?type=pitcher&year={year}&minPA=q"
+)
 SAVANT_USER_AGENT = (
     "Mozilla/5.0 (compatible; MLBFantasyStats/1.0; "
     "+https://github.com/BrianRhodes2018/MLBFantasyStats)"
 )
+_PITCHER_EXPECTED_CACHE_TTL_SECONDS = 60 * 60
+_pitcher_expected_cache: dict[int, tuple[float, list[dict]]] = {}
 
 
 def _safe_float(v) -> Optional[float]:
@@ -141,6 +148,51 @@ def parse_savant_expected_stats(html: str) -> list[dict]:
     return parsed
 
 
+def parse_savant_pitcher_expected_stats(html: str) -> list[dict]:
+    """
+    Extract per-pitcher expected-stat rows from Baseball Savant.
+
+    The pitcher leaderboard uses the same inline `data = [...]` block as the
+    hitter page, with pitcher-specific fields such as xERA. We keep this parser
+    separate from the hitter snapshot parser so the daily hitter scrape schema
+    does not accidentally grow pitcher-only columns.
+    """
+    match = re.search(r"data\s*=\s*(\[\{.*?\}\])\s*[,;]", html, re.DOTALL)
+    if not match:
+        raise ValueError("Could not locate pitcher expected-stats data block in Savant HTML")
+
+    try:
+        items = json.loads(match.group(1))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Savant pitcher data block was not valid JSON: {e}") from e
+
+    parsed: list[dict] = []
+    for item in items:
+        player_mlb_id = _safe_int(item.get("entity_id"))
+        pa = _safe_int(item.get("pa"))
+        if not player_mlb_id or pa is None or pa <= 0:
+            continue
+
+        parsed.append({
+            "player_mlb_id": player_mlb_id,
+            "pa": pa,
+            "xera": _safe_float(item.get("xera")),
+            "era": _safe_float(item.get("era")),
+            "xwoba": _safe_float(item.get("est_woba")),
+            "woba": _safe_float(item.get("woba")),
+            "xba": _safe_float(item.get("est_ba")),
+            "xslg": _safe_float(item.get("est_slg")),
+            "barrels_per_pa": _safe_float(item.get("barrels_per_pa")),
+            "hard_hit_percent": _safe_float(item.get("hard_hit_percent")),
+            "exit_velocity_avg": _safe_float(item.get("exit_velocity_avg")),
+        })
+
+    if not parsed:
+        raise ValueError("Savant pitcher data block parsed but yielded zero usable rows")
+
+    return parsed
+
+
 async def fetch_savant_expected_stats(year: Optional[int] = None) -> list[dict]:
     """
     Fetch and parse the current Savant expected-stats leaderboard for the
@@ -167,6 +219,34 @@ async def fetch_savant_expected_stats(year: Optional[int] = None) -> list[dict]:
         response = await client.get(url)
         response.raise_for_status()
         return parse_savant_expected_stats(response.text)
+
+
+async def fetch_savant_pitcher_expected_stats(year: Optional[int] = None) -> list[dict]:
+    """
+    Fetch and parse Baseball Savant's pitcher expected-stat leaderboard.
+
+    The Today matchups page only needs a lightweight lookup for probable
+    pitchers, so cache the full leaderboard for an hour to keep repeated page
+    refreshes from hammering Savant.
+    """
+    if year is None:
+        year = datetime.now().year
+
+    cached = _pitcher_expected_cache.get(year)
+    now = time.time()
+    if cached and now - cached[0] < _PITCHER_EXPECTED_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    url = SAVANT_PITCHER_URL_TEMPLATE.format(year=year)
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        headers={"User-Agent": SAVANT_USER_AGENT},
+    ) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        rows = parse_savant_pitcher_expected_stats(response.text)
+        _pitcher_expected_cache[year] = (now, rows)
+        return rows
 
 
 # ---------------------------------------------------------------------------

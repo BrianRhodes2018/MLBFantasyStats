@@ -24,7 +24,7 @@
  *   the table back to showing all pitchers.
  * @param {Object} filterMeta - Metadata from GET /pitchers/filterable-stats:
  *   { stats: [{name, type, min, max, avg}, ...], positions: [...], teams: [...] }
- * @param {string|number} activePeriod - Currently selected time period ('season', 5, 10, 15, 30)
+ * @param {string|number} activePeriod - Currently selected time period ('season', 30, 45, 60)
  * @param {Function} onPeriodChange - Callback when a time period button is clicked
  * @param {boolean} rollingLoading - True while rolling stats are being fetched
  * @param {boolean} isRolling - True when viewing rolling stats (hides stat filter inputs)
@@ -46,7 +46,14 @@ const STAT_ORDER = [
   'games', 'wins', 'losses', 'era', 'whip', 'innings_pitched',
   'hits_allowed', 'earned_runs', 'walks', 'strikeouts',
   'home_runs_allowed', 'saves', 'quality_starts',
-  'k_per_9', 'bb_per_9', 'k_bb_ratio', 'hr_per_9'
+  'k_per_9', 'bb_per_9', 'k_bb_ratio', 'hr_per_9', 'fip', 'k_bb_pct'
+]
+
+const PITCHER_PERIODS = [
+  { value: 'season', label: 'Season' },
+  { value: 30, label: 'Last 30 Days' },
+  { value: 45, label: 'Last 45 Days' },
+  { value: 60, label: 'Last 60 Days' },
 ]
 
 /**
@@ -213,6 +220,7 @@ function PitcherSearch({ onSearchResults, onClearSearch, filterMeta, activePerio
         activePeriod={activePeriod}
         onPeriodChange={onPeriodChange}
         loading={rollingLoading}
+        periods={PITCHER_PERIODS}
       />
 
       {/* Stat filter inputs are only shown in season mode.

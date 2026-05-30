@@ -74,6 +74,13 @@ function displayRate(value) {
   return n.toFixed(3)
 }
 
+function displayPct(value) {
+  if (value === null || value === undefined) return 'â€”'
+  const n = Number(value)
+  if (Number.isNaN(n)) return 'â€”'
+  return `${Math.round(n * 100)}%`
+}
+
 export default function MatchupsPage({ season }) {
   // The season prop comes from App.jsx's global season toggle.
   // When null, we show the current year's label. When set (e.g., "2025"),
@@ -411,6 +418,7 @@ export default function MatchupsPage({ season }) {
           <div className="pitcher-stat-row">
             <span className="stat-item"><span className="stat-key">W-L</span> {displayStat(career.wins)}-{displayStat(career.losses)}</span>
             <span className="stat-item"><span className="stat-key">ERA</span> {displayStat(career.era)}</span>
+            <span className="stat-item"><span className="stat-key">FIP</span> {displayStat(career.fip)}</span>
             <span className="stat-item"><span className="stat-key">WHIP</span> {displayStat(career.whip)}</span>
             <span className="stat-item"><span className="stat-key">K</span> {displayStat(career.strikeouts)}</span>
             <span className="stat-item"><span className="stat-key">IP</span> {displayStat(career.innings_pitched)}</span>
@@ -425,6 +433,9 @@ export default function MatchupsPage({ season }) {
           <div className="pitcher-stat-row">
             <span className="stat-item"><span className="stat-key">W-L</span> {displayStat(season.wins)}-{displayStat(season.losses)}</span>
             <span className="stat-item"><span className="stat-key">ERA</span> {displayStat(season.era)}</span>
+            <span className="stat-item" title="Expected ERA from Baseball Savant"><span className="stat-key">xERA</span> {displayStat(season.xera)}</span>
+            <span className="stat-item" title="Fielding Independent Pitching"><span className="stat-key">FIP</span> {displayStat(season.fip)}</span>
+            <span className="stat-item" title="Estimated xFIP using league-average HR per fly ball"><span className="stat-key">xFIP</span> {displayStat(season.xfip)}</span>
             <span className="stat-item"><span className="stat-key">WHIP</span> {displayStat(season.whip)}</span>
             <span className="stat-item"><span className="stat-key">K</span> {displayStat(season.strikeouts)}</span>
             <span className="stat-item"><span className="stat-key">IP</span> {displayStat(season.innings_pitched)}</span>
@@ -442,7 +453,13 @@ export default function MatchupsPage({ season }) {
    */
   const renderLineupTable = (gameId, side, teamName, lineupData) => {
     const announced = lineupData?.[`${side}_lineup_announced`]
+    const projected = lineupData?.[`${side}_lineup_projected`]
+    const source = lineupData?.[`${side}_lineup_source`]
+    const provider = lineupData?.[`${side}_lineup_provider`]
+    const projectionMeta = lineupData?.lineup_projection_meta
+    const projectionLookback = projectionMeta?.provider_meta?.lookback_days
     const batters = lineupData?.[`${side}_lineup`] || []
+    const hasLineup = batters.length > 0
     const vsKey = `${gameId}-${side}`
     const showVs = vsPitcherVisible.has(vsKey)
     const vsData = vsPitcherData[vsKey] || {}
@@ -488,9 +505,17 @@ export default function MatchupsPage({ season }) {
           <h4 className="lineup-title">
             {teamName} Lineup
             {opposingPitcher && ` vs ${opposingPitcher}`}
+            {hasLineup && (
+              <span
+                className={`lineup-source-chip ${projected ? 'projected' : 'confirmed'}`}
+                title={provider || source || 'lineup source'}
+              >
+                {projected ? 'Projected' : 'Confirmed'}
+              </span>
+            )}
           </h4>
           <div className="lineup-header-controls">
-            {announced && batters.length > 0 && (
+            {announced && hasLineup && (
               <div className="range-buttons">
                 {ranges.map(r => (
                   <button
@@ -504,7 +529,7 @@ export default function MatchupsPage({ season }) {
                 ))}
               </div>
             )}
-            {announced && batters.length > 0 && (
+            {hasLineup && (
               <button
                 className={`vs-pitcher-toggle${showVs ? ' active' : ''}`}
                 onClick={() => handleToggleVsPitcher(gameId, side)}
@@ -516,16 +541,24 @@ export default function MatchupsPage({ season }) {
           </div>
         </div>
 
-        {!announced ? (
+        {projected && hasLineup && (
+          <div className="lineup-projection-note">
+            Projected from recent MLB batting orders
+            {projectionLookback ? ` (${projectionLookback}-day lookback)` : ''}.
+            Refresh after official lineups post.
+          </div>
+        )}
+
+        {!hasLineup && !announced ? (
           <div className="lineup-tbd">
             Lineup TBD — lineups are typically announced 1-3 hours before game time.
-            Use the Refresh button to check for updates.
+            Projection did not have enough recent confidence yet. Use the Refresh button to check for updates.
           </div>
-        ) : batters.length === 0 ? (
+        ) : !hasLineup ? (
           <div className="lineup-tbd">No lineup data available.</div>
         ) : (
           <div className="lineup-table-wrapper">
-            <table className={`lineup-table${isRangeLoading ? ' loading' : ''}`}>
+            <table className={`lineup-table${projected ? ' projected' : ''}${isRangeLoading ? ' loading' : ''}`}>
               <thead>
                 <tr>
                   <th>#</th>
@@ -560,7 +593,18 @@ export default function MatchupsPage({ season }) {
                   return (
                     <tr key={batter.mlb_id}>
                       <td className="lineup-order">{batter.batting_order}</td>
-                      <td className="lineup-name">{formatBatterName(batter)}</td>
+                      <td className="lineup-name">
+                        <div>{formatBatterName(batter)}</div>
+                        {batter.lineup_source === 'projected' && (
+                          <div className="lineup-confidence">
+                            conf {displayPct(batter.lineup_confidence)}
+                            {batter.lineup_sample_size != null && batter.lineup_games_considered != null && (
+                              <> | {batter.lineup_sample_size}/{batter.lineup_games_considered} games</>
+                            )}
+                            {batter.lineup_split && <> | {batter.lineup_split}</>}
+                          </div>
+                        )}
+                      </td>
                       <td className="lineup-pos">{batter.position}</td>
                       <td>{displayStat(stats.avg)}</td>
                       <td>{displayStat(stats.home_runs)}</td>

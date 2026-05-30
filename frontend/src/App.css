@@ -3817,6 +3817,16 @@ h2 {
   color: #e8ecf0;
   margin: 0;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lineup-projection-note {
+  color: #d1b45d;
+  font-size: 0.8rem;
+  margin: -2px 0 8px;
 }
 
 /* Lineup header controls — wraps range buttons and vs-pitcher toggle */
@@ -3907,6 +3917,10 @@ h2 {
   font-size: 0.85rem;
 }
 
+.lineup-table.projected tbody tr {
+  background: rgba(255, 193, 7, 0.03);
+}
+
 /* Loading state for lineup table while range stats are fetched */
 .lineup-table.loading {
   opacity: 0.5;
@@ -3953,6 +3967,13 @@ h2 {
   color: #e8ecf0;
   font-weight: 500;
   white-space: nowrap;
+}
+
+.lineup-confidence {
+  color: #d1b45d;
+  font-size: 0.72rem;
+  font-weight: 500;
+  margin-top: 2px;
 }
 
 .lineup-pos {
