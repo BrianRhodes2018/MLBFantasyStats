@@ -30,12 +30,22 @@ describe('MatchupsPage', () => {
                     name: 'Away Arm',
                     career_stats: { wins: 10, losses: 8, era: '3.75', fip: 3.91, whip: '1.21', strikeouts: 120, innings_pitched: '150.0' },
                     season_stats: { wins: 3, losses: 2, era: '3.20', xera: 3.44, fip: 3.55, xfip: 3.70, whip: '1.09', strikeouts: 51, innings_pitched: '50.0' },
+                    rolling_stats: {
+                      30: { wins: 1, losses: 1, era: '4.20', xera: '-', fip: '4.05', xfip: '-', whip: '1.22', strikeouts: 20, innings_pitched: '19.1' },
+                      45: { wins: 2, losses: 1, era: '3.95', xera: '-', fip: '3.90', xfip: '-', whip: '1.18', strikeouts: 31, innings_pitched: '27.0' },
+                      60: { wins: 3, losses: 1, era: '3.70', xera: '-', fip: '3.75', xfip: '-', whip: '1.15', strikeouts: 42, innings_pitched: '36.2' },
+                    },
                   },
                   home_pitcher: {
                     mlb_id: 2,
                     name: 'Home Arm',
                     career_stats: { wins: 12, losses: 9, era: '4.10', fip: 4.22, whip: '1.30', strikeouts: 140, innings_pitched: '160.0' },
                     season_stats: { wins: 4, losses: 1, era: '2.95', xera: 3.05, fip: 3.18, xfip: 3.40, whip: '1.02', strikeouts: 60, innings_pitched: '55.0' },
+                    rolling_stats: {
+                      30: { wins: 2, losses: 0, era: '2.80', xera: '-', fip: '3.00', xfip: '-', whip: '0.98', strikeouts: 28, innings_pitched: '22.0' },
+                      45: { wins: 3, losses: 0, era: '2.90', xera: '-', fip: '3.06', xfip: '-', whip: '1.00', strikeouts: 39, innings_pitched: '32.0' },
+                      60: { wins: 4, losses: 1, era: '3.05', xera: '-', fip: '3.20', xfip: '-', whip: '1.05', strikeouts: 52, innings_pitched: '43.0' },
+                    },
                   },
                 },
               ],
@@ -90,6 +100,21 @@ describe('MatchupsPage', () => {
         }
       }
 
+      if (url === '/matchups/lineup-stats/100?range=5day&batter_ids=99') {
+        return {
+          ok: true,
+          json: async () => ({
+            code: 200,
+            data: {
+              range: '5day',
+              stats: {
+                99: { avg: '.300', home_runs: 1, rbi: 3, obp: '.400', ops: '.900', strikeouts: 2, at_bats: 10 },
+              },
+            },
+          }),
+        }
+      }
+
       throw new Error(`Unexpected fetch: ${url}`)
     })
 
@@ -102,6 +127,14 @@ describe('MatchupsPage', () => {
 
     expect(screen.getAllByText('xERA').length).toBeGreaterThan(0)
     expect(screen.getAllByText('xFIP').length).toBeGreaterThan(0)
+    expect(screen.getByText('30 Day')).toBeInTheDocument()
+    expect(screen.getByText('45 Day')).toBeInTheDocument()
+    expect(screen.getByText('60 Day')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('30 Day'))
+
+    expect(screen.getAllByText('Last 30 Days').length).toBeGreaterThan(0)
+    expect(screen.getByText('4.20')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('@').closest('.game-card-header'))
 
@@ -112,5 +145,15 @@ describe('MatchupsPage', () => {
     expect(screen.getByText('Projected')).toBeInTheDocument()
     expect(screen.getByText(/14-day lookback/)).toBeInTheDocument()
     expect(screen.getByText(/conf 75%/)).toBeInTheDocument()
+    expect(screen.getByText('5 Day')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('5 Day'))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/matchups/lineup-stats/100?range=5day&batter_ids=99')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('.300')).toBeInTheDocument()
+    })
   })
 })

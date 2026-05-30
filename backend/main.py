@@ -3054,6 +3054,105 @@ def _format_pitcher_stats(raw_stats, expected_stats: Optional[dict] = None):
     }
 
 
+def _format_pitcher_rolling_totals(totals: dict) -> dict:
+    """Format aggregated pitcher game-log totals for a rolling window."""
+    ip = totals.get("innings_pitched", 0.0) or 0.0
+    hits_allowed = totals.get("hits_allowed", 0) or 0
+    earned_runs = totals.get("earned_runs", 0) or 0
+    walks = totals.get("walks", 0) or 0
+    strikeouts = totals.get("strikeouts", 0) or 0
+    home_runs_allowed = totals.get("home_runs_allowed", 0) or 0
+    hit_by_pitch = totals.get("hit_by_pitch", 0) or 0
+    pa_est = (ip * 3) + hits_allowed + walks + hit_by_pitch
+
+    return {
+        "wins": totals.get("wins", 0) or 0,
+        "losses": totals.get("losses", 0) or 0,
+        "era": round((earned_runs / ip) * 9, 2) if ip > 0 else "-",
+        "whip": round((walks + hits_allowed) / ip, 2) if ip > 0 else "-",
+        "innings_pitched": round(ip, 1),
+        "strikeouts": strikeouts,
+        "games": totals.get("games", 0) or 0,
+        "saves": totals.get("saves", 0) or 0,
+        "holds": "-",
+        "fip": round(((13 * home_runs_allowed) + (3 * (walks + hit_by_pitch)) - (2 * strikeouts)) / ip + 3.15, 2) if ip > 0 else "-",
+        "xfip": "-",
+        "xera": "-",
+        "k_per_9": round((strikeouts / ip) * 9, 2) if ip > 0 else "-",
+        "bb_per_9": round((walks / ip) * 9, 2) if ip > 0 else "-",
+        "hr_per_9": round((home_runs_allowed / ip) * 9, 2) if ip > 0 else "-",
+        "k_bb_ratio": round(strikeouts / walks, 2) if walks > 0 else "-",
+        "k_bb_pct": round((strikeouts - walks) / pa_est * 100, 1) if pa_est > 0 else "-",
+    }
+
+
+async def _build_pitcher_rolling_stats_map(
+    pitcher_ids: set[int],
+    *,
+    windows: tuple[int, ...] = (30, 45, 60),
+) -> dict[int, dict[str, dict]]:
+    """Build rolling pitcher stats for probable starters on the matchups page."""
+    if not pitcher_ids:
+        return {}
+
+    rows = await database.fetch_all(
+        pitcher_game_logs.select().where(pitcher_game_logs.c.player_id.in_(list(pitcher_ids)))
+    )
+    if not rows:
+        return {}
+
+    today = datetime.now()
+    cutoffs = {
+        days: (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        for days in windows
+    }
+    aggregates: dict[int, dict[int, dict]] = {}
+    for row in rows:
+        m = row._mapping if hasattr(row, "_mapping") else row
+        pid = m["player_id"]
+        game_date = m.get("game_date")
+        if not game_date:
+            continue
+        for days, cutoff in cutoffs.items():
+            if game_date < cutoff:
+                continue
+            totals = aggregates.setdefault(pid, {}).setdefault(days, {
+                "games": 0,
+                "innings_pitched": 0.0,
+                "hits_allowed": 0,
+                "earned_runs": 0,
+                "walks": 0,
+                "strikeouts": 0,
+                "home_runs_allowed": 0,
+                "hit_by_pitch": 0,
+                "wins": 0,
+                "losses": 0,
+                "saves": 0,
+            })
+            totals["games"] += 1
+            for key in [
+                "innings_pitched",
+                "hits_allowed",
+                "earned_runs",
+                "walks",
+                "strikeouts",
+                "home_runs_allowed",
+                "hit_by_pitch",
+                "wins",
+                "losses",
+                "saves",
+            ]:
+                totals[key] += m.get(key, 0) or 0
+
+    return {
+        pid: {
+            str(days): _format_pitcher_rolling_totals(totals)
+            for days, totals in window_totals.items()
+        }
+        for pid, window_totals in aggregates.items()
+    }
+
+
 def _format_batter_stats(raw_stats):
     """
     Helper: Format raw MLB API batter stats into a clean, frontend-friendly dict.
@@ -3236,6 +3335,7 @@ async def get_todays_matchups():
         # all pitchers in a single request instead of one per pitcher.
         pitcher_stats_map = {}  # mlb_id -> {"career": {...}, "season": {...}}
         pitcher_expected_map: dict[int, dict] = {}
+        pitcher_rolling_stats_map = await _build_pitcher_rolling_stats_map(pitcher_ids)
 
         if pitcher_ids:
             try:
@@ -3281,11 +3381,13 @@ async def get_todays_matchups():
                 if pid and pid in pitcher_stats_map:
                     game[side]["career_stats"] = pitcher_stats_map[pid]["career"]
                     game[side]["season_stats"] = pitcher_stats_map[pid]["season"]
+                    game[side]["rolling_stats"] = pitcher_rolling_stats_map.get(pid, {})
                     game[side]["throws"] = pitcher_stats_map[pid]["throws"]
                 else:
                     # Pitcher TBD or stats not found
                     game[side]["career_stats"] = _format_pitcher_stats(None)
                     game[side]["season_stats"] = _format_pitcher_stats(None)
+                    game[side]["rolling_stats"] = pitcher_rolling_stats_map.get(pid, {}) if pid else {}
                     game[side]["throws"] = None
 
         # Include park-factor source metadata so the frontend can show users
@@ -3606,6 +3708,10 @@ async def get_lineup_range_stats(
         "season",
         description="Stat range: 'season', '5day', '10day', or '15day'",
     ),
+    batter_ids: Optional[str] = Query(
+        None,
+        description="Optional comma-separated batter MLB IDs; used for projected lineups before official batting orders post",
+    ),
 ):
     """
     Get batter stats for a specific game's lineup filtered by a date range.
@@ -3621,10 +3727,22 @@ async def get_lineup_range_stats(
         boxscore = game_data.get("liveData", {}).get("boxscore", {})
         teams = boxscore.get("teams", {})
 
-        all_batter_ids = []
-        for side in ["home", "away"]:
-            batting_order = teams.get(side, {}).get("battingOrder", [])
-            all_batter_ids.extend(batting_order)
+        if batter_ids:
+            all_batter_ids = []
+            for bid in batter_ids.split(","):
+                bid = bid.strip()
+                if not bid:
+                    continue
+                try:
+                    all_batter_ids.append(int(bid))
+                except ValueError:
+                    continue
+        else:
+            all_batter_ids = []
+            for side in ["home", "away"]:
+                batting_order = teams.get(side, {}).get("battingOrder", [])
+                all_batter_ids.extend(batting_order)
+        all_batter_ids = list(dict.fromkeys(all_batter_ids))
 
         if not all_batter_ids:
             return ApiResponse(
