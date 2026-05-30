@@ -3154,6 +3154,29 @@ h2 {
   font-size: 1.5rem;
 }
 
+.matchups-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin: -8px 0 16px;
+  flex-wrap: wrap;
+}
+
+.matchups-toolbar-label {
+  color: #8fa3b5;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pitcher-range-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 .matchups-count {
   font-weight: 400;
   color: #c4ced4;

@@ -132,6 +132,9 @@ export default function MatchupsPage({ season }) {
   // selectedRange: Object mapping gameId → selected range string ('season', '5day', '10day', '15day').
   const [selectedRange, setSelectedRange] = useState({})
 
+  // pitcherRange: selected stat window for the starter cards on this page.
+  const [pitcherRange, setPitcherRange] = useState('season')
+
   // loadingRange: Set of gameIds currently fetching range stats.
   const [loadingRange, setLoadingRange] = useState(new Set())
 
@@ -264,7 +267,18 @@ export default function MatchupsPage({ season }) {
     setLoadingRange(prev => new Set([...prev, gameId]))
 
     try {
-      const res = await fetch(`${API_BASE}/matchups/lineup-stats/${gameId}?range=${range}`)
+      const lineup = lineups[gameId]
+      const batterIds = lineup
+        ? [...(lineup.away_lineup || []), ...(lineup.home_lineup || [])]
+            .map(batter => batter.mlb_id)
+            .filter(Boolean)
+        : []
+      const params = new URLSearchParams({ range })
+      if (batterIds.length) {
+        params.set('batter_ids', [...new Set(batterIds)].join(','))
+      }
+
+      const res = await fetch(`${API_BASE}/matchups/lineup-stats/${gameId}?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = await res.json()
       if (json.code === 200 && json.data) {
@@ -279,7 +293,7 @@ export default function MatchupsPage({ season }) {
         return next
       })
     }
-  }, [rangeStats])
+  }, [lineups, rangeStats])
 
   // ---------------------------------------------------------------------------
   // EFFECTS
@@ -393,7 +407,12 @@ export default function MatchupsPage({ season }) {
     }
 
     const career = pitcher.career_stats || {}
-    const season = pitcher.season_stats || {}
+    const activeStats = pitcherRange === 'season'
+      ? pitcher.season_stats || {}
+      : pitcher.rolling_stats?.[pitcherRange] || {}
+    const activeStatsLabel = pitcherRange === 'season'
+      ? `${displayYear} Season`
+      : `Last ${pitcherRange} Days`
 
     return (
       <div className="pitcher-panel">
@@ -425,20 +444,20 @@ export default function MatchupsPage({ season }) {
           </div>
         </div>
 
-        {/* Season stats — current year performance (may be empty early in season).
+        {/* Selected window stats — season or recent rolling performance.
             The label uses displayYear so it stays in sync with the global season
             toggle in App.jsx (e.g., shows "2025 Season" when viewing historical data). */}
         <div className="pitcher-stats-section">
-          <div className="pitcher-stats-label">{displayYear} Season</div>
+          <div className="pitcher-stats-label">{activeStatsLabel}</div>
           <div className="pitcher-stat-row">
-            <span className="stat-item"><span className="stat-key">W-L</span> {displayStat(season.wins)}-{displayStat(season.losses)}</span>
-            <span className="stat-item"><span className="stat-key">ERA</span> {displayStat(season.era)}</span>
-            <span className="stat-item" title="Expected ERA from Baseball Savant"><span className="stat-key">xERA</span> {displayStat(season.xera)}</span>
-            <span className="stat-item" title="Fielding Independent Pitching"><span className="stat-key">FIP</span> {displayStat(season.fip)}</span>
-            <span className="stat-item" title="Estimated xFIP using league-average HR per fly ball"><span className="stat-key">xFIP</span> {displayStat(season.xfip)}</span>
-            <span className="stat-item"><span className="stat-key">WHIP</span> {displayStat(season.whip)}</span>
-            <span className="stat-item"><span className="stat-key">K</span> {displayStat(season.strikeouts)}</span>
-            <span className="stat-item"><span className="stat-key">IP</span> {displayStat(season.innings_pitched)}</span>
+            <span className="stat-item"><span className="stat-key">W-L</span> {displayStat(activeStats.wins)}-{displayStat(activeStats.losses)}</span>
+            <span className="stat-item"><span className="stat-key">ERA</span> {displayStat(activeStats.era)}</span>
+            <span className="stat-item" title="Expected ERA from Baseball Savant"><span className="stat-key">xERA</span> {displayStat(activeStats.xera)}</span>
+            <span className="stat-item" title="Fielding Independent Pitching"><span className="stat-key">FIP</span> {displayStat(activeStats.fip)}</span>
+            <span className="stat-item" title="Estimated xFIP using league-average HR per fly ball"><span className="stat-key">xFIP</span> {displayStat(activeStats.xfip)}</span>
+            <span className="stat-item"><span className="stat-key">WHIP</span> {displayStat(activeStats.whip)}</span>
+            <span className="stat-item"><span className="stat-key">K</span> {displayStat(activeStats.strikeouts)}</span>
+            <span className="stat-item"><span className="stat-key">IP</span> {displayStat(activeStats.innings_pitched)}</span>
           </div>
         </div>
       </div>
@@ -515,7 +534,7 @@ export default function MatchupsPage({ season }) {
             )}
           </h4>
           <div className="lineup-header-controls">
-            {announced && hasLineup && (
+            {hasLineup && (
               <div className="range-buttons">
                 {ranges.map(r => (
                   <button
@@ -667,6 +686,27 @@ export default function MatchupsPage({ season }) {
         >
           {refreshing ? 'Refreshing...' : 'Refresh Lineups'}
         </button>
+      </div>
+
+      <div className="matchups-toolbar">
+        <span className="matchups-toolbar-label">Pitcher Stats</span>
+        <div className="pitcher-range-buttons" aria-label="Pitcher stat range">
+          {[
+            { key: 'season', label: 'Season' },
+            { key: '30', label: '30 Day' },
+            { key: '45', label: '45 Day' },
+            { key: '60', label: '60 Day' },
+          ].map(range => (
+            <button
+              key={range.key}
+              type="button"
+              className={`range-btn${pitcherRange === range.key ? ' active' : ''}`}
+              onClick={() => setPitcherRange(range.key)}
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Error message if the backend request failed */}
