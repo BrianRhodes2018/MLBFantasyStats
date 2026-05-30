@@ -96,11 +96,11 @@ function App() {
   // ---------------------------------------------------------------------------
   // ROLLING STATS STATE (Time Period Feature)
   // ---------------------------------------------------------------------------
-  // These state variables power the "Last 5 / 10 / 15 / 30 days" feature.
+  // These state variables power the rolling time-window feature.
   //
   // activePeriod: Which time window is selected.
   //   - 'season' means show full-season stats (the default, existing behavior)
-  //   - 5, 10, 15, 30 means show rolling stats over that many days
+  //   - numbers mean show rolling stats over that many days
   //
   // rollingBatters / rollingPitchers: The rolling stats data fetched from the
   //   /players/rolling-stats and /pitchers/rolling-stats endpoints.
@@ -490,7 +490,7 @@ function App() {
    * We fetch BOTH batter and pitcher rolling stats at once (in parallel)
    * so the data is ready regardless of which position filter is active.
    *
-   * @param {number} days - Number of days to look back (5, 10, 15, or 30)
+   * @param {number} days - Number of days to look back
    */
   const fetchRollingStats = async (days) => {
     setRollingLoading(true)
@@ -522,7 +522,7 @@ function App() {
    * Also clears any active search results since rolling stats are a
    * different dataset that doesn't support the search filters.
    *
-   * @param {string|number} period - 'season' or a number of days (5, 10, 15, 30)
+   * @param {string|number} period - 'season' or a number of days
    */
   const handlePeriodChange = (period) => {
     setActivePeriod(period)
@@ -820,7 +820,16 @@ function App() {
   }
 
   // Determine if we're showing batters or pitchers
-  const showPitchers = positionFilter === 'Pitchers' || positionFilter === 'SP' || positionFilter === 'RP'
+  const isPitcherFilterValue = (value) => value === 'Pitchers' || value === 'SP' || value === 'RP'
+  const showPitchers = isPitcherFilterValue(positionFilter)
+
+  const handlePositionFilterChange = (value) => {
+    const nextShowPitchers = isPitcherFilterValue(value)
+    if (nextShowPitchers !== showPitchers && activePeriod !== 'season') {
+      handlePeriodChange('season')
+    }
+    setPositionFilter(value)
+  }
 
   // Determine if we're currently showing rolling (time-period) stats.
   // When isRolling is true, we use rolling data arrays instead of season data,
@@ -977,7 +986,7 @@ function App() {
           time period buttons remain visible so the user can switch back.
 
           Additional props for the embedded TimePeriodSelector:
-          - activePeriod: which time window is selected ('season', 5, 10, 15, 30)
+          - activePeriod: which time window is selected ('season' or days)
           - onPeriodChange: callback when user clicks a period button
           - rollingLoading: disables period buttons while fetching rolling data
           - isRolling: true when viewing rolling stats (hides the stat filter inputs) */}
@@ -1030,7 +1039,7 @@ function App() {
             <select
               id="position-select"
               value={positionFilter}
-              onChange={(e) => setPositionFilter(e.target.value)}
+              onChange={(e) => handlePositionFilterChange(e.target.value)}
             >
               {positionGroups.map(group => (
                 <option key={group.value} value={group.value}>

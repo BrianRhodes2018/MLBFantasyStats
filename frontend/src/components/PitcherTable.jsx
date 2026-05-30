@@ -219,15 +219,15 @@ function PitcherTable({ pitchers, computed, fantasyPoints, onPitcherUpdated, isR
   //   rolling data, so they show in both modes.
   //
   // Rolling pitcher endpoint returns: name, team, games, innings_pitched,
-  //   era, whip, k_per_9, hr_per_9, wins, losses, saves, quality_starts,
-  //   strikeouts, walks, earned_runs
+  //   era, whip, k_per_9, bb_per_9, k_bb_ratio, hr_per_9, fip, k_bb_pct,
+  //   wins, losses, saves, quality_starts, strikeouts, walks, earned_runs.
   //
-  // Columns NOT in rolling data: games_started, hits_allowed, home_runs_allowed,
-  //   bb_per_9, k_bb_ratio, win_pct
+  // Columns NOT in rolling data: games_started and win_pct.
   const rollingPitcherKeys = [
     'name', 'team', 'games', 'innings_pitched', 'era', 'whip',
-    'k_per_9', 'hr_per_9', 'wins', 'losses', 'saves', 'quality_starts',
-    'strikeouts', 'walks', 'earned_runs',
+    'k_per_9', 'bb_per_9', 'k_bb_ratio', 'hr_per_9', 'fip', 'k_bb_pct',
+    'wins', 'losses', 'saves', 'quality_starts',
+    'strikeouts', 'walks', 'earned_runs', 'hits_allowed', 'home_runs_allowed',
   ]
   const activeColumns = COLUMNS.filter((col) => {
     if (col.rollingOnly && !isRolling) return false

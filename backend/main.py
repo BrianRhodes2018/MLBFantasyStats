@@ -1903,7 +1903,7 @@ async def get_batter_rolling_stats(
 
 @app.get("/pitchers/rolling-stats")
 async def get_pitcher_rolling_stats(
-    days: int = Query(15, description="Number of days to look back (5, 10, 15, or 30)"),
+    days: int = Query(30, description="Number of days to look back (30, 45, or 60)"),
     season: Optional[str] = Query(None, description="Season year for historical snapshot (e.g., '2025')"),
 ):
     """
@@ -1919,7 +1919,7 @@ async def get_pitcher_rolling_stats(
     - Games: number of appearances in the window
 
     Args:
-        days: How many days back to look (default 15).
+        days: How many days back to look (default 30).
         season: Optional season year for historical snapshot.
 
     Returns:
@@ -1954,6 +1954,7 @@ async def get_pitcher_rolling_stats(
         pl.col("walks").sum(),
         pl.col("strikeouts").sum(),
         pl.col("home_runs_allowed").sum(),
+        pl.col("hit_by_pitch").sum(),
 
         # Sum binary stats (each is 0 or 1 per game)
         pl.col("wins").sum(),
@@ -2002,6 +2003,43 @@ async def get_pitcher_rolling_stats(
           .alias("hr_per_9"),
     ])
 
+    rolling = rolling.with_columns([
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((pl.col("walks").cast(pl.Float64) / pl.col("innings_pitched")) * 9)
+          .otherwise(None)
+          .round(2)
+          .alias("bb_per_9"),
+
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((
+              (
+                  (pl.col("home_runs_allowed") * 13)
+                  + ((pl.col("walks") + pl.col("hit_by_pitch").fill_null(0)) * 3)
+                  - (pl.col("strikeouts") * 2)
+              ) / pl.col("innings_pitched") + 3.15
+          ).round(2))
+          .otherwise(None)
+          .alias("fip"),
+
+        pl.when(pl.col("walks") > 0)
+          .then((pl.col("strikeouts") / pl.col("walks")).round(2))
+          .otherwise(None)
+          .alias("k_bb_ratio"),
+
+        pl.when(pl.col("innings_pitched") > 0)
+          .then((
+              (pl.col("strikeouts") - pl.col("walks"))
+              / (
+                  (pl.col("innings_pitched") * 3)
+                  + pl.col("hits_allowed")
+                  + pl.col("walks")
+                  + pl.col("hit_by_pitch").fill_null(0)
+              ) * 100
+          ).round(1))
+          .otherwise(None)
+          .alias("k_bb_pct"),
+    ])
+
     # Round innings pitched for display
     rolling = rolling.with_columns([
         pl.col("innings_pitched").round(1),
@@ -2010,9 +2048,11 @@ async def get_pitcher_rolling_stats(
     # Select columns for the response, sorted by ERA (best pitchers first).
     result = rolling.select([
         "player_id", "name", "team", "games",
-        "innings_pitched", "era", "whip", "k_per_9", "hr_per_9",
+        "innings_pitched", "era", "whip", "k_per_9", "bb_per_9",
+        "k_bb_ratio", "hr_per_9", "fip", "k_bb_pct",
         "wins", "losses", "saves", "quality_starts",
-        "strikeouts", "walks", "earned_runs",
+        "strikeouts", "walks", "earned_runs", "hits_allowed",
+        "home_runs_allowed", "hit_by_pitch",
     ]).sort("era", descending=False)
 
     return result.to_dicts()
@@ -2913,7 +2953,70 @@ def _extract_pitcher_stats(stats_list, group_name):
     return result
 
 
-def _format_pitcher_stats(raw_stats):
+def _safe_stat_float(value) -> Optional[float]:
+    if value is None or value == "" or value == "-":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_stat_int(value) -> int:
+    if value is None or value == "" or value == "-":
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return 0
+
+
+def _round_stat(value: Optional[float], digits: int = 2):
+    if value is None:
+        return "-"
+    return round(value, digits)
+
+
+def _compute_pitcher_fip(raw_stats) -> Optional[float]:
+    """Compute standard FIP from MLB Stats API pitching split fields."""
+    if not raw_stats:
+        return None
+    ip = parse_mlb_innings_pitched(raw_stats.get("inningsPitched"))
+    if ip <= 0:
+        return None
+    hr = _safe_stat_int(raw_stats.get("homeRuns"))
+    bb = _safe_stat_int(raw_stats.get("baseOnBalls"))
+    hbp = _safe_stat_int(raw_stats.get("hitByPitch"))
+    strikeouts = _safe_stat_int(raw_stats.get("strikeOuts"))
+    return ((13 * hr) + (3 * (bb + hbp)) - (2 * strikeouts)) / ip + 3.15
+
+
+def _compute_pitcher_xfip(raw_stats, league_hr_fb_rate: float = 0.105) -> Optional[float]:
+    """
+    Estimate xFIP from MLB Stats API fields.
+
+    The API exposes fly outs but not every public batted-ball bucket needed for
+    a perfect FanGraphs xFIP clone, so this is a practical approximation:
+    replace actual HR with league-average HR per fly ball using fly outs + HR.
+    """
+    if not raw_stats:
+        return None
+    ip = parse_mlb_innings_pitched(raw_stats.get("inningsPitched"))
+    fly_outs = _safe_stat_int(raw_stats.get("flyOuts"))
+    if ip <= 0 or fly_outs <= 0:
+        return None
+    bb = _safe_stat_int(raw_stats.get("baseOnBalls"))
+    hbp = _safe_stat_int(raw_stats.get("hitByPitch"))
+    strikeouts = _safe_stat_int(raw_stats.get("strikeOuts"))
+    hr = _safe_stat_int(raw_stats.get("homeRuns"))
+    expected_hr = (fly_outs + hr) * league_hr_fb_rate
+    return ((13 * expected_hr) + (3 * (bb + hbp)) - (2 * strikeouts)) / ip + 3.15
+
+
+def _format_pitcher_stats(raw_stats, expected_stats: Optional[dict] = None):
     """
     Helper: Format raw MLB API pitcher stats into a clean, frontend-friendly dict.
 
@@ -2927,11 +3030,13 @@ def _format_pitcher_stats(raw_stats):
     Returns:
         dict with formatted pitcher stats, or a dict of dashes if no data.
     """
+    expected_stats = expected_stats or {}
     if not raw_stats:
         return {
             "wins": "-", "losses": "-", "era": "-", "whip": "-",
             "innings_pitched": "-", "strikeouts": "-", "games": "-",
-            "saves": "-", "holds": "-",
+            "saves": "-", "holds": "-", "fip": "-", "xfip": "-",
+            "xera": _round_stat(_safe_stat_float(expected_stats.get("xera"))),
         }
     return {
         "wins": raw_stats.get("wins", 0),
@@ -2943,6 +3048,9 @@ def _format_pitcher_stats(raw_stats):
         "games": raw_stats.get("gamesPlayed", 0),
         "saves": raw_stats.get("saves", 0),
         "holds": raw_stats.get("holds", 0),
+        "fip": _round_stat(_compute_pitcher_fip(raw_stats)),
+        "xfip": _round_stat(_compute_pitcher_xfip(raw_stats)),
+        "xera": _round_stat(_safe_stat_float(expected_stats.get("xera"))),
     }
 
 
@@ -2977,6 +3085,45 @@ def _format_batter_stats(raw_stats):
         "slg": raw_stats.get("slg", "-"),
         "stolen_bases": raw_stats.get("stolenBases", 0),
         "games": raw_stats.get("gamesPlayed", 0),
+    }
+
+
+def _format_batter_db_stats(row: Optional[dict]):
+    """Format season batter stats from the local players table."""
+    if not row:
+        return _format_batter_stats(None)
+
+    def fmt_rate(value):
+        if value is None:
+            return "-"
+        try:
+            return f"{float(value):.3f}".lstrip("0")
+        except (TypeError, ValueError):
+            return "-"
+
+    at_bats = row.get("at_bats") or 0
+    hits = row.get("hits") or 0
+    walks = row.get("walks") or 0
+    hbp = row.get("hit_by_pitch") or 0
+    sf = row.get("sacrifice_flies") or 0
+    total_bases = row.get("total_bases")
+    obp_denominator = at_bats + walks + hbp + sf
+    obp = (hits + walks + hbp) / obp_denominator if obp_denominator else None
+    slg = total_bases / at_bats if total_bases is not None and at_bats else None
+
+    return {
+        "avg": fmt_rate(row.get("batting_average")),
+        "home_runs": row.get("home_runs", 0) or 0,
+        "rbi": row.get("rbi", 0) or 0,
+        "ops": fmt_rate(row.get("ops")),
+        "at_bats": at_bats,
+        "hits": hits,
+        "walks": walks,
+        "strikeouts": row.get("strikeouts", 0) or 0,
+        "obp": fmt_rate(obp),
+        "slg": fmt_rate(slg),
+        "stolen_bases": row.get("stolen_bases", 0) or 0,
+        "games": row.get("games_played", 0) or 0,
     }
 
 
@@ -3088,8 +3235,19 @@ async def get_todays_matchups():
         # The MLB API supports comma-separated personIds, so we can fetch
         # all pitchers in a single request instead of one per pitcher.
         pitcher_stats_map = {}  # mlb_id -> {"career": {...}, "season": {...}}
+        pitcher_expected_map: dict[int, dict] = {}
 
         if pitcher_ids:
+            try:
+                expected_rows = await xwoba.fetch_savant_pitcher_expected_stats(datetime.now().year)
+                pitcher_expected_map = {
+                    row["player_mlb_id"]: row
+                    for row in expected_rows
+                    if row.get("player_mlb_id") in pitcher_ids
+                }
+            except Exception:
+                pitcher_expected_map = {}
+
             ids_str = ",".join(str(pid) for pid in pitcher_ids)
 
             def fetch_pitcher_stats():
@@ -3108,7 +3266,10 @@ async def get_todays_matchups():
                 extracted = _extract_pitcher_stats(stats_list, "pitching")
                 pitcher_stats_map[pid] = {
                     "career": _format_pitcher_stats(extracted["career"]),
-                    "season": _format_pitcher_stats(extracted["season"]),
+                    "season": _format_pitcher_stats(
+                        extracted["season"],
+                        pitcher_expected_map.get(pid),
+                    ),
                     # Throwing handedness from the person object: 'R' or 'L'.
                     "throws": (person.get("pitchHand") or {}).get("code"),
                 }
@@ -3187,30 +3348,114 @@ async def get_game_lineup(game_id: int):
 
         boxscore = game_data.get("liveData", {}).get("boxscore", {})
         teams = boxscore.get("teams", {})
+        game_data_root = game_data.get("gameData", {})
+        game_teams = game_data_root.get("teams", {})
+        game_players = game_data_root.get("players", {})
 
         # Also grab pitcher IDs so the frontend knows who's pitching
-        prob_pitchers = game_data.get("gameData", {}).get("probablePitchers", {})
+        prob_pitchers = game_data_root.get("probablePitchers", {})
         home_pitcher_id = prob_pitchers.get("home", {}).get("id")
         away_pitcher_id = prob_pitchers.get("away", {}).get("id")
 
+        datetime_data = game_data_root.get("datetime", {})
+        target_date = (
+            datetime_data.get("officialDate")
+            or datetime_data.get("originalDate")
+            or str(datetime_data.get("dateTime") or "")[:10]
+            or datetime.now().strftime("%Y-%m-%d")
+        )
+
+        def team_name_for_side(side: str) -> str:
+            return (
+                teams.get(side, {}).get("team", {}).get("name")
+                or game_teams.get(side, {}).get("name")
+                or ""
+            )
+
+        def probable_pitcher_hand(side: str) -> Optional[str]:
+            pitcher_id = (prob_pitchers.get(side) or {}).get("id")
+            if not pitcher_id:
+                return None
+            hand = (game_players.get(f"ID{pitcher_id}", {}).get("pitchHand") or {}).get("code")
+            return hand if hand in {"L", "R"} else None
+
         # Step 2: Extract batting orders for both teams.
-        # battingOrder is an array of 9 MLB player IDs in lineup order.
-        # It's empty ([]) if the lineup hasn't been announced yet.
+        # battingOrder is an array of MLB player IDs in lineup order. It's
+        # empty if the official lineup has not posted yet; in that case we
+        # overlay the free recent-lineup projection used by Betting Edge.
         result = {
             "game_id": game_id,
             "home_pitcher_id": home_pitcher_id,
             "away_pitcher_id": away_pitcher_id,
+            "lineup_projection_meta": None,
         }
 
-        all_batter_ids = []
+        lineup_orders: dict[str, list[int]] = {}
+        projected_by_side: dict[str, list] = {"home": [], "away": []}
 
         for side in ["home", "away"]:
             team_data = teams.get(side, {})
-            batting_order = team_data.get("battingOrder", [])
+            batting_order = team_data.get("battingOrder", []) or []
+            lineup_orders[side] = batting_order
             result[f"{side}_lineup_announced"] = len(batting_order) > 0
+            result[f"{side}_lineup_projected"] = False
+            result[f"{side}_lineup_source"] = "confirmed" if batting_order else "unavailable"
+            result[f"{side}_lineup_provider"] = "mlb_statsapi" if batting_order else None
 
-            if batting_order:
-                all_batter_ids.extend(batting_order)
+        if any(not order for order in lineup_orders.values()):
+            target_team_keys = {
+                team_key(team_name_for_side(side))
+                for side in ["home", "away"]
+                if team_key(team_name_for_side(side))
+            }
+            opposing_throws_by_team_key = {
+                team_key(team_name_for_side("home")): probable_pitcher_hand("away"),
+                team_key(team_name_for_side("away")): probable_pitcher_hand("home"),
+            }
+            opposing_throws_by_team_key = {
+                key: value
+                for key, value in opposing_throws_by_team_key.items()
+                if key
+            }
+
+            projected_result = await fetch_recent_mlb_lineups(
+                target_date,
+                target_team_keys=target_team_keys,
+                opposing_throws_by_team_key=opposing_throws_by_team_key,
+                lookback_days=DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS,
+                min_confidence=DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR,
+            )
+            projected_grouped = group_lineups_by_team(projected_result.players)
+            result["lineup_projection_meta"] = {
+                "provider": projected_result.provider,
+                "status": projected_result.status,
+                "fetched_at": projected_result.fetched_at,
+                "message": projected_result.message,
+                "provider_meta": projected_result.meta or {},
+            }
+
+            for side in ["home", "away"]:
+                if lineup_orders[side]:
+                    continue
+                projected_players = projected_grouped.get(team_key(team_name_for_side(side)), [])
+                if not projected_players:
+                    continue
+                projected_by_side[side] = projected_players
+                result[f"{side}_lineup_projected"] = True
+                result[f"{side}_lineup_source"] = "projected"
+                result[f"{side}_lineup_provider"] = projected_result.provider
+
+        all_batter_ids = []
+        for side in ["home", "away"]:
+            if lineup_orders[side]:
+                all_batter_ids.extend(lineup_orders[side])
+            else:
+                all_batter_ids.extend(
+                    player.provider_player_id
+                    for player in projected_by_side[side]
+                    if player.provider_player_id
+                )
+        all_batter_ids = list(dict.fromkeys(all_batter_ids))
 
         # Step 3: Batch-fetch career stats for all batters across both lineups.
         # We use comma-separated IDs to get everyone in one API call.
@@ -3238,6 +3483,16 @@ async def get_game_lineup(game_id: int):
                 career_stats_map[pid] = _format_batter_stats(extracted.get("career"))
                 bats_map[pid] = (person.get("batSide") or {}).get("code")
 
+        season_stats_map: dict[int, dict] = {}
+        if all_batter_ids:
+            season_rows = await database.fetch_all(
+                players.select().where(players.c.mlb_id.in_(all_batter_ids))
+            )
+            for r in season_rows:
+                m = dict(r._mapping)
+                if m.get("mlb_id") is not None:
+                    season_stats_map[m["mlb_id"]] = m
+
         # Step 3.5: Look up season wOBA / xwOBA from the latest Savant snapshot
         # per batter. xwOBA is Statcast-derived (can't be computed from the
         # boxscore stats), and wOBA is the properly-weighted version of OPS —
@@ -3260,9 +3515,16 @@ async def get_game_lineup(game_id: int):
         # Step 4: Build lineup arrays with season stats (from boxscore) + career stats.
         for side in ["home", "away"]:
             team_data = teams.get(side, {})
-            batting_order = team_data.get("battingOrder", [])
+            batting_order = lineup_orders.get(side, [])
             players_dict = team_data.get("players", {})
             lineup = []
+
+            if batting_order:
+                source = "confirmed"
+                provider = "mlb_statsapi"
+            else:
+                source = "projected"
+                provider = result.get(f"{side}_lineup_provider")
 
             for order_num, pid in enumerate(batting_order, start=1):
                 # Player data is keyed as "ID{player_id}" in the boxscore
@@ -3282,11 +3544,44 @@ async def get_game_lineup(game_id: int):
                     "season_stats": _format_batter_stats(season_batting),
                     "career_stats": career_stats_map.get(pid, _format_batter_stats(None)),
                     "bats": bats_map.get(pid),
+                    "lineup_source": source,
+                    "lineup_provider": provider,
+                    "lineup_confidence": None,
+                    "lineup_sample_size": None,
+                    "lineup_games_considered": None,
+                    "lineup_split": None,
+                    "lineup_last_seen": None,
                     # Season wOBA / xwOBA from the Savant snapshot. None when
                     # the batter isn't in the qualified-hitter snapshot set.
                     "woba": savant.get("woba"),
                     "xwoba": savant.get("xwoba"),
                 })
+
+            if not batting_order and projected_by_side[side]:
+                for projected_player in projected_by_side[side]:
+                    pid = projected_player.provider_player_id
+                    if not pid:
+                        continue
+                    season_row = season_stats_map.get(pid)
+                    savant = savant_map.get(pid, {})
+                    lineup.append({
+                        "mlb_id": pid,
+                        "name": projected_player.name,
+                        "position": projected_player.position or (season_row or {}).get("position") or "?",
+                        "batting_order": projected_player.batting_order,
+                        "season_stats": _format_batter_db_stats(season_row),
+                        "career_stats": career_stats_map.get(pid, _format_batter_stats(None)),
+                        "bats": bats_map.get(pid) or (season_row or {}).get("bats"),
+                        "lineup_source": source,
+                        "lineup_provider": provider,
+                        "lineup_confidence": projected_player.confidence,
+                        "lineup_sample_size": projected_player.sample_size,
+                        "lineup_games_considered": projected_player.games_considered,
+                        "lineup_split": projected_player.split,
+                        "lineup_last_seen": projected_player.last_seen,
+                        "woba": savant.get("woba"),
+                        "xwoba": savant.get("xwoba"),
+                    })
 
             result[f"{side}_lineup"] = lineup
 
