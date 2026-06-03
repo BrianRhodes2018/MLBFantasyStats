@@ -32,7 +32,7 @@ const COLUMNS = [
     label: 'Name',
     tooltip: 'Pitcher\'s full name as registered with MLB.',
     editable: true,
-    // Suffix the name with throwing handedness — (RHP) or (LHP).
+    // Suffix the name with throwing handedness: (RHP) or (LHP).
     formatRow: (pitcher) => formatPitcherName(pitcher),
   },
   {

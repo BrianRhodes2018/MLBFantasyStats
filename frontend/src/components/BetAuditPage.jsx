@@ -24,6 +24,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { API_BASE } from '../config'
+import { formatBatterName, formatPitcherName } from '../utils/handedness'
 
 // Same canonical order as the betting page so the audit table reads
 // consistently.
@@ -55,6 +56,20 @@ function fmtActualLine(s) {
   if ((s.actual_walks ?? 0) > 0) parts.push(`${s.actual_walks} BB`)
   if ((s.actual_strikeouts ?? 0) > 0) parts.push(`${s.actual_strikeouts} K`)
   return `${parts.join(', ')} (${s.actual_total_bases ?? 0} TB)`
+}
+
+function formatSuggestionBatter(suggestion) {
+  return formatBatterName({
+    name: suggestion.player_name,
+    bats: suggestion.bats,
+  })
+}
+
+function formatSuggestionPitcher(suggestion) {
+  return formatPitcherName({
+    name: suggestion.opposing_pitcher_name,
+    throws: suggestion.opposing_pitcher_throws,
+  })
 }
 
 // Default the filter window to "last 30 days inclusive" — matches what the
@@ -313,17 +328,18 @@ function BetAuditPage({ onPlayerClick }) {
                           name: s.player_name,
                           mlb_id: s.player_mlb_id,
                           team: s.player_team,
+                          bats: s.bats,
                         })
                       }
                     >
-                      {s.player_name}
+                      {formatSuggestionBatter(s)}
                     </span>
                     <span className="betting-team">{s.player_team}</span>
                   </div>
 
                   <div className="betting-context">
                     <span className="betting-vs">vs</span>{' '}
-                    <span className="betting-pitcher">{s.opposing_pitcher_name}</span>
+                    <span className="betting-pitcher">{formatSuggestionPitcher(s)}</span>
                     {s.venue && <> · <span className="betting-venue">{s.venue}</span></>}
                   </div>
 

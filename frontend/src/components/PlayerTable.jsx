@@ -88,7 +88,7 @@ const COLUMNS = [
     label: 'Name',
     tooltip: 'Player\'s full name as registered with MLB.',
     editable: true,
-    // Suffix the name with batting handedness — (R), (L), or (S) for switch hitters.
+    // Suffix the name with batting handedness: (R), (L), or (S) for switch hitters.
     formatRow: (player) => formatBatterName(player),
   },
   {

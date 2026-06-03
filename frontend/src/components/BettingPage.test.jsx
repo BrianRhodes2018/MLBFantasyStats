@@ -57,9 +57,11 @@ describe('BettingPage', () => {
               rank: 1,
               player_mlb_id: 1,
               player_name: 'Started Game Bat',
+              bats: 'R',
               player_team: 'Detroit Tigers',
               game_id: 100,
               opposing_pitcher_name: 'Final Pitcher',
+              opposing_pitcher_throws: 'L',
               venue: 'Comerica Park',
               game_time: '2026-05-21T17:10:00Z',
               game_status: 'Final',
@@ -71,9 +73,11 @@ describe('BettingPage', () => {
               rank: 2,
               player_mlb_id: 2,
               player_name: 'Pregame Bat',
+              bats: 'L',
               player_team: 'New York Yankees',
               game_id: 200,
               opposing_pitcher_name: 'Pregame Pitcher',
+              opposing_pitcher_throws: 'R',
               venue: 'Yankee Stadium',
               game_time: '2026-05-21T23:05:00Z',
               game_status: 'Pre-Game',
@@ -91,16 +95,18 @@ describe('BettingPage', () => {
     render(<BettingPage onBack={() => {}} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Pregame Bat')).toBeInTheDocument()
+      expect(screen.getByText('Pregame Bat (L)')).toBeInTheDocument()
     })
 
-    expect(screen.queryByText('Started Game Bat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Started Game Bat (R)')).not.toBeInTheDocument()
+    expect(screen.getByText('Pregame Pitcher (RHP)')).toBeInTheDocument()
     expect(screen.getByText(/1 before first pitch/)).toBeInTheDocument()
 
     const toggle = screen.getByLabelText(/Show 1 pick from 1 game already started or final/)
     fireEvent.click(toggle)
 
-    expect(screen.getByText('Started Game Bat')).toBeInTheDocument()
+    expect(screen.getByText('Started Game Bat (R)')).toBeInTheDocument()
+    expect(screen.getByText('Final Pitcher (LHP)')).toBeInTheDocument()
   })
 
   it('shows projected lineup source and the 8 percent edge floor', async () => {
@@ -132,9 +138,11 @@ describe('BettingPage', () => {
               rank: 1,
               player_mlb_id: 99,
               player_name: 'Projected Bat',
+              bats: 'S',
               player_team: 'New York Yankees',
               game_id: 300,
               opposing_pitcher_name: 'Projected Pitcher',
+              opposing_pitcher_throws: 'R',
               venue: 'Yankee Stadium',
               game_time: '2026-05-27T23:05:00Z',
               game_status: 'Pre-Game',
@@ -161,9 +169,10 @@ describe('BettingPage', () => {
     render(<BettingPage onBack={() => {}} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Projected Bat')).toBeInTheDocument()
+      expect(screen.getByText('Projected Bat (S)')).toBeInTheDocument()
     })
 
+    expect(screen.getByText('Projected Pitcher (RHP)')).toBeInTheDocument()
     expect(screen.getByText(/0 confirmed \/ 1 projected/)).toBeInTheDocument()
     expect(screen.getByText('Projected')).toBeInTheDocument()
     expect(screen.getByText('batting #2')).toBeInTheDocument()
