@@ -28,6 +28,7 @@ describe('MatchupsPage', () => {
                   away_pitcher: {
                     mlb_id: 1,
                     name: 'Away Arm',
+                    throws: 'L',
                     career_stats: { wins: 10, losses: 8, era: '3.75', fip: 3.91, whip: '1.21', strikeouts: 120, innings_pitched: '150.0' },
                     season_stats: { wins: 3, losses: 2, era: '3.20', xera: 3.44, fip: 3.55, xfip: 3.70, whip: '1.09', strikeouts: 51, innings_pitched: '50.0' },
                     rolling_stats: {
@@ -39,6 +40,7 @@ describe('MatchupsPage', () => {
                   home_pitcher: {
                     mlb_id: 2,
                     name: 'Home Arm',
+                    throws: 'R',
                     career_stats: { wins: 12, losses: 9, era: '4.10', fip: 4.22, whip: '1.30', strikeouts: 140, innings_pitched: '160.0' },
                     season_stats: { wins: 4, losses: 1, era: '2.95', xera: 3.05, fip: 3.18, xfip: 3.40, whip: '1.02', strikeouts: 60, innings_pitched: '55.0' },
                     rolling_stats: {
@@ -127,6 +129,8 @@ describe('MatchupsPage', () => {
 
     expect(screen.getAllByText('xERA').length).toBeGreaterThan(0)
     expect(screen.getAllByText('xFIP').length).toBeGreaterThan(0)
+    expect(screen.getByText('Away Arm (LHP)')).toBeInTheDocument()
+    expect(screen.getByText('Home Arm (RHP)')).toBeInTheDocument()
     expect(screen.getByText('30 Day')).toBeInTheDocument()
     expect(screen.getByText('45 Day')).toBeInTheDocument()
     expect(screen.getByText('60 Day')).toBeInTheDocument()

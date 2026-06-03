@@ -1898,7 +1898,22 @@ async def get_batter_rolling_stats(
         "runs", "stolen_bases", "strikeouts", "ops", "total_bases",
     ]).sort("ops", descending=True)  # Sort by OPS — best hitters first
 
-    return result.to_dicts()
+    result_rows = result.to_dicts()
+    player_ids = [row["player_id"] for row in result_rows]
+    bats_by_mlb_id: dict[int, Optional[str]] = {}
+    if player_ids:
+        player_rows = await db.fetch_all(
+            players.select().where(players.c.mlb_id.in_(player_ids))
+        )
+        bats_by_mlb_id = {
+            row._mapping["mlb_id"]: row._mapping.get("bats")
+            for row in player_rows
+            if row._mapping.get("mlb_id") is not None
+        }
+    for row in result_rows:
+        row["bats"] = bats_by_mlb_id.get(row["player_id"])
+
+    return result_rows
 
 
 @app.get("/pitchers/rolling-stats")
@@ -2055,7 +2070,22 @@ async def get_pitcher_rolling_stats(
         "home_runs_allowed", "hit_by_pitch",
     ]).sort("era", descending=False)
 
-    return result.to_dicts()
+    result_rows = result.to_dicts()
+    pitcher_ids = [row["player_id"] for row in result_rows]
+    throws_by_mlb_id: dict[int, Optional[str]] = {}
+    if pitcher_ids:
+        pitcher_rows = await db.fetch_all(
+            pitchers.select().where(pitchers.c.mlb_id.in_(pitcher_ids))
+        )
+        throws_by_mlb_id = {
+            row._mapping["mlb_id"]: row._mapping.get("throws")
+            for row in pitcher_rows
+            if row._mapping.get("mlb_id") is not None
+        }
+    for row in result_rows:
+        row["throws"] = throws_by_mlb_id.get(row["player_id"])
+
+    return result_rows
 
 
 # ===========================================================================
@@ -4644,6 +4674,7 @@ async def get_betting_candidates(
             "composite_score": result["composite_score"],
             "signals": result["signals"],
             "summary": result["summary"],
+            "opposing_pitcher_throws": pdata.get("throws"),
             # Frontend context strip — surfaces the underlying numbers
             # without making the user hover the signal chip to see them.
             # All fields are nullable (Savant cache empty, batter not
@@ -4811,9 +4842,44 @@ async def get_betting_audit(
         )
     )
 
+    player_ids = {
+        row._mapping["player_mlb_id"]
+        for row in rows
+        if row._mapping.get("player_mlb_id") is not None
+    }
+    pitcher_ids = {
+        row._mapping["opposing_pitcher_mlb_id"]
+        for row in rows
+        if row._mapping.get("opposing_pitcher_mlb_id") is not None
+    }
+
+    bats_by_mlb_id: dict[int, Optional[str]] = {}
+    if player_ids:
+        player_rows = await database.fetch_all(
+            players.select().where(players.c.mlb_id.in_(list(player_ids)))
+        )
+        bats_by_mlb_id = {
+            row._mapping["mlb_id"]: row._mapping.get("bats")
+            for row in player_rows
+            if row._mapping.get("mlb_id") is not None
+        }
+
+    throws_by_mlb_id: dict[int, Optional[str]] = {}
+    if pitcher_ids:
+        pitcher_rows = await database.fetch_all(
+            pitchers.select().where(pitchers.c.mlb_id.in_(list(pitcher_ids)))
+        )
+        throws_by_mlb_id = {
+            row._mapping["mlb_id"]: row._mapping.get("throws")
+            for row in pitcher_rows
+            if row._mapping.get("mlb_id") is not None
+        }
+
     suggestions: list[dict] = []
     for row in rows:
         d = dict(row._mapping)
+        d["bats"] = bats_by_mlb_id.get(d.get("player_mlb_id"))
+        d["opposing_pitcher_throws"] = throws_by_mlb_id.get(d.get("opposing_pitcher_mlb_id"))
 
         # Decode the JSON signal blob. Defensive against bad rows.
         try:

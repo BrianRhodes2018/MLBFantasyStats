@@ -25,6 +25,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { API_BASE } from '../config'
+import { formatBatterName, formatPitcherName } from '../utils/handedness'
 
 // Order matters here — controls which signal chips appear left-to-right
 // on each candidate card. Park factor comes last because it's a multiplier
@@ -70,6 +71,20 @@ function formatGameTime(iso) {
 function formatPct(value) {
   if (value === null || value === undefined) return '-'
   return `${(Number(value) * 100).toFixed(0)}%`
+}
+
+function formatCandidateBatter(candidate) {
+  return formatBatterName({
+    name: candidate.player_name,
+    bats: candidate.bats,
+  })
+}
+
+function formatCandidatePitcher(candidate) {
+  return formatPitcherName({
+    name: candidate.opposing_pitcher_name,
+    throws: candidate.opposing_pitcher_throws,
+  })
 }
 
 
@@ -133,6 +148,7 @@ function BettingPage({ onPlayerClick }) {
           game_status: c.game_status,
           venue: c.venue,
           opposing_pitcher_name: c.opposing_pitcher_name,
+          opposing_pitcher_throws: c.opposing_pitcher_throws,
           candidates: [],
         })
       }
@@ -303,7 +319,7 @@ function BettingPage({ onPlayerClick }) {
               <span className="betting-game-time">{formatGameTime(group.game_time)}</span>
               <span className="betting-game-separator">·</span>
               <span className="betting-game-matchup">
-                {group.candidates[0]?.player_team || 'Lineup'} vs {group.opposing_pitcher_name}
+                {group.candidates[0]?.player_team || 'Lineup'} vs {formatCandidatePitcher(group)}
               </span>
               {group.venue && (
                 <span className="betting-game-venue"> @ {group.venue}</span>
@@ -332,10 +348,11 @@ function BettingPage({ onPlayerClick }) {
                           name: c.player_name,
                           mlb_id: c.player_mlb_id,
                           team: c.player_team,
+                          bats: c.bats,
                         })
                       }
                     >
-                      {c.player_name}
+                      {formatCandidateBatter(c)}
                     </span>
                     <span className="betting-team">{c.player_team}</span>
                     <span
@@ -348,7 +365,7 @@ function BettingPage({ onPlayerClick }) {
 
                   <div className="betting-context">
                     <span className="betting-vs">vs</span>{' '}
-                    <span className="betting-pitcher">{c.opposing_pitcher_name}</span>
+                    <span className="betting-pitcher">{formatCandidatePitcher(c)}</span>
                     {c.venue && <> · <span className="betting-venue">{c.venue}</span></>}
                     {c.batting_order && <> | <span className="betting-venue">batting #{c.batting_order}</span></>}
                   </div>
