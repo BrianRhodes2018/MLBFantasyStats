@@ -87,6 +87,36 @@ DEFAULT_FOLDS = [
     ("2026-06-16", "2026-07-03"),
 ]
 
+# Feature groups for the ablation study: drop one group at a time and
+# measure how much the model degrades. Groups that cost nothing when
+# removed aren't earning their complexity.
+FEATURE_GROUPS = {
+    "context": ["batting_order", "is_home", "days_rest", "games_last7"],
+    "platoon": ["platoon_advantage", "vs_hand_pa", "vs_hand_hit_per_pa"],
+    "bvp": ["faced_pitcher_pa", "faced_pitcher_hit_per_pa"],
+    "park": ["park_runs_factor", "park_hr_factor"],
+    "batter_season": [
+        "season_pa", "season_hit_per_pa", "season_k_pct",
+        "season_contact_rate", "season_woba",
+    ],
+    "batter_recent": [
+        "last5_pa", "last5_hit_per_pa", "last5_k_pct", "last5_contact_rate", "last5_woba",
+        "last10_pa", "last10_hit_per_pa", "last10_k_pct", "last10_contact_rate", "last10_woba",
+        "last20_pa", "last20_hit_per_pa", "last20_k_pct", "last20_contact_rate", "last20_woba",
+    ],
+    "pitcher_season": [
+        "p_season_ip", "p_season_h_per_9", "p_season_whip", "p_season_fip",
+        "p_season_k_pct", "p_season_bb_pct", "p_season_k_bb_pct", "p_season_hr_per_9",
+        "p_season_starts",
+    ],
+    "pitcher_recent": [
+        "p_last3_ip", "p_last3_h_per_9", "p_last3_whip", "p_last3_fip",
+        "p_last3_k_pct", "p_last3_k_bb_pct",
+    ],
+    "bullpen": ["opp_bullpen_ip", "opp_bullpen_h_per_9", "opp_bullpen_whip", "opp_bullpen_k_pct"],
+    "interaction": ["batter_k_x_pitcher_k"],
+}
+
 
 @dataclass
 class FoldResult:
@@ -98,24 +128,31 @@ class FoldResult:
     metrics: dict[str, Any]
 
 
+def prepare_frame(df: pl.DataFrame) -> pl.DataFrame:
+    """Model-ready transformations shared by training and daily prediction:
+    the explicit K%-matchup interaction plus integer casts."""
+    exprs = [
+        (pl.col("season_k_pct") * pl.col("p_season_k_pct") / 100.0)
+        .alias("batter_k_x_pitcher_k"),
+        pl.col("is_home").cast(pl.Int8),
+        pl.col("platoon_advantage").cast(pl.Int8),
+    ]
+    if "got_hit" in df.columns:
+        exprs.append(pl.col("got_hit").cast(pl.Int8))
+    return df.with_columns(exprs)
+
+
 def load_dataset(path: Path) -> pl.DataFrame:
     df = pl.read_parquet(path)
     # Rows where the batter never actually batted (announced but replaced,
     # rain shortening, etc.) carry no usable label.
     df = df.filter(pl.col("pa_game") > 0)
-    df = df.with_columns(
-        (pl.col("season_k_pct") * pl.col("p_season_k_pct") / 100.0)
-        .alias("batter_k_x_pitcher_k"),
-        pl.col("is_home").cast(pl.Int8),
-        pl.col("platoon_advantage").cast(pl.Int8),
-        pl.col("got_hit").cast(pl.Int8),
-    )
-    return df
+    return prepare_frame(df)
 
 
-def to_matrix(df: pl.DataFrame) -> np.ndarray:
+def to_matrix(df: pl.DataFrame, features: list[str] = FEATURES) -> np.ndarray:
     """Feature matrix with None -> NaN, everything as float64."""
-    return df.select(FEATURES).to_numpy().astype(np.float64)
+    return df.select(features).to_numpy().astype(np.float64)
 
 
 def make_models() -> dict[str, Any]:
@@ -195,8 +232,21 @@ def probability_metrics(y_true: np.ndarray, probs: np.ndarray) -> dict[str, floa
 def run_walk_forward(
     df: pl.DataFrame,
     folds: list[tuple[str, str]],
-) -> dict[str, list[FoldResult]]:
-    results: dict[str, list[FoldResult]] = {"naive": [], "logistic": [], "gbm": []}
+    features: list[str] = FEATURES,
+    *,
+    include_naive: bool = True,
+    collect_probs: bool = False,
+) -> tuple[dict[str, list[FoldResult]], dict[str, Any]]:
+    """Returns (per-model fold results, pooled out-of-sample predictions).
+
+    The pooled predictions (one probability per test row, from the model
+    that had never seen that row's date) feed the calibration table.
+    """
+    results: dict[str, list[FoldResult]] = {}
+    if include_naive:
+        results["naive"] = []
+    pooled_probs: dict[str, list[np.ndarray]] = {}
+    pooled_truth: list[np.ndarray] = []
 
     for test_start, test_end in folds:
         train_df = df.filter(pl.col("game_date") < test_start)
@@ -206,26 +256,89 @@ def run_walk_forward(
         if not train_df.height or not test_df.height:
             continue
 
-        X_train, y_train = to_matrix(train_df), train_df["got_hit"].to_numpy()
-        X_test, y_test = to_matrix(test_df), test_df["got_hit"].to_numpy()
+        X_train, y_train = to_matrix(train_df, features), train_df["got_hit"].to_numpy()
+        X_test, y_test = to_matrix(test_df, features), test_df["got_hit"].to_numpy()
+        if collect_probs:
+            pooled_truth.append(y_test)
 
-        # Naive benchmark needs no training.
-        naive = naive_scores(test_df)
-        results["naive"].append(FoldResult(
-            "naive", test_start, test_end, train_df.height, test_df.height,
-            top_n_hit_rates(test_df, naive),
-        ))
+        if include_naive:
+            # Naive benchmark needs no training.
+            naive = naive_scores(test_df)
+            results["naive"].append(FoldResult(
+                "naive", test_start, test_end, train_df.height, test_df.height,
+                top_n_hit_rates(test_df, naive),
+            ))
 
         for name, model in make_models().items():
             model.fit(X_train, y_train)
             probs = model.predict_proba(X_test)[:, 1]
             metrics = probability_metrics(y_test, probs)
             metrics.update(top_n_hit_rates(test_df, probs))
-            results[name].append(FoldResult(
+            results.setdefault(name, []).append(FoldResult(
                 name, test_start, test_end, train_df.height, test_df.height, metrics,
             ))
+            if collect_probs:
+                pooled_probs.setdefault(name, []).append(probs)
 
-    return results
+    pooled = {}
+    if collect_probs and pooled_truth:
+        pooled["y_true"] = np.concatenate(pooled_truth)
+        pooled["probs"] = {
+            name: np.concatenate(chunks) for name, chunks in pooled_probs.items()
+        }
+    return results, pooled
+
+
+def reliability_table(
+    y_true: np.ndarray,
+    probs: np.ndarray,
+    edges: tuple[float, ...] = (0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75),
+) -> list[dict[str, Any]]:
+    """Bucket predicted probabilities and compare to actual hit rates.
+    A calibrated model's 'predicted' and 'actual' columns match closely."""
+    bounds = (float("-inf"),) + edges + (float("inf"),)
+    rows = []
+    for low, high in zip(bounds[:-1], bounds[1:]):
+        mask = (probs >= low) & (probs < high)
+        count = int(mask.sum())
+        rows.append({
+            "bucket": f"[{low:.2f}, {high:.2f})",
+            "count": count,
+            "avg_predicted": round(float(probs[mask].mean()), 4) if count else None,
+            "actual_hit_rate": round(float(y_true[mask].mean()), 4) if count else None,
+        })
+    return rows
+
+
+def run_ablation(
+    df: pl.DataFrame,
+    folds: list[tuple[str, str]],
+) -> dict[str, Any]:
+    """Drop each feature group and re-run the walk-forward. The drop in
+    pooled top-10 hit rate / AUC is that group's earned contribution."""
+    full_results, _ = run_walk_forward(df, folds, FEATURES, include_naive=False)
+    full_pooled = {name: pooled_summary(frs) for name, frs in full_results.items()}
+
+    ablation: dict[str, Any] = {"full": full_pooled}
+    for group, columns in FEATURE_GROUPS.items():
+        reduced = [f for f in FEATURES if f not in columns]
+        results, _ = run_walk_forward(df, folds, reduced, include_naive=False)
+        entry = {}
+        for name, frs in results.items():
+            pooled = pooled_summary(frs)
+            entry[name] = {
+                "top10_hit_rate": pooled.get("top10_hit_rate"),
+                "auc": pooled.get("auc"),
+                "delta_top10": round(
+                    (pooled.get("top10_hit_rate") or 0)
+                    - (full_pooled[name].get("top10_hit_rate") or 0), 4,
+                ),
+                "delta_auc": round(
+                    (pooled.get("auc") or 0) - (full_pooled[name].get("auc") or 0), 4,
+                ),
+            }
+        ablation[group] = entry
+    return ablation
 
 
 def pooled_summary(fold_results: list[FoldResult]) -> dict[str, Any]:
@@ -324,12 +437,41 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Walk-forward evaluation of hit models.")
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET), help="Parquet from build_hit_dataset.py.")
     parser.add_argument("--output-json", help="Optional path for the JSON report.")
+    parser.add_argument("--ablation", action="store_true", help="Also run the feature-group ablation study (slower).")
     args = parser.parse_args()
 
     df = load_dataset(Path(args.dataset))
-    results = run_walk_forward(df, DEFAULT_FOLDS)
+    results, pooled_preds = run_walk_forward(df, DEFAULT_FOLDS, collect_probs=True)
     coefficients = logistic_coefficients(df)
     report = print_report(df, results, coefficients)
+
+    if pooled_preds:
+        report["calibration"] = {}
+        for name, probs in pooled_preds["probs"].items():
+            table = reliability_table(pooled_preds["y_true"], probs)
+            report["calibration"][name] = table
+            print(f"\nCALIBRATION — {name} (pooled out-of-sample predictions)")
+            print(f"{'bucket':16s} {'n':>6s} {'predicted':>10s} {'actual':>8s}")
+            for row in table:
+                if not row["count"]:
+                    continue
+                print(
+                    f"{row['bucket']:16s} {row['count']:>6d} "
+                    f"{row['avg_predicted']:>10.3f} {row['actual_hit_rate']:>8.3f}"
+                )
+
+    if args.ablation:
+        ablation = run_ablation(df, DEFAULT_FOLDS)
+        report["ablation"] = ablation
+        print("\nABLATION (change in pooled metrics when the group is REMOVED;")
+        print("negative delta = the group was helping)")
+        print(f"{'group removed':16s} {'logistic top10':>15s} {'d_top10':>8s} {'d_auc':>7s}   {'gbm top10':>10s} {'d_top10':>8s} {'d_auc':>7s}")
+        for group in FEATURE_GROUPS:
+            lg, gb = ablation[group]["logistic"], ablation[group]["gbm"]
+            print(
+                f"{group:16s} {lg['top10_hit_rate'] * 100:>14.1f}% {lg['delta_top10'] * 100:>+7.1f}% {lg['delta_auc']:>+7.3f}   "
+                f"{gb['top10_hit_rate'] * 100:>9.1f}% {gb['delta_top10'] * 100:>+7.1f}% {gb['delta_auc']:>+7.3f}"
+            )
 
     report["generated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     report["dataset"] = str(args.dataset)

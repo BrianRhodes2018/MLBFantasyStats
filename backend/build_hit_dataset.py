@@ -446,6 +446,49 @@ class HitDatasetBuilder:
         features["p_season_starts"] = sum(1 for r in rows if r.get("started"))
         return features
 
+    def pregame_features(
+        self,
+        *,
+        player_id: int,
+        slot: int,
+        is_home: bool,
+        bats: Optional[str],
+        throws: Optional[str],
+        starter_id: int,
+        park: Optional[Mapping[str, Any]],
+        bullpen: Mapping[str, Optional[float]],
+        pitcher_feats: Mapping[str, Any],
+        target: date,
+    ) -> dict[str, Any]:
+        """
+        The complete pre-game feature dict for one batter-game. Used by
+        BOTH the historical dataset build and the daily prediction script,
+        so training and serving can never drift apart.
+        """
+        vs_hand = self.vs_hand.snapshot(hand_key(player_id, throws))
+        vs_pitcher = self.vs_pitcher.snapshot((player_id, starter_id))
+        return {
+            "batting_order": slot,
+            "is_home": is_home,
+            # -- platoon + season BvP
+            "platoon_advantage": platoon_advantage(bats, throws),
+            "vs_hand_pa": vs_hand["pa"],
+            "vs_hand_hit_per_pa": vs_hand["hit_per_pa"],
+            "faced_pitcher_pa": vs_pitcher["pa"],
+            "faced_pitcher_hit_per_pa": vs_pitcher["hit_per_pa"],
+            # -- park
+            "park_runs_factor": (park or {}).get("runs"),
+            "park_hr_factor": (park or {}).get("hr"),
+            # -- opposing bullpen quality
+            "opp_bullpen_ip": bullpen["ip"],
+            "opp_bullpen_h_per_9": bullpen["h_per_9"],
+            "opp_bullpen_whip": bullpen["whip"],
+            "opp_bullpen_k_pct": bullpen["k_pct"],
+            # -- batter form + pitcher blocks
+            **self.batter_features(player_id, target),
+            **pitcher_feats,
+        }
+
     # -- per-day extraction ---------------------------------------------------
 
     def rows_for_date(self, target: date) -> list[dict[str, Any]]:
@@ -532,8 +575,6 @@ class HitDatasetBuilder:
                         self.bats_by_player.get(player_id)
                         or (game_player.get("batSide") or {}).get("code")
                     )
-                    vs_hand = self.vs_hand.snapshot(hand_key(player_id, throws))
-                    vs_pitcher = self.vs_pitcher.snapshot((player_id, starter_id))
                     day_outcomes.append((player_id, starter_id, throws, hits_game, pa_game))
 
                     day_rows.append({
@@ -549,8 +590,6 @@ class HitDatasetBuilder:
                         "team": team_name,
                         "opponent": opponent_name,
                         "venue": venue,
-                        "is_home": offense_side == "home",
-                        "batting_order": slot,
                         "bats": bats,
                         "pitcher_id": starter_id,
                         "pitcher_name": pitcher_person.get("fullName") or str(starter_id),
@@ -561,23 +600,19 @@ class HitDatasetBuilder:
                         "pa_game": pa_game,
                         "ab_game": safe_int(batting.get("atBats")),
                         "total_bases_game": safe_int(batting.get("totalBases")),
-                        # -- platoon + season BvP
-                        "platoon_advantage": platoon_advantage(bats, throws),
-                        "vs_hand_pa": vs_hand["pa"],
-                        "vs_hand_hit_per_pa": vs_hand["hit_per_pa"],
-                        "faced_pitcher_pa": vs_pitcher["pa"],
-                        "faced_pitcher_hit_per_pa": vs_pitcher["hit_per_pa"],
-                        # -- park
-                        "park_runs_factor": (park or {}).get("runs"),
-                        "park_hr_factor": (park or {}).get("hr"),
-                        # -- opposing bullpen quality
-                        "opp_bullpen_ip": bullpen["ip"],
-                        "opp_bullpen_h_per_9": bullpen["h_per_9"],
-                        "opp_bullpen_whip": bullpen["whip"],
-                        "opp_bullpen_k_pct": bullpen["k_pct"],
-                        # -- batter form + pitcher blocks
-                        **self.batter_features(player_id, target),
-                        **pitcher_feats,
+                        # -- everything the model sees
+                        **self.pregame_features(
+                            player_id=player_id,
+                            slot=slot,
+                            is_home=offense_side == "home",
+                            bats=bats,
+                            throws=throws,
+                            starter_id=starter_id,
+                            park=park,
+                            bullpen=bullpen,
+                            pitcher_feats=pitcher_feats,
+                            target=target,
+                        ),
                     })
 
         # Day is fully featurized — now fold today's results into history.

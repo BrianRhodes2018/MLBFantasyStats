@@ -67,3 +67,34 @@ class TestPooledSummary:
         assert pooled["top5_picks"] == 40
         # AUC weighted by n_test: (0.55*50 + 0.65*150) / 200 = 0.625
         assert pooled["auc"] == pytest.approx(0.625)
+
+
+class TestChooseProjectedLineup:
+    def make_lineups(self):
+        return [
+            {"date": "2026-07-01", "opp_hand": "L", "order": list(range(1, 10))},
+            {"date": "2026-07-02", "opp_hand": "R", "order": list(range(11, 20))},
+            {"date": "2026-07-03", "opp_hand": "R", "order": list(range(21, 30))},
+        ]
+
+    def test_prefers_most_recent_same_hand(self):
+        from predict_hits_today import choose_projected_lineup
+
+        order, source = choose_projected_lineup(self.make_lineups(), "L")
+        assert order == list(range(1, 10))
+        assert "vs LHP" in source
+
+    def test_falls_back_to_most_recent(self):
+        from predict_hits_today import choose_projected_lineup
+
+        # No lineup vs an S-hand exists; use the latest overall.
+        order, source = choose_projected_lineup(self.make_lineups(), None)
+        assert order == list(range(21, 30))
+        assert "most recent" in source
+
+    def test_empty_history(self):
+        from predict_hits_today import choose_projected_lineup
+
+        order, source = choose_projected_lineup([], "R")
+        assert order is None
+        assert source == "none"
