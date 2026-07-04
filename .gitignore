@@ -41,3 +41,8 @@ Thumbs.db
 
 # --- Local assistant/session data ---
 .claude/
+
+# --- Backtest / model-training artifacts (large, regenerable) ---
+backend/.backtest_cache/
+backend/backtest_results/
+backend/data/
