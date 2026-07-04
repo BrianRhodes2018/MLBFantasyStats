@@ -1,11 +1,16 @@
 """Unit tests for the pure feature-extraction helpers in build_hit_dataset.py."""
 
+from datetime import date
+
 import pytest
 
+from build_hit_dataset import HitDatasetBuilder
+
 from build_hit_dataset import (
-    VsHandHistory,
+    RateHistory,
     batter_window_stats,
     batting_line_from_boxscore,
+    hand_key,
     log_row_pa,
     pitcher_agg,
     pitching_line_from_boxscore,
@@ -141,6 +146,26 @@ class TestBoxscoreConversion:
         assert line["started"] is False
 
 
+class TestRestFeatures:
+    def test_days_rest_and_games_last7(self):
+        builder = HitDatasetBuilder(db=None, source=None)
+        builder.batter_history[1] = [
+            {**batter_row(), "game_date": "2026-06-20"},
+            {**batter_row(), "game_date": "2026-06-28"},
+            {**batter_row(), "game_date": "2026-07-01"},
+        ]
+        features = builder.batter_features(1, date(2026, 7, 3))
+        assert features["days_rest"] == 2
+        # Window starts 2026-06-26: only 6/28 and 7/1 qualify.
+        assert features["games_last7"] == 2
+
+    def test_no_history_reads_as_unknown(self):
+        builder = HitDatasetBuilder(db=None, source=None)
+        features = builder.batter_features(99, date(2026, 7, 3))
+        assert features["days_rest"] is None
+        assert features["games_last7"] == 0
+
+
 class TestPlatoonAdvantage:
     def test_opposite_hands_have_edge(self):
         assert platoon_advantage("L", "R") == 1
@@ -159,35 +184,43 @@ class TestPlatoonAdvantage:
         assert platoon_advantage("R", None) is None
 
 
-class TestVsHandHistory:
+class TestRateHistory:
     def test_empty_history_is_unknown(self):
-        history = VsHandHistory()
-        snap = history.snapshot(1, "R")
+        history = RateHistory()
+        snap = history.snapshot(hand_key(1, "R"))
         assert snap["pa"] == 0
         assert snap["hit_per_pa"] is None
 
     def test_accumulates_by_hand(self):
-        history = VsHandHistory()
-        history.add(1, "R", hits=2, pa=4)
-        history.add(1, "R", hits=0, pa=4)
-        history.add(1, "L", hits=3, pa=3)
+        history = RateHistory()
+        history.add(hand_key(1, "R"), hits=2, pa=4)
+        history.add(hand_key(1, "R"), hits=0, pa=4)
+        history.add(hand_key(1, "L"), hits=3, pa=3)
 
-        vs_right = history.snapshot(1, "R")
+        vs_right = history.snapshot(hand_key(1, "R"))
         assert vs_right["pa"] == 8
         assert vs_right["hit_per_pa"] == pytest.approx(2 / 8)
 
-        vs_left = history.snapshot(1, "L")
+        vs_left = history.snapshot(hand_key(1, "L"))
         assert vs_left["pa"] == 3
         assert vs_left["hit_per_pa"] == pytest.approx(1.0)
 
+    def test_batter_vs_pitcher_keys_are_independent(self):
+        history = RateHistory()
+        history.add((10, 900), hits=2, pa=4)   # batter 10 vs pitcher 900
+        history.add((10, 901), hits=0, pa=4)   # same batter, other pitcher
+        assert history.snapshot((10, 900))["hit_per_pa"] == pytest.approx(0.5)
+        assert history.snapshot((10, 901))["hit_per_pa"] == pytest.approx(0.0)
+
     def test_snapshot_before_add_prevents_same_day_leakage(self):
-        history = VsHandHistory()
-        snap = history.snapshot(1, "R")   # feature read happens first
-        history.add(1, "R", hits=3, pa=4)  # outcome recorded after
+        history = RateHistory()
+        snap = history.snapshot(hand_key(1, "R"))   # feature read happens first
+        history.add(hand_key(1, "R"), hits=3, pa=4)  # outcome recorded after
         assert snap["pa"] == 0
 
     def test_zero_pa_and_missing_hand_are_ignored(self):
-        history = VsHandHistory()
-        history.add(1, None, hits=1, pa=4)
-        history.add(1, "R", hits=0, pa=0)
-        assert history.snapshot(1, "R")["pa"] == 0
+        history = RateHistory()
+        history.add(hand_key(1, None), hits=1, pa=4)  # hand_key(None) -> None
+        history.add(hand_key(1, "R"), hits=0, pa=0)
+        assert history.snapshot(hand_key(1, "R"))["pa"] == 0
+        assert history.snapshot(None)["hit_per_pa"] is None
