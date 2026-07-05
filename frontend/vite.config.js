@@ -229,6 +229,11 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // Forward the daily hit-model pick list routes (Hit Picks page).
+      '/hit-picks': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
   test: {
