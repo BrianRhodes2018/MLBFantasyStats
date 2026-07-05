@@ -53,6 +53,17 @@ SEASON_START = "2026-03-25"
 DEFAULT_RESULTS_DIR = BACKEND_DIR / "backtest_results"
 LINEUP_LOOKBACK_DAYS = 14
 
+# Version stamp written into every pick file so daily results can be
+# attributed to the exact model generation that produced them.
+#   v1: logistic, 2026 data only (68.2% top-10 walk-forward)
+#   v2: gbm, trained on 2023-2025 + current 2026 (72.2% top-10)
+MODEL_VERSION = "hit_gbm_v2"
+MODEL_KIND = "gbm"
+
+# Historical season parquets (built once by build_hit_dataset.py) that are
+# prepended to the replayed current season at training time, if present.
+HISTORICAL_GLOB = "hit_dataset_2*.parquet"
+
 
 # ---------------------------------------------------------------------------
 # Projected lineups from recent boxscores
@@ -271,11 +282,21 @@ async def run(args: argparse.Namespace) -> int:
         train_rows = builder.build(parse_iso_date(SEASON_START), train_end, verbose=False)
         if not train_rows:
             raise RuntimeError("No training rows produced — check cache/API access.")
-        train_df = prepare_frame(
-            pl.DataFrame(train_rows, infer_schema_length=None).filter(pl.col("pa_game") > 0)
-        )
-        print(f"Training on {train_df.height} batter-games...")
-        model = make_models()["logistic"]
+        current = pl.DataFrame(train_rows, infer_schema_length=None).filter(pl.col("pa_game") > 0)
+
+        frames = [current]
+        historical = sorted((BACKEND_DIR / "data").glob(HISTORICAL_GLOB))
+        for path in historical:
+            frames.append(
+                pl.read_parquet(path)
+                .filter(pl.col("pa_game") > 0)
+                .select(current.columns)
+            )
+            print(f"Adding historical training data: {path.name}")
+        train_df = prepare_frame(pl.concat(frames, how="vertical_relaxed"))
+
+        print(f"Training {MODEL_VERSION} on {train_df.height} batter-games...")
+        model = make_models()[MODEL_KIND]
         model.fit(to_matrix(train_df), train_df["got_hit"].to_numpy())
 
         lineups, names = collect_recent_lineups(source, builder, target)
@@ -318,8 +339,10 @@ async def run(args: argparse.Namespace) -> int:
         output = {
             "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
             "date": target.isoformat(),
-            "model": "logistic (walk-forward validated in train_hit_model.py)",
+            "model_version": MODEL_VERSION,
+            "model": f"{MODEL_KIND} (walk-forward validated in train_hit_model.py)",
             "trained_on_rows": train_df.height,
+            "training_datasets": ["replayed current season"] + [p.name for p in historical],
             "candidates": ranked.select(keep).to_dicts(),
         }
         if args.output_json:

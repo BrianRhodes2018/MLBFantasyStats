@@ -142,11 +142,16 @@ def prepare_frame(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(exprs)
 
 
-def load_dataset(path: Path) -> pl.DataFrame:
-    df = pl.read_parquet(path)
+def load_dataset(paths: list[Path]) -> pl.DataFrame:
+    """Load one or more season parquets (they share a schema) into a single
+    date-sorted frame. Multiple seasons concatenate cleanly because the
+    walk-forward splits on game_date strings and every historical date
+    sorts before every 2026 date."""
+    frames = [pl.read_parquet(path) for path in paths]
+    df = pl.concat(frames, how="vertical_relaxed")
     # Rows where the batter never actually batted (announced but replaced,
     # rain shortening, etc.) carry no usable label.
-    df = df.filter(pl.col("pa_game") > 0)
+    df = df.filter(pl.col("pa_game") > 0).sort("game_date")
     return prepare_frame(df)
 
 
@@ -435,13 +440,28 @@ def print_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Walk-forward evaluation of hit models.")
-    parser.add_argument("--dataset", default=str(DEFAULT_DATASET), help="Parquet from build_hit_dataset.py.")
+    parser.add_argument(
+        "--dataset", nargs="+", default=[str(DEFAULT_DATASET)],
+        help="One or more season parquets from build_hit_dataset.py.",
+    )
     parser.add_argument("--output-json", help="Optional path for the JSON report.")
     parser.add_argument("--ablation", action="store_true", help="Also run the feature-group ablation study (slower).")
+    parser.add_argument(
+        "--full-2026", action="store_true",
+        help="Test on ALL of 2026 as one block (train = everything earlier, "
+             "i.e. the historical seasons). The never-seen-season benchmark.",
+    )
     args = parser.parse_args()
 
-    df = load_dataset(Path(args.dataset))
-    results, pooled_preds = run_walk_forward(df, DEFAULT_FOLDS, collect_probs=True)
+    df = load_dataset([Path(p) for p in args.dataset])
+    if args.full_2026:
+        max_2026 = df.filter(pl.col("game_date") >= "2026-01-01")["game_date"].max()
+        if max_2026 is None:
+            raise RuntimeError("--full-2026 requires a dataset containing 2026 rows.")
+        folds = [("2026-01-01", max_2026)]
+    else:
+        folds = DEFAULT_FOLDS
+    results, pooled_preds = run_walk_forward(df, folds, collect_probs=True)
     coefficients = logistic_coefficients(df)
     report = print_report(df, results, coefficients)
 
@@ -461,7 +481,7 @@ def main() -> int:
                 )
 
     if args.ablation:
-        ablation = run_ablation(df, DEFAULT_FOLDS)
+        ablation = run_ablation(df, folds)
         report["ablation"] = ablation
         print("\nABLATION (change in pooled metrics when the group is REMOVED;")
         print("negative delta = the group was helping)")
@@ -474,9 +494,9 @@ def main() -> int:
             )
 
     report["generated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    report["dataset"] = str(args.dataset)
+    report["dataset"] = list(args.dataset)
     report["features"] = FEATURES
-    report["folds_config"] = DEFAULT_FOLDS
+    report["folds_config"] = folds
 
     if args.output_json:
         output_path = Path(args.output_json)
