@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import json
 import os
 import time
@@ -321,6 +322,11 @@ class BoxscoreSource:
     Uses the same cache filenames as outcome_backtest.py
     (schedule_YYYY-MM-DD.json / game_<gamePk>.json) so both tools share
     one cache directory and nothing is downloaded twice.
+
+    New fetches are written gzip-compressed (game feeds are 1-2 MB of
+    JSON each; multi-season pulls would otherwise take 10+ GB). Reads
+    accept either form, so the pre-existing uncompressed cache from
+    earlier runs keeps working untouched.
     """
 
     def __init__(self, cache_dir: Path, *, request_delay_seconds: float = 0.08) -> None:
@@ -329,15 +335,19 @@ class BoxscoreSource:
 
     def _cached_fetch(self, cache_name: str, fetch) -> Optional[Any]:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = self.cache_dir / cache_name
-        if cache_path.exists():
-            return json.loads(cache_path.read_text(encoding="utf-8"))
+        plain_path = self.cache_dir / cache_name
+        gz_path = self.cache_dir / f"{cache_name}.gz"
+        if plain_path.exists():
+            return json.loads(plain_path.read_text(encoding="utf-8"))
+        if gz_path.exists():
+            return json.loads(gzip.decompress(gz_path.read_bytes()).decode("utf-8"))
         try:
             data = fetch()
         except Exception as exc:
             print(f"Warning: fetch failed for {cache_name}: {exc}")
             return None
-        cache_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        payload = json.dumps(data, sort_keys=True).encode("utf-8")
+        gz_path.write_bytes(gzip.compress(payload, compresslevel=6))
         if self.request_delay_seconds:
             time.sleep(self.request_delay_seconds)
         return data
@@ -359,6 +369,11 @@ class BoxscoreSource:
     def final_games(self, target: date) -> list[dict[str, Any]]:
         games = []
         for entry in self.schedule(target):
+            # Regular-season games only: historical March/October dates
+            # include spring training ('S') and postseason games, which
+            # have non-representative lineups and pitcher usage.
+            if str(entry.get("game_type") or "R") != "R":
+                continue
             if str(entry.get("status") or "").lower() not in _FINAL_STATUSES:
                 continue
             game_id = safe_int(entry.get("game_id"))

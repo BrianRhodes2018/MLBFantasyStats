@@ -146,6 +146,61 @@ class TestBoxscoreConversion:
         assert line["started"] is False
 
 
+class TestBoxscoreSourceCache:
+    def test_new_fetches_are_gzipped_and_readable(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        data = source._cached_fetch("game_123.json", lambda: {"gamePk": 123})
+        assert data == {"gamePk": 123}
+        assert (tmp_path / "game_123.json.gz").exists()
+        assert not (tmp_path / "game_123.json").exists()
+        # Second call must come from the gzip cache, not the fetcher.
+        cached = source._cached_fetch("game_123.json", lambda: pytest.fail("refetched"))
+        assert cached == {"gamePk": 123}
+
+    def test_existing_plain_json_cache_still_wins(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        (tmp_path / "game_9.json").write_text('{"gamePk": 9}', encoding="utf-8")
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        assert source._cached_fetch("game_9.json", lambda: pytest.fail("refetched")) == {"gamePk": 9}
+
+    def test_failed_fetch_returns_none_and_caches_nothing(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+
+        def boom():
+            raise RuntimeError("api down")
+
+        assert source._cached_fetch("game_7.json", boom) is None
+        assert not (tmp_path / "game_7.json.gz").exists()
+
+
+class TestFinalGamesFilter:
+    def make_source(self, tmp_path, schedule_entries):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        source.schedule = lambda target: schedule_entries
+        source.game = lambda game_id: {"gamePk": game_id}
+        return source
+
+    def test_spring_training_and_postseason_are_excluded(self, tmp_path):
+        from datetime import date
+
+        entries = [
+            {"game_id": 1, "game_type": "R", "status": "Final"},
+            {"game_id": 2, "game_type": "S", "status": "Final"},   # spring
+            {"game_id": 3, "game_type": "F", "status": "Final"},   # wild card
+            {"game_id": 4, "game_type": "R", "status": "Scheduled"},
+        ]
+        source = self.make_source(tmp_path, entries)
+        games = source.final_games(date(2023, 3, 30))
+        assert [g["schedule"]["game_id"] for g in games] == [1]
+
+
 class TestRestFeatures:
     def test_days_rest_and_games_last7(self):
         builder = HitDatasetBuilder(db=None, source=None)
