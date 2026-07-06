@@ -1,17 +1,17 @@
-"""Tests for grade_hit_picks.py and the /hit-picks API routes."""
-
-import json
+"""Tests for grade_hit_picks.py, hit_picks_store.py, and the /hit-picks routes."""
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import hit_picks_store
 from grade_hit_picks import grade_candidates, summarize_ledger
+from hit_picks_store import summarize_pick_rows
 from routers.hit_picks import router
 
 
 def make_candidates():
-    # Saved pick files are sorted by predicted probability descending.
+    # Saved pick lists are sorted by predicted probability descending.
     return [
         {"player_id": 1, "player_name": "A"},
         {"player_id": 2, "player_name": "B"},
@@ -59,62 +59,85 @@ class TestSummarizeLedger:
         assert agg["top10"] == {"played": 19, "hits": 13, "hit_rate": pytest.approx(13 / 19, abs=1e-4)}
 
 
+def pick_row(rank, *, played=1, got_hit=0, version="hit_gbm_v2", date="2026-07-05"):
+    return {
+        "model_version": version, "pick_date": date, "rank": rank,
+        "played": played, "got_hit": got_hit,
+    }
+
+
+class TestSummarizePickRows:
+    def test_buckets_by_rank_thresholds(self):
+        # Ranks 1-10: ranks 1-5 all hit; 6-10 all miss.
+        rows = [pick_row(r, got_hit=1 if r <= 5 else 0) for r in range(1, 11)]
+        summary = summarize_pick_rows(rows)
+        agg = summary["hit_gbm_v2"]
+        assert agg["days"] == 1
+        assert agg["top5"] == {"played": 5, "hits": 5, "hit_rate": 1.0}
+        assert agg["top10"] == {"played": 10, "hits": 5, "hit_rate": 0.5}
+
+    def test_unplayed_and_ungraded_rows_are_excluded(self):
+        rows = [
+            pick_row(1, got_hit=1),
+            pick_row(2, played=0, got_hit=None),   # scratched — not in denominator
+            pick_row(3, played=None, got_hit=None),  # not graded yet — ignored entirely
+        ]
+        agg = summarize_pick_rows(rows)["hit_gbm_v2"]
+        assert agg["top5"] == {"played": 1, "hits": 1, "hit_rate": 1.0}
+
+    def test_versions_tracked_separately(self):
+        rows = [
+            pick_row(1, got_hit=1, version="hit_logistic_v1", date="2026-07-04"),
+            pick_row(1, got_hit=0, version="hit_gbm_v2", date="2026-07-05"),
+        ]
+        summary = summarize_pick_rows(rows)
+        assert summary["hit_logistic_v1"]["top5"]["hit_rate"] == 1.0
+        assert summary["hit_gbm_v2"]["top5"]["hit_rate"] == 0.0
+
+
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("HIT_PICKS_DIR", str(tmp_path))
-    monkeypatch.setenv("HIT_PICKS_LEDGER", str(tmp_path / "ledger.json"))
+def client():
     app = FastAPI()
     app.include_router(router)
-    return TestClient(app), tmp_path
+    return TestClient(app)
 
 
 class TestHitPicksRoutes:
-    def write_picks(self, tmp_path, date_str, version="hit_gbm_v2"):
+    def test_latest_returns_store_payload(self, client, monkeypatch):
         payload = {
-            "date": date_str,
-            "generated_at": f"{date_str}T12:00:00+00:00",
-            "model_version": version,
-            "trained_on_rows": 1000,
-            "candidates": [
-                {"player_id": i, "player_name": f"P{i}", "hit_probability": 0.8 - i * 0.01,
-                 "team": "T", "opponent": "O", "venue": "V", "batting_order": 1,
-                 "bats": "R", "pitcher_name": "SP", "pitcher_throws": "R",
-                 "lineup_source": "test", "season_hit_per_pa": 0.25,
-                 "last10_hit_per_pa": 0.3, "platoon_advantage": 1}
-                for i in range(20)
-            ],
+            "date": "2026-07-05", "generated_at": "2026-07-05T12:00:00+00:00",
+            "model_version": "hit_gbm_v2", "trained_on_rows": 149241,
+            "picks": [{"player_id": 1, "player_name": "A", "rank": 1}],
         }
-        (tmp_path / f"hit_picks_{date_str}.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    def test_latest_returns_most_recent_trimmed(self, client):
-        test_client, tmp_path = client
-        self.write_picks(tmp_path, "2026-07-04")
-        self.write_picks(tmp_path, "2026-07-05")
-        response = test_client.get("/hit-picks/latest?top=5")
+        async def fake_fetch(db, *, top):
+            assert top == 5
+            return payload
+
+        monkeypatch.setattr(hit_picks_store, "fetch_latest_picks", fake_fetch)
+        response = client.get("/hit-picks/latest?top=5")
         assert response.status_code == 200
-        data = response.json()["data"]
-        assert data["date"] == "2026-07-05"
-        assert data["model_version"] == "hit_gbm_v2"
-        assert len(data["picks"]) == 5
-        # Internal model features must not leak into the public payload.
-        assert "p_season_whip" not in data["picks"][0]
+        assert response.json()["data"] == payload
 
-    def test_latest_404_when_no_files(self, client):
-        test_client, _ = client
-        assert test_client.get("/hit-picks/latest").status_code == 404
+    def test_latest_404_when_no_picks_stored(self, client, monkeypatch):
+        async def fake_fetch(db, *, top):
+            return None
 
-    def test_ledger_roundtrip(self, client):
-        test_client, tmp_path = client
-        (tmp_path / "ledger.json").write_text(json.dumps({
-            "entries": {"2026-07-04": {"model_version": "hit_gbm_v2", "grades": {}}},
-            "summary": {"hit_gbm_v2": {"days": 1}},
-        }), encoding="utf-8")
-        response = test_client.get("/hit-picks/ledger")
+        monkeypatch.setattr(hit_picks_store, "fetch_latest_picks", fake_fetch)
+        assert client.get("/hit-picks/latest").status_code == 404
+
+    def test_ledger_returns_summary(self, client, monkeypatch):
+        async def fake_ledger(db):
+            return {"summary": {"hit_gbm_v2": {"days": 1}}, "days_graded": 1}
+
+        monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)
+        response = client.get("/hit-picks/ledger")
         assert response.status_code == 200
-        data = response.json()["data"]
-        assert data["days_graded"] == 1
-        assert "hit_gbm_v2" in data["summary"]
+        assert response.json()["data"]["days_graded"] == 1
 
-    def test_ledger_404_when_missing(self, client):
-        test_client, _ = client
-        assert test_client.get("/hit-picks/ledger").status_code == 404
+    def test_ledger_404_when_nothing_graded(self, client, monkeypatch):
+        async def fake_ledger(db):
+            return {"summary": {}, "days_graded": 0}
+
+        monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)
+        assert client.get("/hit-picks/ledger").status_code == 404

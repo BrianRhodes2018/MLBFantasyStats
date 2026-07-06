@@ -565,3 +565,46 @@ hitter_prop_projections = Table(
     Column("recommended_side", String(10), nullable=True),
     Column("created_at", String(30), nullable=False),
 )
+
+
+# ---------------------------------------------------------------------------
+# HIT PICKS - Daily hit-model pick lists plus their graded outcomes
+# ---------------------------------------------------------------------------
+# One row per (pick_date, rank). Written each morning by
+# predict_hits_today.py; the grading columns start NULL and are filled in
+# the next morning by grade_hit_picks.py once boxscores are final.
+# Storing picks in the database (instead of only local JSON files) is what
+# lets the deployed Render backend serve them to the Vercel frontend.
+
+hit_picks = Table(
+    "hit_picks",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    # -- pick identity
+    Column("pick_date", String(10), nullable=False),      # "YYYY-MM-DD"
+    Column("model_version", String(40), nullable=False),  # e.g. "hit_gbm_v2"
+    Column("generated_at", String(40), nullable=True),
+    Column("trained_on_rows", Integer, nullable=True),
+    Column("rank", Integer, nullable=False),              # 1 = best pick
+    # -- the pick itself
+    Column("player_id", Integer, nullable=False),
+    Column("player_name", String(150)),
+    Column("team", String(60)),
+    Column("opponent", String(60)),
+    Column("venue", String(100), nullable=True),
+    Column("batting_order", Integer, nullable=True),
+    Column("bats", String(2), nullable=True),
+    Column("pitcher_id", Integer, nullable=True),
+    Column("pitcher_name", String(150), nullable=True),
+    Column("pitcher_throws", String(2), nullable=True),
+    Column("lineup_source", String(100), nullable=True),
+    Column("hit_probability", Float),
+    Column("season_hit_per_pa", Float, nullable=True),
+    Column("last10_hit_per_pa", Float, nullable=True),
+    Column("platoon_advantage", Integer, nullable=True),
+    # -- grading (NULL until the next morning's grade run)
+    Column("played", Integer, nullable=True),   # 1/0; NULL = not graded yet
+    Column("hits", Integer, nullable=True),     # actual hits that day
+    Column("got_hit", Integer, nullable=True),  # 1/0; NULL if didn't play
+    Column("graded_at", String(40), nullable=True),
+)
