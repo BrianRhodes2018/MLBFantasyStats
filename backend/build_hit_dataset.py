@@ -333,14 +333,19 @@ class BoxscoreSource:
         self.cache_dir = cache_dir
         self.request_delay_seconds = request_delay_seconds
 
-    def _cached_fetch(self, cache_name: str, fetch) -> Optional[Any]:
+    def _cached_fetch(self, cache_name: str, fetch, *, refresh: bool = False) -> Optional[Any]:
+        """Read-through cache. `refresh=True` skips the cache READ (the
+        result is still written), for data that may have been cached in a
+        non-final state — e.g. a schedule cached before that day's games
+        finished, which would otherwise be stale forever."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         plain_path = self.cache_dir / cache_name
         gz_path = self.cache_dir / f"{cache_name}.gz"
-        if plain_path.exists():
-            return json.loads(plain_path.read_text(encoding="utf-8"))
-        if gz_path.exists():
-            return json.loads(gzip.decompress(gz_path.read_bytes()).decode("utf-8"))
+        if not refresh:
+            if plain_path.exists():
+                return json.loads(plain_path.read_text(encoding="utf-8"))
+            if gz_path.exists():
+                return json.loads(gzip.decompress(gz_path.read_bytes()).decode("utf-8"))
         try:
             data = fetch()
         except Exception as exc:
@@ -348,15 +353,20 @@ class BoxscoreSource:
             return None
         payload = json.dumps(data, sort_keys=True).encode("utf-8")
         gz_path.write_bytes(gzip.compress(payload, compresslevel=6))
+        if refresh and plain_path.exists():
+            # The gzip copy is now the authoritative one; drop the stale
+            # plain file so reads don't resurrect it.
+            plain_path.unlink()
         if self.request_delay_seconds:
             time.sleep(self.request_delay_seconds)
         return data
 
-    def schedule(self, target: date) -> list[dict[str, Any]]:
+    def schedule(self, target: date, *, refresh: bool = False) -> list[dict[str, Any]]:
         stamp = target.strftime("%m/%d/%Y")
         data = self._cached_fetch(
             f"schedule_{target.isoformat()}.json",
             lambda: statsapi.schedule(start_date=stamp, end_date=stamp),
+            refresh=refresh,
         )
         return data or []
 
@@ -366,9 +376,9 @@ class BoxscoreSource:
             lambda: statsapi.get("game", {"gamePk": game_id}),
         )
 
-    def final_games(self, target: date) -> list[dict[str, Any]]:
+    def final_games(self, target: date, *, refresh_schedule: bool = False) -> list[dict[str, Any]]:
         games = []
-        for entry in self.schedule(target):
+        for entry in self.schedule(target, refresh=refresh_schedule):
             # Regular-season games only: historical March/October dates
             # include spring training ('S') and postseason games, which
             # have non-representative lineups and pitcher usage.

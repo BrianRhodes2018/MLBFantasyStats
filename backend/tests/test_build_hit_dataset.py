@@ -166,6 +166,24 @@ class TestBoxscoreSourceCache:
         source = BoxscoreSource(tmp_path, request_delay_seconds=0)
         assert source._cached_fetch("game_9.json", lambda: pytest.fail("refetched")) == {"gamePk": 9}
 
+    def test_refresh_bypasses_stale_cache_and_rewrites(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        # A schedule cached mid-day, before games went final.
+        (tmp_path / "schedule_2026-07-05.json").write_text('[{"status": "Scheduled"}]', encoding="utf-8")
+
+        fresh = source._cached_fetch(
+            "schedule_2026-07-05.json", lambda: [{"status": "Final"}], refresh=True
+        )
+        assert fresh == [{"status": "Final"}]
+        # The stale plain file is gone; the refreshed copy is authoritative.
+        assert not (tmp_path / "schedule_2026-07-05.json").exists()
+        cached = source._cached_fetch(
+            "schedule_2026-07-05.json", lambda: pytest.fail("refetched")
+        )
+        assert cached == [{"status": "Final"}]
+
     def test_failed_fetch_returns_none_and_caches_nothing(self, tmp_path):
         from build_hit_dataset import BoxscoreSource
 
@@ -183,7 +201,7 @@ class TestFinalGamesFilter:
         from build_hit_dataset import BoxscoreSource
 
         source = BoxscoreSource(tmp_path, request_delay_seconds=0)
-        source.schedule = lambda target: schedule_entries
+        source.schedule = lambda target, refresh=False: schedule_entries
         source.game = lambda game_id: {"gamePk": game_id}
         return source
 

@@ -35,9 +35,15 @@ _PICK_FILE_RE = re.compile(r"hit_picks_(\d{4}-\d{2}-\d{2})\.json$")
 
 
 def outcomes_for_date(source: BoxscoreSource, target: date) -> dict[int, dict[str, int]]:
-    """player_id -> {hits, pa} for every batter who batted that day."""
+    """player_id -> {hits, pa} for every batter who batted that day.
+
+    The schedule is force-refreshed: grading runs the morning after, and
+    the cached copy may have been written earlier that day while games
+    were still scheduled/in progress (which would read as "no final
+    games" forever). One extra API call per newly graded date.
+    """
     outcomes: dict[int, dict[str, int]] = {}
-    for slate_game in source.final_games(target):
+    for slate_game in source.final_games(target, refresh_schedule=True):
         teams = slate_game["game"].get("liveData", {}).get("boxscore", {}).get("teams", {})
         for side in ("away", "home"):
             for box_player in (teams.get(side, {}).get("players") or {}).values():
@@ -105,6 +111,7 @@ def main() -> int:
     parser.add_argument("--picks-dir", default=str(DEFAULT_PICKS_DIR), help="Directory containing hit_picks_*.json.")
     parser.add_argument("--ledger", default=str(DEFAULT_LEDGER), help="Ledger JSON path (created if missing).")
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR), help="Shared MLB StatsAPI JSON cache directory.")
+    parser.add_argument("--regrade", action="store_true", help="Re-grade dates already in the ledger (normally skipped).")
     args = parser.parse_args()
 
     source = BoxscoreSource(Path(args.cache_dir))
@@ -122,6 +129,12 @@ def main() -> int:
         if not match:
             continue
         pick_date = date.fromisoformat(match.group(1))
+        if pick_date.isoformat() in ledger["entries"] and not args.regrade:
+            continue  # already graded; --regrade forces a redo
+        if pick_date >= date.today():
+            print(f"{pick_date}: games not finished — will grade tomorrow.")
+            skipped += 1
+            continue
         picks = json.loads(pick_file.read_text(encoding="utf-8"))
         outcomes = outcomes_for_date(source, pick_date)
         if not outcomes:
