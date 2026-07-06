@@ -1,11 +1,16 @@
 """Unit tests for the pure feature-extraction helpers in build_hit_dataset.py."""
 
+from datetime import date
+
 import pytest
 
+from build_hit_dataset import HitDatasetBuilder
+
 from build_hit_dataset import (
-    VsHandHistory,
+    RateHistory,
     batter_window_stats,
     batting_line_from_boxscore,
+    hand_key,
     log_row_pa,
     pitcher_agg,
     pitching_line_from_boxscore,
@@ -141,6 +146,99 @@ class TestBoxscoreConversion:
         assert line["started"] is False
 
 
+class TestBoxscoreSourceCache:
+    def test_new_fetches_are_gzipped_and_readable(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        data = source._cached_fetch("game_123.json", lambda: {"gamePk": 123})
+        assert data == {"gamePk": 123}
+        assert (tmp_path / "game_123.json.gz").exists()
+        assert not (tmp_path / "game_123.json").exists()
+        # Second call must come from the gzip cache, not the fetcher.
+        cached = source._cached_fetch("game_123.json", lambda: pytest.fail("refetched"))
+        assert cached == {"gamePk": 123}
+
+    def test_existing_plain_json_cache_still_wins(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        (tmp_path / "game_9.json").write_text('{"gamePk": 9}', encoding="utf-8")
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        assert source._cached_fetch("game_9.json", lambda: pytest.fail("refetched")) == {"gamePk": 9}
+
+    def test_refresh_bypasses_stale_cache_and_rewrites(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        # A schedule cached mid-day, before games went final.
+        (tmp_path / "schedule_2026-07-05.json").write_text('[{"status": "Scheduled"}]', encoding="utf-8")
+
+        fresh = source._cached_fetch(
+            "schedule_2026-07-05.json", lambda: [{"status": "Final"}], refresh=True
+        )
+        assert fresh == [{"status": "Final"}]
+        # The stale plain file is gone; the refreshed copy is authoritative.
+        assert not (tmp_path / "schedule_2026-07-05.json").exists()
+        cached = source._cached_fetch(
+            "schedule_2026-07-05.json", lambda: pytest.fail("refetched")
+        )
+        assert cached == [{"status": "Final"}]
+
+    def test_failed_fetch_returns_none_and_caches_nothing(self, tmp_path):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+
+        def boom():
+            raise RuntimeError("api down")
+
+        assert source._cached_fetch("game_7.json", boom) is None
+        assert not (tmp_path / "game_7.json.gz").exists()
+
+
+class TestFinalGamesFilter:
+    def make_source(self, tmp_path, schedule_entries):
+        from build_hit_dataset import BoxscoreSource
+
+        source = BoxscoreSource(tmp_path, request_delay_seconds=0)
+        source.schedule = lambda target, refresh=False: schedule_entries
+        source.game = lambda game_id: {"gamePk": game_id}
+        return source
+
+    def test_spring_training_and_postseason_are_excluded(self, tmp_path):
+        from datetime import date
+
+        entries = [
+            {"game_id": 1, "game_type": "R", "status": "Final"},
+            {"game_id": 2, "game_type": "S", "status": "Final"},   # spring
+            {"game_id": 3, "game_type": "F", "status": "Final"},   # wild card
+            {"game_id": 4, "game_type": "R", "status": "Scheduled"},
+        ]
+        source = self.make_source(tmp_path, entries)
+        games = source.final_games(date(2023, 3, 30))
+        assert [g["schedule"]["game_id"] for g in games] == [1]
+
+
+class TestRestFeatures:
+    def test_days_rest_and_games_last7(self):
+        builder = HitDatasetBuilder(db=None, source=None)
+        builder.batter_history[1] = [
+            {**batter_row(), "game_date": "2026-06-20"},
+            {**batter_row(), "game_date": "2026-06-28"},
+            {**batter_row(), "game_date": "2026-07-01"},
+        ]
+        features = builder.batter_features(1, date(2026, 7, 3))
+        assert features["days_rest"] == 2
+        # Window starts 2026-06-26: only 6/28 and 7/1 qualify.
+        assert features["games_last7"] == 2
+
+    def test_no_history_reads_as_unknown(self):
+        builder = HitDatasetBuilder(db=None, source=None)
+        features = builder.batter_features(99, date(2026, 7, 3))
+        assert features["days_rest"] is None
+        assert features["games_last7"] == 0
+
+
 class TestPlatoonAdvantage:
     def test_opposite_hands_have_edge(self):
         assert platoon_advantage("L", "R") == 1
@@ -159,35 +257,43 @@ class TestPlatoonAdvantage:
         assert platoon_advantage("R", None) is None
 
 
-class TestVsHandHistory:
+class TestRateHistory:
     def test_empty_history_is_unknown(self):
-        history = VsHandHistory()
-        snap = history.snapshot(1, "R")
+        history = RateHistory()
+        snap = history.snapshot(hand_key(1, "R"))
         assert snap["pa"] == 0
         assert snap["hit_per_pa"] is None
 
     def test_accumulates_by_hand(self):
-        history = VsHandHistory()
-        history.add(1, "R", hits=2, pa=4)
-        history.add(1, "R", hits=0, pa=4)
-        history.add(1, "L", hits=3, pa=3)
+        history = RateHistory()
+        history.add(hand_key(1, "R"), hits=2, pa=4)
+        history.add(hand_key(1, "R"), hits=0, pa=4)
+        history.add(hand_key(1, "L"), hits=3, pa=3)
 
-        vs_right = history.snapshot(1, "R")
+        vs_right = history.snapshot(hand_key(1, "R"))
         assert vs_right["pa"] == 8
         assert vs_right["hit_per_pa"] == pytest.approx(2 / 8)
 
-        vs_left = history.snapshot(1, "L")
+        vs_left = history.snapshot(hand_key(1, "L"))
         assert vs_left["pa"] == 3
         assert vs_left["hit_per_pa"] == pytest.approx(1.0)
 
+    def test_batter_vs_pitcher_keys_are_independent(self):
+        history = RateHistory()
+        history.add((10, 900), hits=2, pa=4)   # batter 10 vs pitcher 900
+        history.add((10, 901), hits=0, pa=4)   # same batter, other pitcher
+        assert history.snapshot((10, 900))["hit_per_pa"] == pytest.approx(0.5)
+        assert history.snapshot((10, 901))["hit_per_pa"] == pytest.approx(0.0)
+
     def test_snapshot_before_add_prevents_same_day_leakage(self):
-        history = VsHandHistory()
-        snap = history.snapshot(1, "R")   # feature read happens first
-        history.add(1, "R", hits=3, pa=4)  # outcome recorded after
+        history = RateHistory()
+        snap = history.snapshot(hand_key(1, "R"))   # feature read happens first
+        history.add(hand_key(1, "R"), hits=3, pa=4)  # outcome recorded after
         assert snap["pa"] == 0
 
     def test_zero_pa_and_missing_hand_are_ignored(self):
-        history = VsHandHistory()
-        history.add(1, None, hits=1, pa=4)
-        history.add(1, "R", hits=0, pa=0)
-        assert history.snapshot(1, "R")["pa"] == 0
+        history = RateHistory()
+        history.add(hand_key(1, None), hits=1, pa=4)  # hand_key(None) -> None
+        history.add(hand_key(1, "R"), hits=0, pa=0)
+        assert history.snapshot(hand_key(1, "R"))["pa"] == 0
+        assert history.snapshot(None)["hit_per_pa"] is None

@@ -47,6 +47,7 @@ import PlayerComparison from './components/PlayerComparison'
 import MatchupsPage from './components/MatchupsPage'
 import BettingPage from './components/BettingPage'
 import BetAuditPage from './components/BetAuditPage'
+import HitPicksPage from './components/HitPicksPage'
 import { fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
@@ -744,6 +745,30 @@ function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // HIT PICKS PAGE VIEW
+  // ---------------------------------------------------------------------------
+  // Renders the daily 1+ hit model pick list served by /hit-picks/latest.
+  // Same shell as the betting view; the page is read-only (the model runs
+  // offline via predict_hits_today.py, this just displays its output).
+  if (currentView === 'hitpicks') {
+    return (
+      <div className="app">
+        <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+        {renderLastUpdated()}
+        <div style={{ textAlign: 'center', marginTop: '-10px', marginBottom: '20px' }}>
+          <span
+            className="matchups-nav-link"
+            onClick={() => setCurrentView('dashboard')}
+          >
+            &larr; Back to Stats
+          </span>
+        </div>
+        <HitPicksPage />
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // BET AUDIT PAGE VIEW
   // ---------------------------------------------------------------------------
   // Renders the /betting/audit historical-performance page. Same shell as
@@ -942,6 +967,12 @@ function App() {
           onClick={() => setCurrentView('audit')}
         >
           Bet Audit &rarr;
+        </span>
+        <span
+          className="matchups-nav-link"
+          onClick={() => setCurrentView('hitpicks')}
+        >
+          Hit Picks &rarr;
         </span>
       </div>
 

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import json
 import os
 import time
@@ -272,36 +273,43 @@ def platoon_advantage(bats: Optional[str], throws: Optional[str]) -> Optional[in
     return 1 if bats != throws else 0
 
 
-class VsHandHistory:
+class RateHistory:
     """
-    Accumulates each batter's hits/PA split by the opposing STARTER's
-    throwing hand, built incrementally as backtest days are processed.
+    Accumulates hits/PA totals under an arbitrary hashable key, built
+    incrementally as backtest days are processed. Used for two splits:
+      - (batter_id, starter_hand): platoon-side hit rate
+      - (batter_id, starter_id):   season batter-vs-pitcher hit rate
 
     Approximation note: a batter's full-game line includes plate
     appearances against relievers, but all of it gets credited to the
-    starter's hand. That is the standard free-data compromise — the
-    starter faces the batter first and most often.
+    starter. That is the standard free-data compromise — the starter
+    faces the batter first and most often.
 
-    Call `snapshot(player_id, hand)` BEFORE adding the current day's
-    outcomes so features never see same-day results.
+    Call `snapshot(key)` BEFORE adding the current day's outcomes so
+    features never see same-day results. A key of None (e.g. unknown
+    handedness) reads and records nothing.
     """
 
     def __init__(self) -> None:
-        self._totals: dict[int, dict[str, list[int]]] = {}
+        self._totals: dict[Any, list[int]] = {}
 
-    def snapshot(self, player_id: int, hand: Optional[str]) -> dict[str, Optional[float]]:
-        if not hand:
+    def snapshot(self, key: Any) -> dict[str, Optional[float]]:
+        if key is None:
             return {"pa": 0, "hit_per_pa": None}
-        hits, pa = self._totals.get(player_id, {}).get(hand.upper(), (0, 0))
+        hits, pa = self._totals.get(key, (0, 0))
         return {"pa": pa, "hit_per_pa": (hits / pa) if pa > 0 else None}
 
-    def add(self, player_id: int, hand: Optional[str], hits: int, pa: int) -> None:
-        if not hand or pa <= 0:
+    def add(self, key: Any, hits: int, pa: int) -> None:
+        if key is None or pa <= 0:
             return
-        by_hand = self._totals.setdefault(player_id, {})
-        current = by_hand.setdefault(hand.upper(), [0, 0])
+        current = self._totals.setdefault(key, [0, 0])
         current[0] += hits
         current[1] += pa
+
+
+def hand_key(player_id: int, hand: Optional[str]) -> Optional[tuple[int, str]]:
+    """RateHistory key for a batter's split vs a pitcher hand."""
+    return (player_id, hand.upper()) if hand else None
 
 
 # ---------------------------------------------------------------------------
@@ -314,32 +322,51 @@ class BoxscoreSource:
     Uses the same cache filenames as outcome_backtest.py
     (schedule_YYYY-MM-DD.json / game_<gamePk>.json) so both tools share
     one cache directory and nothing is downloaded twice.
+
+    New fetches are written gzip-compressed (game feeds are 1-2 MB of
+    JSON each; multi-season pulls would otherwise take 10+ GB). Reads
+    accept either form, so the pre-existing uncompressed cache from
+    earlier runs keeps working untouched.
     """
 
     def __init__(self, cache_dir: Path, *, request_delay_seconds: float = 0.08) -> None:
         self.cache_dir = cache_dir
         self.request_delay_seconds = request_delay_seconds
 
-    def _cached_fetch(self, cache_name: str, fetch) -> Optional[Any]:
+    def _cached_fetch(self, cache_name: str, fetch, *, refresh: bool = False) -> Optional[Any]:
+        """Read-through cache. `refresh=True` skips the cache READ (the
+        result is still written), for data that may have been cached in a
+        non-final state — e.g. a schedule cached before that day's games
+        finished, which would otherwise be stale forever."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = self.cache_dir / cache_name
-        if cache_path.exists():
-            return json.loads(cache_path.read_text(encoding="utf-8"))
+        plain_path = self.cache_dir / cache_name
+        gz_path = self.cache_dir / f"{cache_name}.gz"
+        if not refresh:
+            if plain_path.exists():
+                return json.loads(plain_path.read_text(encoding="utf-8"))
+            if gz_path.exists():
+                return json.loads(gzip.decompress(gz_path.read_bytes()).decode("utf-8"))
         try:
             data = fetch()
         except Exception as exc:
             print(f"Warning: fetch failed for {cache_name}: {exc}")
             return None
-        cache_path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        payload = json.dumps(data, sort_keys=True).encode("utf-8")
+        gz_path.write_bytes(gzip.compress(payload, compresslevel=6))
+        if refresh and plain_path.exists():
+            # The gzip copy is now the authoritative one; drop the stale
+            # plain file so reads don't resurrect it.
+            plain_path.unlink()
         if self.request_delay_seconds:
             time.sleep(self.request_delay_seconds)
         return data
 
-    def schedule(self, target: date) -> list[dict[str, Any]]:
+    def schedule(self, target: date, *, refresh: bool = False) -> list[dict[str, Any]]:
         stamp = target.strftime("%m/%d/%Y")
         data = self._cached_fetch(
             f"schedule_{target.isoformat()}.json",
             lambda: statsapi.schedule(start_date=stamp, end_date=stamp),
+            refresh=refresh,
         )
         return data or []
 
@@ -349,9 +376,14 @@ class BoxscoreSource:
             lambda: statsapi.get("game", {"gamePk": game_id}),
         )
 
-    def final_games(self, target: date) -> list[dict[str, Any]]:
+    def final_games(self, target: date, *, refresh_schedule: bool = False) -> list[dict[str, Any]]:
         games = []
-        for entry in self.schedule(target):
+        for entry in self.schedule(target, refresh=refresh_schedule):
+            # Regular-season games only: historical March/October dates
+            # include spring training ('S') and postseason games, which
+            # have non-representative lineups and pitcher usage.
+            if str(entry.get("game_type") or "R") != "R":
+                continue
             if str(entry.get("status") or "").lower() not in _FINAL_STATUSES:
                 continue
             game_id = safe_int(entry.get("game_id"))
@@ -376,9 +408,13 @@ class HitDatasetBuilder:
         # a day's features are computed (updated at the end of each day).
         self.batter_history: dict[int, list[dict[str, Any]]] = {}
         self.pitcher_history: dict[int, list[dict[str, Any]]] = {}
+        # Reliever (non-starter) lines grouped by team name, for
+        # opposing-bullpen quality features.
+        self.bullpen_history: dict[str, list[dict[str, Any]]] = {}
         self.bats_by_player: dict[int, Optional[str]] = {}
         self.throws_by_pitcher: dict[int, Optional[str]] = {}
-        self.vs_hand = VsHandHistory()
+        self.vs_hand = RateHistory()
+        self.vs_pitcher = RateHistory()
 
     async def load_db_context(self) -> dict[str, Any]:
         player_rows = await self.db.fetch_all(
@@ -396,8 +432,9 @@ class HitDatasetBuilder:
 
     # -- pregame feature blocks ---------------------------------------------
 
-    def batter_features(self, player_id: int) -> dict[str, Any]:
-        """Season + rolling-window form from accumulated prior game lines."""
+    def batter_features(self, player_id: int, target: date) -> dict[str, Any]:
+        """Season + rolling-window form from accumulated prior game lines,
+        plus rest/fatigue context (days since last game, games in last 7)."""
         rows = self.batter_history.get(player_id, [])
         season = batter_window_stats(rows)
         features: dict[str, Any] = {
@@ -414,6 +451,14 @@ class HitDatasetBuilder:
             features[f"last{window}_k_pct"] = recent["k_pct"]
             features[f"last{window}_contact_rate"] = recent["contact_rate"]
             features[f"last{window}_woba"] = recent["woba"]
+
+        if rows:
+            last_game = parse_iso_date(rows[-1]["game_date"])
+            features["days_rest"] = (target - last_game).days
+        else:
+            features["days_rest"] = None
+        week_ago_iso = (target - timedelta(days=7)).isoformat()
+        features["games_last7"] = sum(1 for r in rows if r["game_date"] >= week_ago_iso)
         return features
 
     def pitcher_features(self, pitcher_id: int) -> dict[str, Any]:
@@ -426,6 +471,49 @@ class HitDatasetBuilder:
         features["p_season_starts"] = sum(1 for r in rows if r.get("started"))
         return features
 
+    def pregame_features(
+        self,
+        *,
+        player_id: int,
+        slot: int,
+        is_home: bool,
+        bats: Optional[str],
+        throws: Optional[str],
+        starter_id: int,
+        park: Optional[Mapping[str, Any]],
+        bullpen: Mapping[str, Optional[float]],
+        pitcher_feats: Mapping[str, Any],
+        target: date,
+    ) -> dict[str, Any]:
+        """
+        The complete pre-game feature dict for one batter-game. Used by
+        BOTH the historical dataset build and the daily prediction script,
+        so training and serving can never drift apart.
+        """
+        vs_hand = self.vs_hand.snapshot(hand_key(player_id, throws))
+        vs_pitcher = self.vs_pitcher.snapshot((player_id, starter_id))
+        return {
+            "batting_order": slot,
+            "is_home": is_home,
+            # -- platoon + season BvP
+            "platoon_advantage": platoon_advantage(bats, throws),
+            "vs_hand_pa": vs_hand["pa"],
+            "vs_hand_hit_per_pa": vs_hand["hit_per_pa"],
+            "faced_pitcher_pa": vs_pitcher["pa"],
+            "faced_pitcher_hit_per_pa": vs_pitcher["hit_per_pa"],
+            # -- park
+            "park_runs_factor": (park or {}).get("runs"),
+            "park_hr_factor": (park or {}).get("hr"),
+            # -- opposing bullpen quality
+            "opp_bullpen_ip": bullpen["ip"],
+            "opp_bullpen_h_per_9": bullpen["h_per_9"],
+            "opp_bullpen_whip": bullpen["whip"],
+            "opp_bullpen_k_pct": bullpen["k_pct"],
+            # -- batter form + pitcher blocks
+            **self.batter_features(player_id, target),
+            **pitcher_feats,
+        }
+
     # -- per-day extraction ---------------------------------------------------
 
     def rows_for_date(self, target: date) -> list[dict[str, Any]]:
@@ -434,9 +522,10 @@ class HitDatasetBuilder:
         # Everything observed today is collected here and applied to the
         # histories only AFTER the whole day is featurized — so features
         # never see same-day outcomes (doubleheaders included).
-        day_outcomes: list[tuple[int, Optional[str], int, int]] = []
+        day_outcomes: list[tuple[int, int, Optional[str], int, int]] = []
         day_batter_lines: list[tuple[int, dict[str, Any]]] = []
         day_pitcher_lines: list[tuple[int, dict[str, Any]]] = []
+        day_bullpen_lines: list[tuple[str, dict[str, Any]]] = []
 
         for slate_game in self.source.final_games(target):
             schedule = slate_game["schedule"]
@@ -450,6 +539,7 @@ class HitDatasetBuilder:
             # Collect every batting and pitching line in the game (both
             # teams, starters AND subs/relievers) for the form histories.
             for side in ("away", "home"):
+                side_team = (box_teams.get(side, {}).get("team") or {}).get("name") or schedule.get(f"{side}_name")
                 for box_player in (box_teams.get(side, {}).get("players") or {}).values():
                     pid = safe_int((box_player.get("person") or {}).get("id"))
                     if not pid:
@@ -465,6 +555,8 @@ class HitDatasetBuilder:
                         line = pitching_line_from_boxscore(pitching)
                         line["game_date"] = target_iso
                         day_pitcher_lines.append((pid, line))
+                        if not line["started"] and side_team:
+                            day_bullpen_lines.append((side_team, line))
 
             for offense_side in ("away", "home"):
                 defense_side = "home" if offense_side == "away" else "away"
@@ -492,6 +584,10 @@ class HitDatasetBuilder:
                 team_name = offense.get("team", {}).get("name") or schedule.get(f"{offense_side}_name")
                 opponent_name = defense.get("team", {}).get("name") or schedule.get(f"{defense_side}_name")
 
+                # Opposing bullpen quality: ~40% of a batter's PAs come
+                # against relievers, who are absent from starter metrics.
+                bullpen = pitcher_agg(self.bullpen_history.get(opponent_name, []))
+
                 for slot, raw_player_id in enumerate(batting_order, start=1):
                     player_id = safe_int(raw_player_id)
                     box_player = offense.get("players", {}).get(f"ID{player_id}", {})
@@ -504,8 +600,7 @@ class HitDatasetBuilder:
                         self.bats_by_player.get(player_id)
                         or (game_player.get("batSide") or {}).get("code")
                     )
-                    vs_hand = self.vs_hand.snapshot(player_id, throws)
-                    day_outcomes.append((player_id, throws, hits_game, pa_game))
+                    day_outcomes.append((player_id, starter_id, throws, hits_game, pa_game))
 
                     day_rows.append({
                         # -- identifiers / context
@@ -520,8 +615,6 @@ class HitDatasetBuilder:
                         "team": team_name,
                         "opponent": opponent_name,
                         "venue": venue,
-                        "is_home": offense_side == "home",
-                        "batting_order": slot,
                         "bats": bats,
                         "pitcher_id": starter_id,
                         "pitcher_name": pitcher_person.get("fullName") or str(starter_id),
@@ -532,25 +625,31 @@ class HitDatasetBuilder:
                         "pa_game": pa_game,
                         "ab_game": safe_int(batting.get("atBats")),
                         "total_bases_game": safe_int(batting.get("totalBases")),
-                        # -- platoon
-                        "platoon_advantage": platoon_advantage(bats, throws),
-                        "vs_hand_pa": vs_hand["pa"],
-                        "vs_hand_hit_per_pa": vs_hand["hit_per_pa"],
-                        # -- park
-                        "park_runs_factor": (park or {}).get("runs"),
-                        "park_hr_factor": (park or {}).get("hr"),
-                        # -- batter form + pitcher blocks
-                        **self.batter_features(player_id),
-                        **pitcher_feats,
+                        # -- everything the model sees
+                        **self.pregame_features(
+                            player_id=player_id,
+                            slot=slot,
+                            is_home=offense_side == "home",
+                            bats=bats,
+                            throws=throws,
+                            starter_id=starter_id,
+                            park=park,
+                            bullpen=bullpen,
+                            pitcher_feats=pitcher_feats,
+                            target=target,
+                        ),
                     })
 
         # Day is fully featurized — now fold today's results into history.
-        for player_id, hand, hits_game, pa_game in day_outcomes:
-            self.vs_hand.add(player_id, hand, hits_game, pa_game)
+        for player_id, starter_id, hand, hits_game, pa_game in day_outcomes:
+            self.vs_hand.add(hand_key(player_id, hand), hits_game, pa_game)
+            self.vs_pitcher.add((player_id, starter_id), hits_game, pa_game)
         for player_id, line in day_batter_lines:
             self.batter_history.setdefault(player_id, []).append(line)
         for pitcher_id, line in day_pitcher_lines:
             self.pitcher_history.setdefault(pitcher_id, []).append(line)
+        for team, line in day_bullpen_lines:
+            self.bullpen_history.setdefault(team, []).append(line)
         return day_rows
 
     def build(self, start: date, end: date, *, verbose: bool = True) -> list[dict[str, Any]]:
@@ -580,8 +679,9 @@ def summarize(df: pl.DataFrame) -> None:
     print("\nNULL RATES (key features)")
     key_columns = [
         "season_hit_per_pa", "last10_hit_per_pa", "last5_woba",
-        "platoon_advantage", "vs_hand_hit_per_pa",
+        "platoon_advantage", "vs_hand_hit_per_pa", "faced_pitcher_hit_per_pa",
         "p_season_h_per_9", "p_last3_whip", "park_runs_factor", "bats", "pitcher_throws",
+        "opp_bullpen_h_per_9", "days_rest",
     ]
     for column in key_columns:
         null_rate = df[column].null_count() / df.height if df.height else 0.0

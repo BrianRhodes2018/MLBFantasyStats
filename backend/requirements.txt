@@ -97,3 +97,9 @@ httpx
 #   3. Auto-refreshing expired tokens and making authenticated API calls
 # Also installs 'requests' and 'oauthlib' as dependencies automatically.
 requests-oauthlib
+
+# scikit-learn: Machine learning library used by train_hit_model.py to
+# train and evaluate the daily 1+ hit prediction models (logistic
+# regression and gradient-boosted trees) with walk-forward validation.
+# Needs >=1.6 for NumPy 2.x compatibility.
+scikit-learn>=1.6
