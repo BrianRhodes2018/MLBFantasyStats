@@ -39,5 +39,9 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# --- Local backtest artifacts ---
+backend/.backtest_cache/
+backend/backtest_results/
+
 # --- Local assistant/session data ---
 .claude/

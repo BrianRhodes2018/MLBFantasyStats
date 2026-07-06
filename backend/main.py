@@ -39,7 +39,8 @@ import httpx
 from database import database, engine, metadata, get_db, snapshot_databases
 from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata, bet_suggestions, hitter_savant_snapshots
 import xwoba
-from betting import compute_composite_score, signals_to_json
+from betting import compute_composite_score, score_recent_form, signals_to_json
+from hit_model import hit_rate_per_pa_from_batter_row, score_hit_candidate
 from park_factors import (
     get_park_factor,
     get_all_factors_with_meta,
@@ -4070,6 +4071,8 @@ def _compute_rolling_woba_and_kpct_map(
             "pa": 0,
             "k": 0,
             "bb": 0,
+            "hits": 0,
+            "ab": 0,
         })
         h = m.get("hits", 0) or 0
         dbl = m.get("doubles", 0) or 0
@@ -4093,6 +4096,8 @@ def _compute_rolling_woba_and_kpct_map(
         a["pa"] += ab + bb + hbp + sf
         a["k"] += k
         a["bb"] += bb
+        a["hits"] += h
+        a["ab"] += ab
 
     out: dict[int, dict] = {}
     for pid, a in agg.items():
@@ -4102,6 +4107,9 @@ def _compute_rolling_woba_and_kpct_map(
             "woba": round(a["woba_num"] / a["pa"], 3),
             "k_pct": round(a["k"] / a["pa"] * 100, 1),
             "pa": a["pa"],
+            "hits": a["hits"],
+            "at_bats": a["ab"],
+            "hit_rate_per_pa": round(a["hits"] / a["pa"], 4),
         }
     return out
 
@@ -4227,7 +4235,7 @@ def _resolve_projected_matchup_rows(
 @app.get("/betting/candidates", response_model=ApiResponse)
 async def get_betting_candidates(
     date: Optional[str] = Query(None, description="Game date YYYY-MM-DD (defaults to today)"),
-    top_n: int = Query(50, ge=1, le=100, description="Maximum candidates to return (default 50 — effectively uncapped for one day)"),
+    top_n: int = Query(50, ge=1, le=300, description="Maximum candidates to return (default 50 — effectively uncapped for one day)"),
     min_pitcher_ip: float = Query(20.0, ge=0.0, description="Min innings pitched for the opposing pitcher to count (filters tiny-sample noise)"),
     min_composite_score: float = Query(50.0, ge=0.0, description="Minimum composite score for a candidate to be returned (quality floor)"),
     min_fired_signals: int = Query(3, ge=0, le=5, description="Minimum number of signals that must fire for a candidate to be returned"),
@@ -4236,6 +4244,8 @@ async def get_betting_candidates(
     projection_lookback_days: int = Query(DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS, ge=7, le=30, description="Days of MLB batting orders to use for free internal lineup projections"),
     min_projected_lineup_confidence: float = Query(DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR, ge=0.0, le=1.0, description="Minimum recent-start confidence for internal projected lineup hitters"),
     max_bvp_pairs: int = Query(15, ge=0, le=300, description="Maximum confirmed-lineup BvP pairs to hydrate per generation"),
+    hit_form_days: int = Query(5, ge=3, le=14, description="Rolling days used by the separate 1+ hit candidate model"),
+    persist_suggestions: bool = Query(True, include_in_schema=False),
 ):
     """
     Generate today's hitter betting candidates by composite scoring.
@@ -4492,6 +4502,7 @@ async def get_betting_candidates(
                     "projection_lookback_days": projection_lookback_days,
                     "min_projected_lineup_confidence": min_projected_lineup_confidence,
                     "max_bvp_pairs": max_bvp_pairs,
+                    "hit_form_days": hit_form_days,
                 },
                 "lineup_meta": build_lineup_meta(
                     lineup_mode=lineup_mode,
@@ -4560,16 +4571,33 @@ async def get_betting_candidates(
             "name": m.get("name"),
         }
 
+    # Season hitter totals from the local free MLB Stats API ingest. The hit
+    # candidate model uses these as a batter-specific hit/PA baseline.
+    hitter_lookup: dict[int, dict] = {}
+    if batter_ids_needed:
+        hitter_rows = await database.fetch_all(
+            players.select().where(players.c.mlb_id.in_(list(batter_ids_needed)))
+        )
+        hitter_lookup = {
+            int(m["mlb_id"]): m
+            for r in hitter_rows
+            for m in [dict(r._mapping)]
+            if m.get("mlb_id") is not None
+        }
+
     # ---------- 5. Bulk-load rolling wOBA + K% from batter_game_logs ----------
     # Upgrade over the previous OPS-based form signal: rolling wOBA uses
     # proper linear run weights (a walk isn't worth a single, an HR isn't
     # worth 4× a single), and rolling K% gives the form signal a process-
     # confirmation gate so BABIP-luck "hot" streaks don't fire.
-    cutoff = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=14)).strftime("%Y-%m-%d")
+    target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+    cutoff = (target_dt - timedelta(days=14)).strftime("%Y-%m-%d")
+    hit_cutoff = (target_dt - timedelta(days=hit_form_days)).strftime("%Y-%m-%d")
     log_rows = await database.fetch_all(
         batter_game_logs.select().where(batter_game_logs.c.player_id.in_(list(batter_ids_needed)))
     )
     rolling_form_map = _compute_rolling_woba_and_kpct_map(log_rows, cutoff)
+    hit_rolling_form_map = _compute_rolling_woba_and_kpct_map(log_rows, hit_cutoff)
 
     # ---------- 5.5. Look up season Savant data per batter ----------
     # Query directly from `hitter_savant_snapshots` instead of the
@@ -4629,6 +4657,10 @@ async def get_betting_candidates(
         rolling = rolling_form_map.get(row["player_mlb_id"]) or {}
         rolling_woba = rolling.get("woba")
         rolling_k_pct = rolling.get("k_pct")
+        hit_rolling = hit_rolling_form_map.get(row["player_mlb_id"]) or {}
+        hit_rolling_woba = hit_rolling.get("woba")
+        hit_rolling_k_pct = hit_rolling.get("k_pct")
+        rolling_hit_rate_per_pa = hit_rolling.get("hit_rate_per_pa")
 
         # Savant lookup from the batch query above — season-level xwOBA /
         # Barrel-PA / etc. None when the batter isn't qualified or no
@@ -4637,6 +4669,8 @@ async def get_betting_candidates(
         season_woba = savant.get("woba")  # actual season wOBA
         season_xwoba = savant.get("xwoba")
         season_barrel_pa_pct = savant.get("barrels_per_pa")
+        hitter = hitter_lookup.get(row["player_mlb_id"]) or {}
+        season_hit_rate_per_pa = hit_rate_per_pa_from_batter_row(hitter) if hitter else None
 
         bvp = bvp_map.get((row["player_mlb_id"], row["opposing_pitcher_mlb_id"]))
         bvp_pa = bvp["pa"] if bvp else None
@@ -4669,12 +4703,39 @@ async def get_betting_candidates(
             park_runs_factor=row["park_runs_factor"],
         )
 
+        hit_form_v, hit_form_fired, hit_form_detail, hit_form_ratio = score_recent_form(
+            rolling_woba=hit_rolling_woba,
+            season_woba=season_woba,
+            rolling_k_pct=hit_rolling_k_pct,
+        )
+        hit_candidate = score_hit_candidate(
+            batting_order=row.get("batting_order"),
+            lineup_source=row.get("lineup_source"),
+            lineup_confidence=row.get("lineup_confidence"),
+            season_hit_rate_per_pa=season_hit_rate_per_pa,
+            rolling_hit_rate_per_pa=rolling_hit_rate_per_pa,
+            rolling_k_pct=hit_rolling_k_pct,
+            form_signal=hit_form_v,
+            pitcher_signal=result["signals"]["pitcher_vulnerability"]["value"],
+            platoon_signal=result["signals"]["platoon"]["value"],
+            park_runs_factor=row["park_runs_factor"],
+            bvp_signal=result["signals"]["bvp"]["value"],
+        )
+        hit_candidate["form_signal"] = {
+            "value": round(hit_form_v, 3),
+            "fired": hit_form_fired,
+            "detail": hit_form_detail,
+            "ratio": round(hit_form_ratio, 3) if hit_form_ratio is not None else None,
+            "window_days": hit_form_days,
+        }
+
         candidates.append({
             **row,
             "composite_score": result["composite_score"],
             "signals": result["signals"],
             "summary": result["summary"],
             "opposing_pitcher_throws": pdata.get("throws"),
+            "hit_candidate": hit_candidate,
             # Frontend context strip — surfaces the underlying numbers
             # without making the user hover the signal chip to see them.
             # All fields are nullable (Savant cache empty, batter not
@@ -4682,6 +4743,11 @@ async def get_betting_candidates(
             "context_stats": {
                 "rolling_woba": rolling_woba,
                 "rolling_k_pct": rolling_k_pct,
+                "hit_form_days": hit_form_days,
+                "hit_rolling_woba": hit_rolling_woba,
+                "hit_rolling_k_pct": hit_rolling_k_pct,
+                "rolling_hit_rate_per_pa": rolling_hit_rate_per_pa,
+                "season_hit_rate_per_pa": season_hit_rate_per_pa,
                 "season_woba": season_woba,
                 "season_xwoba": season_xwoba,
                 "season_barrel_pa_pct": season_barrel_pa_pct,
@@ -4724,36 +4790,37 @@ async def get_betting_candidates(
 
     # ---------- 8. Persist to bet_suggestions ----------
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    # Idempotent: clear any existing rows for this date, then insert the new set.
-    await database.execute(
-        bet_suggestions.delete().where(bet_suggestions.c.suggested_date == target_date)
-    )
-    if top:
-        rows_to_insert = [
-            {
-                "suggested_date": target_date,
-                "generated_at": generated_at,
-                "rank": c["rank"],
-                "player_mlb_id": c["player_mlb_id"],
-                "player_name": c["player_name"],
-                "player_team": c.get("player_team"),
-                "game_id": c.get("game_id"),
-                "opposing_pitcher_mlb_id": c.get("opposing_pitcher_mlb_id"),
-                "opposing_pitcher_name": c.get("opposing_pitcher_name"),
-                "venue": c.get("venue"),
-                "game_time": c.get("game_time"),
-                "batting_order": c.get("batting_order"),
-                "lineup_source": c.get("lineup_source"),
-                "lineup_provider": c.get("lineup_provider"),
-                "lineup_confirmed": str(bool(c.get("lineup_confirmed"))).lower(),
-                "lineup_edge_threshold": c.get("lineup_edge_threshold"),
-                "composite_score": c["composite_score"],
-                "signals_json": signals_to_json(c["signals"]),
-                "summary": c["summary"],
-            }
-            for c in top
-        ]
-        await database.execute_many(bet_suggestions.insert(), rows_to_insert)
+    if persist_suggestions:
+        # Idempotent: clear any existing rows for this date, then insert the new set.
+        await database.execute(
+            bet_suggestions.delete().where(bet_suggestions.c.suggested_date == target_date)
+        )
+        if top:
+            rows_to_insert = [
+                {
+                    "suggested_date": target_date,
+                    "generated_at": generated_at,
+                    "rank": c["rank"],
+                    "player_mlb_id": c["player_mlb_id"],
+                    "player_name": c["player_name"],
+                    "player_team": c.get("player_team"),
+                    "game_id": c.get("game_id"),
+                    "opposing_pitcher_mlb_id": c.get("opposing_pitcher_mlb_id"),
+                    "opposing_pitcher_name": c.get("opposing_pitcher_name"),
+                    "venue": c.get("venue"),
+                    "game_time": c.get("game_time"),
+                    "batting_order": c.get("batting_order"),
+                    "lineup_source": c.get("lineup_source"),
+                    "lineup_provider": c.get("lineup_provider"),
+                    "lineup_confirmed": str(bool(c.get("lineup_confirmed"))).lower(),
+                    "lineup_edge_threshold": c.get("lineup_edge_threshold"),
+                    "composite_score": c["composite_score"],
+                    "signals_json": signals_to_json(c["signals"]),
+                    "summary": c["summary"],
+                }
+                for c in top
+            ]
+            await database.execute_many(bet_suggestions.insert(), rows_to_insert)
 
     projected_lineup_meta = build_lineup_meta(
         lineup_mode=lineup_mode,
@@ -4781,12 +4848,94 @@ async def get_betting_candidates(
                 "min_fired_signals": min_fired_signals,
                 "min_pitcher_ip": min_pitcher_ip,
                 "confirmed_lineup_edge_threshold": CONFIRMED_LINEUP_EDGE_THRESHOLD,
-                    "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
-                    "projection_lookback_days": projection_lookback_days,
-                    "min_projected_lineup_confidence": min_projected_lineup_confidence,
-                    "max_bvp_pairs": max_bvp_pairs,
-                },
+                "projected_lineup_edge_threshold": projected_lineup_edge_threshold,
+                "projection_lookback_days": projection_lookback_days,
+                "min_projected_lineup_confidence": min_projected_lineup_confidence,
+                "max_bvp_pairs": max_bvp_pairs,
+                "hit_form_days": hit_form_days,
+            },
             "lineup_meta": projected_lineup_meta,
+            "candidates": top,
+        },
+    )
+
+
+@app.get("/betting/hit-candidates", response_model=ApiResponse)
+async def get_hit_candidates(
+    date: Optional[str] = Query(None, description="Game date YYYY-MM-DD (defaults to today)"),
+    top_n: int = Query(50, ge=1, le=100, description="Maximum hit candidates to return"),
+    min_pitcher_ip: float = Query(20.0, ge=0.0, description="Min innings pitched for the opposing pitcher to count"),
+    lineup_mode: str = Query("hybrid", pattern="^(confirmed|projected|hybrid)$", description="Lineup source mode"),
+    projection_lookback_days: int = Query(DEFAULT_RECENT_LINEUP_LOOKBACK_DAYS, ge=7, le=30, description="Days of MLB batting orders to use for free internal lineup projections"),
+    min_projected_lineup_confidence: float = Query(DEFAULT_RECENT_LINEUP_CONFIDENCE_FLOOR, ge=0.0, le=1.0, description="Minimum recent-start confidence for internal projected lineup hitters"),
+    hit_form_days: int = Query(5, ge=3, le=14, description="Rolling days used by the separate 1+ hit candidate model"),
+    min_hit_probability: Optional[float] = Query(None, ge=0.0, le=1.0, description="Optional floor for the 1+ hit probability"),
+):
+    """
+    Return a hit-focused view of today's hitter pool.
+
+    This endpoint reuses the betting candidate pipeline for free lineup,
+    pitcher, platoon, park, and recent-form context, but it does not persist to
+    bet_suggestions. It ranks by the season-tested hit score/confidence rather
+    than by the raw probability estimate, which is retained for context but is
+    not calibrated enough to drive ordering yet.
+    """
+    pool_response = await get_betting_candidates(
+        date=date,
+        top_n=300,
+        min_pitcher_ip=min_pitcher_ip,
+        min_composite_score=0.0,
+        min_fired_signals=0,
+        lineup_mode=lineup_mode,
+        projected_lineup_edge_threshold=0.0,
+        projection_lookback_days=projection_lookback_days,
+        min_projected_lineup_confidence=min_projected_lineup_confidence,
+        max_bvp_pairs=0,
+        hit_form_days=hit_form_days,
+        persist_suggestions=False,
+    )
+    pool_data = pool_response.data or {}
+    candidates = [
+        candidate
+        for candidate in pool_data.get("candidates", [])
+        if candidate.get("hit_candidate")
+    ]
+    if min_hit_probability is not None:
+        candidates = [
+            candidate
+            for candidate in candidates
+            if (candidate["hit_candidate"].get("hit_probability") or 0.0) >= min_hit_probability
+        ]
+
+    candidates.sort(
+        key=lambda candidate: (
+            candidate["hit_candidate"].get("score") or 0.0,
+            candidate["hit_candidate"].get("hit_probability") or 0.0,
+            candidate.get("composite_score") or 0.0,
+        ),
+        reverse=True,
+    )
+    top = candidates[:top_n]
+    for rank, candidate in enumerate(top, start=1):
+        candidate["hit_rank"] = rank
+
+    thresholds = dict(pool_data.get("thresholds") or {})
+    thresholds.update({
+        "hit_form_days": hit_form_days,
+        "min_hit_probability": min_hit_probability,
+        "ranking_metric": "hit_score",
+        "confidence_basis": "hit_score / 100",
+    })
+
+    return ApiResponse(
+        code=200,
+        message=f"{len(top)} hit candidates for {pool_data.get('date') or date or 'today'}",
+        data={
+            "date": pool_data.get("date") or date,
+            "generated_at": pool_data.get("generated_at"),
+            "park_factor_meta": pool_data.get("park_factor_meta"),
+            "thresholds": thresholds,
+            "lineup_meta": pool_data.get("lineup_meta"),
             "candidates": top,
         },
     )

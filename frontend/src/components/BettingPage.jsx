@@ -70,7 +70,33 @@ function formatGameTime(iso) {
 
 function formatPct(value) {
   if (value === null || value === undefined) return '-'
-  return `${(Number(value) * 100).toFixed(0)}%`
+  const n = Number(value)
+  if (Number.isNaN(n)) return '-'
+  return `${(n * 100).toFixed(0)}%`
+}
+
+function formatNumber(value, digits = 1) {
+  if (value === null || value === undefined) return '-'
+  const n = Number(value)
+  if (Number.isNaN(n)) return '-'
+  return n.toFixed(digits)
+}
+
+function formatPctPoints(value, digits = 1) {
+  if (value === null || value === undefined) return '-'
+  const n = Number(value)
+  if (Number.isNaN(n)) return '-'
+  return `${n.toFixed(digits)}%`
+}
+
+async function fetchApiData(path) {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const json = await res.json()
+  if (json.code !== 200) {
+    throw new Error(json.message || `Failed to fetch ${path}`)
+  }
+  return json.data
 }
 
 function formatCandidateBatter(candidate) {
@@ -87,11 +113,39 @@ function formatCandidatePitcher(candidate) {
   })
 }
 
+function groupCandidatesByGame(candidates = []) {
+  if (!candidates.length) return []
+  const map = new Map()
+  for (const c of candidates) {
+    const key = c.game_id ?? c.opposing_pitcher_name ?? c.venue ?? 'unknown'
+    if (!map.has(key)) {
+      map.set(key, {
+        game_id: c.game_id,
+        game_time: c.game_time,
+        game_status: c.game_status,
+        venue: c.venue,
+        opposing_pitcher_name: c.opposing_pitcher_name,
+        opposing_pitcher_throws: c.opposing_pitcher_throws,
+        candidates: [],
+      })
+    }
+    map.get(key).candidates.push(c)
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    if (!a.game_time && !b.game_time) return 0
+    if (!a.game_time) return 1
+    if (!b.game_time) return -1
+    return a.game_time.localeCompare(b.game_time)
+  })
+}
+
 
 function BettingPage({ onPlayerClick }) {
   const [data, setData] = useState(null)
+  const [hitData, setHitData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [hitError, setHitError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   // User toggle: when true, started/finished games appear in the list
   // (greyed out). Default false — once a game starts you can't bet on it
@@ -99,25 +153,38 @@ function BettingPage({ onPlayerClick }) {
   const [showStarted, setShowStarted] = useState(false)
 
   const fetchCandidates = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/betting/candidates`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = await res.json()
-      if (json.code === 200) {
-        setData(json.data)
-        setError(null)
-      } else {
-        setError(json.message || 'Failed to fetch candidates')
-      }
-    } catch (err) {
-      setError(`Could not reach backend: ${err.message}`)
+    const [edgeResult, hitResult] = await Promise.allSettled([
+      fetchApiData('/betting/candidates'),
+      fetchApiData('/betting/hit-candidates'),
+    ])
+
+    if (edgeResult.status === 'fulfilled') {
+      setData(edgeResult.value)
+      setError(null)
+    } else {
+      setError(`Could not reach backend: ${edgeResult.reason.message}`)
+    }
+
+    if (hitResult.status === 'fulfilled') {
+      setHitData(hitResult.value)
+      setHitError(null)
+    } else {
+      setHitData(null)
+      setHitError(hitResult.reason.message)
     }
   }, [])
 
   // Initial load
   useEffect(() => {
-    setLoading(true)
-    fetchCandidates().finally(() => setLoading(false))
+    let mounted = true
+    queueMicrotask(() => {
+      fetchCandidates().finally(() => {
+        if (mounted) setLoading(false)
+      })
+    })
+    return () => {
+      mounted = false
+    }
   }, [fetchCandidates])
 
   // Manual refresh — re-runs the generator. Useful if a starter is announced
@@ -137,38 +204,21 @@ function BettingPage({ onPlayerClick }) {
   // Memoized because the work is O(N log N) and useEffect would otherwise
   // recompute it on every state change.
   const gameGroups = useMemo(() => {
-    if (!data?.candidates?.length) return []
-    const map = new Map()
-    for (const c of data.candidates) {
-      const key = c.game_id ?? c.opposing_pitcher_name ?? c.venue ?? 'unknown'
-      if (!map.has(key)) {
-        map.set(key, {
-          game_id: c.game_id,
-          game_time: c.game_time,
-          game_status: c.game_status,
-          venue: c.venue,
-          opposing_pitcher_name: c.opposing_pitcher_name,
-          opposing_pitcher_throws: c.opposing_pitcher_throws,
-          candidates: [],
-        })
-      }
-      map.get(key).candidates.push(c)
-    }
-    // Sort groups by game_time ascending so morning games come first.
-    // Groups missing game_time fall to the bottom.
-    return Array.from(map.values()).sort((a, b) => {
-      if (!a.game_time && !b.game_time) return 0
-      if (!a.game_time) return 1
-      if (!b.game_time) return -1
-      return a.game_time.localeCompare(b.game_time)
-    })
+    return groupCandidatesByGame(data?.candidates || [])
   }, [data?.candidates])
+  const hitGameGroups = useMemo(() => {
+    return groupCandidatesByGame(hitData?.candidates || [])
+  }, [hitData?.candidates])
 
   // Filter games that have started unless the user explicitly opted in.
   const visibleGroups = useMemo(() => {
     if (showStarted) return gameGroups
     return gameGroups.filter(g => !gameHasStarted(g.game_status))
   }, [gameGroups, showStarted])
+  const visibleHitGroups = useMemo(() => {
+    if (showStarted) return hitGameGroups
+    return hitGameGroups.filter(g => !gameHasStarted(g.game_status))
+  }, [hitGameGroups, showStarted])
 
   // Counts for the toggle and subtitle. The backend can return useful
   // historical candidates for the audit log, but betting decisions only
@@ -178,12 +228,20 @@ function BettingPage({ onPlayerClick }) {
       .filter(g => !gameHasStarted(g.game_status))
       .reduce((sum, g) => sum + g.candidates.length, 0)
   ), [gameGroups])
-  const hiddenStartedGameCount = gameGroups.length - visibleGroups.length
+  const hiddenStartedGameCount = useMemo(() => {
+    const keys = new Set()
+    for (const g of [...gameGroups, ...hitGameGroups]) {
+      if (gameHasStarted(g.game_status)) {
+        keys.add(g.game_id ?? g.opposing_pitcher_name ?? g.venue ?? 'unknown')
+      }
+    }
+    return keys.size
+  }, [gameGroups, hitGameGroups])
   const hiddenStartedCandidateCount = useMemo(() => (
-    gameGroups
+    [...gameGroups, ...hitGameGroups]
       .filter(g => gameHasStarted(g.game_status))
       .reduce((sum, g) => sum + g.candidates.length, 0)
-  ), [gameGroups])
+  ), [gameGroups, hitGameGroups])
 
   if (loading) {
     return (
@@ -232,7 +290,7 @@ function BettingPage({ onPlayerClick }) {
         Composite score combines platoon, pitcher vulnerability, recent form,
         career batter-vs-pitcher history, and park factor. Projected lineup
         candidates must clear an extra {formatPct(data?.thresholds?.projected_lineup_edge_threshold)}
-        quality floor before they appear. Confirmed lineups stay primary when
+        {' '}quality floor before they appear. Confirmed lineups stay primary when
         MLB publishes them.
         {' '}
         Park factors:{' '}
@@ -242,7 +300,7 @@ function BettingPage({ onPlayerClick }) {
           <>static fallback.</>
         )}
         {' '}
-        <em>Each generation fans out ~270 BvP calls and takes 5-10 seconds.</em>
+        <em>Confirmed-lineup BvP hydration is capped so regeneration stays responsive.</em>
       </div>
 
       <div className="betting-formula-callout">
@@ -268,6 +326,136 @@ function BettingPage({ onPlayerClick }) {
             )}
           </p>
         </div>
+      )}
+
+      {hitError && (
+        <div className="form-message form-message-error">
+          Hit candidates unavailable: {hitError}
+        </div>
+      )}
+
+      {!hitError && hitData && (
+        <section className="hit-candidate-section">
+          <div className="hit-candidate-heading">
+            <div>
+              <h3>Today's Hit Candidates</h3>
+              <p>
+                {(hitData.candidates || []).length} ranked by 1+ hit confidence
+                {hitData.thresholds?.hit_form_days && (
+                  <> | {hitData.thresholds.hit_form_days}-day form window</>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {(hitData.candidates || []).length === 0 && (
+            <div className="betting-empty">No hit candidates available for this slate.</div>
+          )}
+
+          {(hitData.candidates || []).length > 0 && visibleHitGroups.length === 0 && !showStarted && (
+            <div className="betting-empty">
+              All current hit candidates are from games that already started.
+            </div>
+          )}
+
+          {visibleHitGroups.map((group) => {
+            const started = gameHasStarted(group.game_status)
+            return (
+              <div
+                key={`hit-${group.game_id ?? group.opposing_pitcher_name}`}
+                className={`betting-game-group hit-game-group${started ? ' started' : ''}`}
+              >
+                <div className="betting-game-header">
+                  <span className="betting-game-time">{formatGameTime(group.game_time)}</span>
+                  <span className="betting-game-separator">|</span>
+                  <span className="betting-game-matchup">
+                    {group.candidates[0]?.player_team || 'Lineup'} vs {formatCandidatePitcher(group)}
+                  </span>
+                  {group.venue && (
+                    <span className="betting-game-venue"> @ {group.venue}</span>
+                  )}
+                  {group.game_status && (
+                    <span className="betting-game-status">[{group.game_status}]</span>
+                  )}
+                  <span className="betting-game-count">
+                    {group.candidates.length} hitter{group.candidates.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                <div className="betting-grid hit-candidate-grid">
+                  {group.candidates.map((c) => {
+                    const hit = c.hit_candidate || {}
+                    const stats = c.context_stats || {}
+                    return (
+                      <div
+                        key={`hit-${c.hit_rank ?? c.rank}-${c.player_mlb_id}-${c.game_id}`}
+                        className="betting-card hit-candidate-card"
+                      >
+                        <div className="betting-card-rank-and-score">
+                          <span className="betting-rank">H#{c.hit_rank}</span>
+                          <span className="hit-confidence">{formatPct(hit.hit_confidence ?? ((hit.score ?? 0) / 100))}</span>
+                        </div>
+
+                        <div className="betting-player">
+                          <span
+                            className="betting-player-name"
+                            onClick={() =>
+                              onPlayerClick && onPlayerClick({
+                                name: c.player_name,
+                                mlb_id: c.player_mlb_id,
+                                team: c.player_team,
+                                bats: c.bats,
+                              })
+                            }
+                          >
+                            {formatCandidateBatter(c)}
+                          </span>
+                          <span className="betting-team">{c.player_team}</span>
+                          <span
+                            className={`lineup-source-chip ${c.lineup_source === 'projected' ? 'projected' : 'confirmed'}`}
+                          >
+                            {c.lineup_source === 'projected' ? 'Projected' : 'Confirmed'}
+                          </span>
+                        </div>
+
+                        <div className="betting-context">
+                          <span className="betting-vs">vs</span>{' '}
+                          <span className="betting-pitcher">{formatCandidatePitcher(c)}</span>
+                          {c.batting_order && <> | <span className="betting-venue">batting #{c.batting_order}</span></>}
+                        </div>
+
+                        <div className="hit-card-metrics">
+                          <span>score <strong>{formatNumber(hit.score, 1)}</strong></span>
+                          <span>raw prob <strong>{formatPct(hit.hit_probability)}</strong></span>
+                          <span>exp PA <strong>{formatNumber(hit.expected_pa, 1)}</strong></span>
+                          <span>hit/PA <strong>{formatPct(hit.per_pa_hit_probability)}</strong></span>
+                          <span>{stats.hit_form_days || hit.form_signal?.window_days || 5}d H/PA <strong>{formatPct(stats.rolling_hit_rate_per_pa)}</strong></span>
+                        </div>
+
+                        <div className="hit-card-metrics secondary">
+                          <span>season H/PA <strong>{formatPct(stats.season_hit_rate_per_pa)}</strong></span>
+                          <span>form signal <strong>{formatNumber(hit.form_signal?.value, 2)}</strong></span>
+                          <span>K% <strong>{formatPctPoints(stats.hit_rolling_k_pct, 1)}</strong></span>
+                        </div>
+
+                        {(hit.reasons?.length > 0 || hit.risks?.length > 0) && (
+                          <div className="hit-chip-row">
+                            {hit.reasons?.map((reason, i) => (
+                              <span key={`reason-${i}-${reason}`} className="hit-reason-chip">{reason}</span>
+                            ))}
+                            {hit.risks?.map((risk, i) => (
+                              <span key={`risk-${i}-${risk}`} className="hit-risk-chip">{risk}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </section>
       )}
 
       {!error && data && data.candidates?.length === 0 && (

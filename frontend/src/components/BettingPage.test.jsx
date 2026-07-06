@@ -1,29 +1,43 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import BettingPage from './BettingPage'
 
 describe('BettingPage', () => {
   afterEach(() => {
+    cleanup()
     vi.unstubAllGlobals()
   })
 
+  function mockBettingFetch(edgeData, hitData = null) {
+    const hitPayload = hitData ?? {
+      date: edgeData.date,
+      generated_at: edgeData.generated_at,
+      thresholds: { hit_form_days: 5 },
+      candidates: [],
+    }
+    return vi.fn(async (url) => {
+      const data = String(url).includes('/betting/hit-candidates') ? hitPayload : edgeData
+      return {
+        ok: true,
+        json: async () => ({
+          code: 200,
+          data,
+        }),
+      }
+    })
+  }
+
   it('renders the no-vig edge formula on the betting candidate page', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: 200,
-        data: {
-          date: '2026-05-20',
-          generated_at: '2026-05-20T12:00:00Z',
-          park_factor_meta: { source: 'static_fallback' },
-          thresholds: {
-            min_composite_score: 3,
-            min_fired_signals: 2,
-          },
-          candidates: [],
-        },
-      }),
+    const fetchMock = mockBettingFetch({
+      date: '2026-05-20',
+      generated_at: '2026-05-20T12:00:00Z',
+      park_factor_meta: { source: 'static_fallback' },
+      thresholds: {
+        min_composite_score: 3,
+        min_fired_signals: 2,
+      },
+      candidates: [],
     })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -35,16 +49,83 @@ describe('BettingPage', () => {
     })
 
     expect(fetchMock).toHaveBeenCalledWith('/betting/candidates')
+    expect(fetchMock).toHaveBeenCalledWith('/betting/hit-candidates')
     expect(screen.getByText('Edge formula')).toBeInTheDocument()
     expect(screen.getByText(/Positive edge means our projection is stronger/)).toBeInTheDocument()
   })
 
+  it('renders the separate hit candidate board', async () => {
+    const fetchMock = mockBettingFetch(
+      {
+        date: '2026-05-22',
+        generated_at: '2026-05-22T12:00:00Z',
+        park_factor_meta: { source: 'static_fallback' },
+        thresholds: {
+          min_composite_score: 50,
+          min_fired_signals: 3,
+        },
+        candidates: [],
+      },
+      {
+        date: '2026-05-22',
+        generated_at: '2026-05-22T12:00:00Z',
+        thresholds: { hit_form_days: 5 },
+        candidates: [
+          {
+            hit_rank: 1,
+            rank: 12,
+            player_mlb_id: 42,
+            player_name: 'Contact Bat',
+            bats: 'L',
+            player_team: 'Boston Red Sox',
+            game_id: 500,
+            opposing_pitcher_name: 'Contact Pitcher',
+            opposing_pitcher_throws: 'R',
+            venue: 'Fenway Park',
+            game_time: '2026-05-22T23:10:00Z',
+            game_status: 'Pre-Game',
+            batting_order: 2,
+            lineup_source: 'confirmed',
+            hit_candidate: {
+              score: 77.2,
+              hit_confidence: 0.772,
+              hit_probability: 0.682,
+              per_pa_hit_probability: 0.242,
+              expected_pa: 4.55,
+              form_signal: { value: 0.82, window_days: 5 },
+              reasons: ['top-half lineup slot', 'short-window form'],
+              risks: [],
+            },
+            context_stats: {
+              hit_form_days: 5,
+              rolling_hit_rate_per_pa: 0.31,
+              season_hit_rate_per_pa: 0.24,
+              hit_rolling_k_pct: 15.5,
+            },
+          },
+        ],
+      },
+    )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<BettingPage onBack={() => {}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Contact Bat (L)')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText("Today's Hit Candidates")).toBeInTheDocument()
+    expect(screen.getByText(/ranked by 1\+ hit confidence/)).toBeInTheDocument()
+    expect(screen.getByText('77%')).toBeInTheDocument()
+    expect(screen.getByText('68%')).toBeInTheDocument()
+    expect(screen.getByText('Contact Pitcher (RHP)')).toBeInTheDocument()
+    expect(screen.getByText('short-window form')).toBeInTheDocument()
+    expect(screen.getByText('31%')).toBeInTheDocument()
+  })
+
   it('separates before-first-pitch picks from started games', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: 200,
-        data: {
+    const fetchMock = mockBettingFetch({
           date: '2026-05-21',
           generated_at: '2026-05-21T12:00:00Z',
           park_factor_meta: { source: 'static_fallback' },
@@ -86,8 +167,6 @@ describe('BettingPage', () => {
               summary: 'Pregame pick.',
             },
           ],
-        },
-      }),
     })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -110,11 +189,7 @@ describe('BettingPage', () => {
   })
 
   it('shows projected lineup source and the 8 percent edge floor', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: 200,
-        data: {
+    const fetchMock = mockBettingFetch({
           date: '2026-05-27',
           generated_at: '2026-05-27T12:00:00Z',
           park_factor_meta: { source: 'baseball_savant', year_range: '2024-2026' },
@@ -160,8 +235,6 @@ describe('BettingPage', () => {
               context_stats: {},
             },
           ],
-        },
-      }),
     })
 
     vi.stubGlobal('fetch', fetchMock)
