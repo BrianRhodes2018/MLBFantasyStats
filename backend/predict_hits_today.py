@@ -46,6 +46,7 @@ from build_hit_dataset import (
     safe_int,
 )
 from database import normalize_database_url
+from hit_picks_store import replace_picks
 from park_factors import get_park_factor
 from train_hit_model import FEATURES, make_models, prepare_frame, to_matrix
 
@@ -353,6 +354,18 @@ async def run(args: argparse.Namespace) -> int:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(output, indent=2, sort_keys=True), encoding="utf-8")
         print(f"\nSaved JSON: {output_path}")
+
+        # Persist to the shared database so the deployed backend can serve
+        # today's list (the JSON file above only exists on this machine).
+        stored = await replace_picks(
+            db,
+            pick_date=target.isoformat(),
+            model_version=MODEL_VERSION,
+            generated_at=output["generated_at"],
+            trained_on_rows=train_df.height,
+            candidates=output["candidates"],
+        )
+        print(f"Stored top {stored} picks in the database.")
         print("Note: lineups are projected from recent boxscores until officials post.")
         return 0
     finally:

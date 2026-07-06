@@ -19,13 +19,40 @@ Example:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import os
 import re
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from databases import Database
+from dotenv import load_dotenv
+
 from build_hit_dataset import BACKEND_DIR, DEFAULT_CACHE_DIR, BoxscoreSource, safe_int
+from database import normalize_database_url
+from hit_picks_store import apply_grades
+
+
+async def write_grades_to_db(
+    graded_outcomes: list[tuple[str, dict[int, dict[str, int]]]],
+) -> None:
+    """Fill the grading columns on the stored hit_picks rows."""
+    load_dotenv(BACKEND_DIR / ".env")
+    raw_url = os.environ.get("DATABASE_URL")
+    if not raw_url:
+        print("Warning: DATABASE_URL not set; grades were not written to the database.")
+        return
+    async_url, _ = normalize_database_url(raw_url)
+    db = Database(async_url)
+    await db.connect()
+    try:
+        for pick_date, outcomes in graded_outcomes:
+            updated = await apply_grades(db, pick_date=pick_date, outcomes=outcomes)
+            print(f"{pick_date}: graded {updated} stored picks in the database.")
+    finally:
+        await db.disconnect()
 
 DEFAULT_PICKS_DIR = BACKEND_DIR / "backtest_results"
 DEFAULT_LEDGER = BACKEND_DIR / "data" / "hit_picks_ledger.json"
@@ -124,6 +151,7 @@ def main() -> int:
         return 1
 
     graded = skipped = 0
+    graded_outcomes: list[tuple[str, dict[int, dict[str, int]]]] = []
     for pick_file in pick_files:
         match = _PICK_FILE_RE.search(pick_file.name)
         if not match:
@@ -152,10 +180,20 @@ def main() -> int:
         rate = f"{top10['hits']}/{top10['played']}" if top10["played"] else "0 played"
         print(f"{pick_date}: graded (top-10: {rate}).")
         graded += 1
+        graded_outcomes.append((pick_date.isoformat(), outcomes))
 
     ledger["summary"] = summarize_ledger(ledger)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text(json.dumps(ledger, indent=2, sort_keys=True), encoding="utf-8")
+
+    # Mirror the grades into the shared database so the deployed backend's
+    # /hit-picks/ledger reflects them too. The file ledger above remains the
+    # local source of truth if the DB is unreachable.
+    if graded_outcomes:
+        try:
+            asyncio.run(write_grades_to_db(graded_outcomes))
+        except Exception as exc:
+            print(f"Warning: could not write grades to the database: {exc}")
 
     print(f"\nLEDGER — {graded} graded, {skipped} pending")
     print(f"{'model version':18s} {'days':>4s} {'top5':>12s} {'top10':>12s} {'top15':>12s}")
