@@ -11,7 +11,6 @@ lets the DEPLOYED backend serve picks generated on the dev machine.
 from fastapi import APIRouter, HTTPException
 
 import hit_picks_store
-from database import database
 from schemas import ApiResponse
 
 router = APIRouter(prefix="/hit-picks", tags=["hit-picks"])
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/hit-picks", tags=["hit-picks"])
 @router.get("/latest", response_model=ApiResponse)
 async def get_latest_hit_picks(top: int = 15):
     """The most recent daily pick list, trimmed to the top N."""
-    data = await hit_picks_store.fetch_latest_picks(database, top=top)
+    data = await hit_picks_store.fetch_latest_picks(top=top)
     if data is None:
         raise HTTPException(
             status_code=404,
@@ -32,7 +31,7 @@ async def get_latest_hit_picks(top: int = 15):
 @router.get("/ledger", response_model=ApiResponse)
 async def get_hit_picks_ledger():
     """Running per-model-version track record of graded picks."""
-    data = await hit_picks_store.fetch_ledger_summary(database)
+    data = await hit_picks_store.fetch_ledger_summary()
     if not data["days_graded"]:
         raise HTTPException(
             status_code=404,

@@ -110,7 +110,7 @@ class TestHitPicksRoutes:
             "picks": [{"player_id": 1, "player_name": "A", "rank": 1}],
         }
 
-        async def fake_fetch(db, *, top):
+        async def fake_fetch(*, top):
             assert top == 5
             return payload
 
@@ -120,14 +120,14 @@ class TestHitPicksRoutes:
         assert response.json()["data"] == payload
 
     def test_latest_404_when_no_picks_stored(self, client, monkeypatch):
-        async def fake_fetch(db, *, top):
+        async def fake_fetch(*, top):
             return None
 
         monkeypatch.setattr(hit_picks_store, "fetch_latest_picks", fake_fetch)
         assert client.get("/hit-picks/latest").status_code == 404
 
     def test_ledger_returns_summary(self, client, monkeypatch):
-        async def fake_ledger(db):
+        async def fake_ledger():
             return {"summary": {"hit_gbm_v2": {"days": 1}}, "days_graded": 1}
 
         monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)
@@ -136,7 +136,7 @@ class TestHitPicksRoutes:
         assert response.json()["data"]["days_graded"] == 1
 
     def test_ledger_404_when_nothing_graded(self, client, monkeypatch):
-        async def fake_ledger(db):
+        async def fake_ledger():
             return {"summary": {}, "days_graded": 0}
 
         monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)

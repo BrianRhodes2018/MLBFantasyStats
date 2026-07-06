@@ -21,38 +21,26 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import re
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from databases import Database
-from dotenv import load_dotenv
-
 from build_hit_dataset import BACKEND_DIR, DEFAULT_CACHE_DIR, BoxscoreSource, safe_int
-from database import normalize_database_url
-from hit_picks_store import apply_grades
+from hit_picks_store import apply_grades, close_picks_db
 
 
 async def write_grades_to_db(
     graded_outcomes: list[tuple[str, dict[int, dict[str, int]]]],
 ) -> None:
-    """Fill the grading columns on the stored hit_picks rows."""
-    load_dotenv(BACKEND_DIR / ".env")
-    raw_url = os.environ.get("DATABASE_URL")
-    if not raw_url:
-        print("Warning: DATABASE_URL not set; grades were not written to the database.")
-        return
-    async_url, _ = normalize_database_url(raw_url)
-    db = Database(async_url)
-    await db.connect()
+    """Fill the grading columns on the stored hit_picks rows (in the
+    production picks database — see hit_picks_store module doc)."""
     try:
         for pick_date, outcomes in graded_outcomes:
-            updated = await apply_grades(db, pick_date=pick_date, outcomes=outcomes)
-            print(f"{pick_date}: graded {updated} stored picks in the database.")
+            updated = await apply_grades(pick_date=pick_date, outcomes=outcomes)
+            print(f"{pick_date}: graded {updated} stored picks in the picks database.")
     finally:
-        await db.disconnect()
+        await close_picks_db()
 
 DEFAULT_PICKS_DIR = BACKEND_DIR / "backtest_results"
 DEFAULT_LEDGER = BACKEND_DIR / "data" / "hit_picks_ledger.json"
