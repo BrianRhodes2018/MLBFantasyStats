@@ -103,3 +103,9 @@ requests-oauthlib
 # regression and gradient-boosted trees) with walk-forward validation.
 # Needs >=1.6 for NumPy 2.x compatibility.
 scikit-learn>=1.6
+
+# Alembic: versioned database schema migrations ("git for the database").
+# Migration files live in backend/alembic/versions/; migrations.py brings
+# any database to the current revision at startup. See migrations.py for
+# the day-to-day workflow when changing models.py.
+alembic
