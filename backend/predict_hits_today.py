@@ -305,8 +305,12 @@ async def run(args: argparse.Namespace) -> int:
         fill_missing_probable_hands(builder, slate)
         candidates = build_candidates(builder, slate, lineups, names, target)
         if not candidates:
+            # A legitimate daily outcome (off day, All-Star break, lineups
+            # not posted yet) — not a failure. Exit 0 so the scheduled
+            # runner doesn't raise a monitoring alert; the app keeps
+            # serving the most recent stored list.
             print(f"No scoreable games for {target.isoformat()} (no probables/lineups yet).")
-            return 1
+            return 0
 
         cand_df = prepare_frame(pl.DataFrame(candidates, infer_schema_length=None))
         probs = model.predict_proba(to_matrix(cand_df))[:, 1]
