@@ -11,11 +11,12 @@
 # Register with Task Scheduler (one-time, run from any PowerShell):
 #   $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
 #     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\run_daily_hit_picks.ps1`""
-#   $trigger = New-ScheduledTaskTrigger -Daily -At 9:00AM
+#   $trigger = New-ScheduledTaskTrigger -Daily -At 7:30AM
 #   Register-ScheduledTask -TaskName "MLB Daily Hit Picks" -Action $action -Trigger $trigger
 #
 # Notes:
-#   - 9 AM local: yesterday's boxscores are final, today's slate is posted.
+#   - 7:30 AM local: yesterday's boxscores are final, today's slate is
+#     posted, and there's alerting margin before the earliest day games.
 #     Lineups are projected until officials post; the picks endpoint always
 #     serves whatever the latest run produced.
 #   - Output goes to backend/logs/hit_picks_daily.log (gitignored).
