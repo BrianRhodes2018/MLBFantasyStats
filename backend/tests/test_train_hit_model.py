@@ -1,5 +1,7 @@
 """Unit tests for the evaluation helpers in train_hit_model.py."""
 
+from datetime import date
+
 import numpy as np
 import polars as pl
 import pytest
@@ -69,32 +71,64 @@ class TestPooledSummary:
         assert pooled["auc"] == pytest.approx(0.625)
 
 
-class TestChooseProjectedLineup:
-    def make_lineups(self):
-        return [
-            {"date": "2026-07-01", "opp_hand": "L", "order": list(range(1, 10))},
-            {"date": "2026-07-02", "opp_hand": "R", "order": list(range(11, 20))},
-            {"date": "2026-07-03", "opp_hand": "R", "order": list(range(21, 30))},
-        ]
+class TestProjectLineup:
+    TARGET = date(2026, 7, 7)
 
-    def test_prefers_most_recent_same_hand(self):
-        from predict_hits_today import choose_projected_lineup
+    def entry(self, day, hand, order, month=7):
+        return {"date": f"2026-{month:02d}-{day:02d}", "opp_hand": hand, "order": order}
 
-        order, source = choose_projected_lineup(self.make_lineups(), "L")
-        assert order == list(range(1, 10))
+    def test_recent_role_change_beats_stale_bench_stretch(self):
+        # The "Nathan Lukes case": player 99 was absent in older lineups
+        # (weight 1.0 each) but has started the last three games (weight
+        # 2.0 each) — the projection must include him near the top.
+        from predict_hits_today import project_lineup
+
+        old_order = list(range(1, 10))            # 1..9, no player 99
+        new_order = [99] + list(range(2, 10))     # 99 leads off, bumps player 1
+        lineups = (
+            [self.entry(d, "R", old_order, month=6) for d in range(23, 27)]  # 4 old games
+            + [self.entry(d, "R", new_order) for d in range(5, 8)]           # 3 recent games
+        )
+        order, source = project_lineup(lineups, "R", self.TARGET)
+        assert 99 in order
+        assert order[0] == 99 or order[1] == 99  # weighted avg slot puts him up top
+        assert "recency-weighted" in source
+
+    def test_prefers_same_hand_subset_when_large_enough(self):
+        from predict_hits_today import project_lineup
+
+        vs_l = [self.entry(d, "L", list(range(11, 20))) for d in (1, 2, 3)]
+        vs_r = [self.entry(d, "R", list(range(1, 10))) for d in (4, 5, 6)]
+        order, source = project_lineup(vs_l + vs_r, "L", self.TARGET)
+        assert order == list(range(11, 20))
         assert "vs LHP" in source
 
-    def test_falls_back_to_most_recent(self):
-        from predict_hits_today import choose_projected_lineup
+    def test_small_same_hand_sample_uses_all_games(self):
+        from predict_hits_today import project_lineup
 
-        # No lineup vs an S-hand exists; use the latest overall.
-        order, source = choose_projected_lineup(self.make_lineups(), None)
-        assert order == list(range(21, 30))
-        assert "most recent" in source
+        # Only 2 games vs LHP (< MIN_SAME_HAND_GAMES) — pool is everything.
+        lineups = [
+            self.entry(1, "L", list(range(11, 20))),
+            self.entry(2, "L", list(range(11, 20))),
+            self.entry(5, "R", list(range(1, 10))),
+            self.entry(6, "R", list(range(1, 10))),
+        ]
+        _, source = project_lineup(lineups, "L", self.TARGET)
+        assert "all recent games" in source
+
+    def test_orders_by_weighted_average_slot(self):
+        from predict_hits_today import project_lineup
+
+        # Same nine players every game, fixed slots -> projection must
+        # reproduce the batting order exactly.
+        fixed = [30, 10, 50, 20, 70, 40, 90, 60, 80]
+        lineups = [self.entry(d, "R", fixed) for d in (4, 5, 6)]
+        order, _ = project_lineup(lineups, "R", self.TARGET)
+        assert order == fixed
 
     def test_empty_history(self):
-        from predict_hits_today import choose_projected_lineup
+        from predict_hits_today import project_lineup
 
-        order, source = choose_projected_lineup([], "R")
+        order, source = project_lineup([], "R", self.TARGET)
         assert order is None
         assert source == "none"
