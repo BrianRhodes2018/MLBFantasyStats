@@ -13,6 +13,14 @@ columns start NULL and get filled the morning after, once boxscores are
 final. The summary math is a pure function so it can be unit tested
 without a database.
 
+Which database? The picks live in the PRODUCTION database — the one the
+deployed backend reads. Resolution order:
+    1. PROD_DATABASE_URL  — set this in backend/.env on the dev machine,
+       where DATABASE_URL points at the local Postgres. The scripts then
+       write picks where the deployed app can see them.
+    2. DATABASE_URL       — the fallback. On Render this IS the
+       production database, so no extra variable is needed there.
+
 Backfill existing local JSON pick files into the database:
     python backend/hit_picks_store.py --backfill
 """
@@ -58,11 +66,48 @@ def _utc_now() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Picks database connection (lazy singleton)
+# ---------------------------------------------------------------------------
+
+_picks_db: Optional[Database] = None
+
+
+def picks_database_url() -> str:
+    """The connection string for wherever picks are stored (see module doc)."""
+    load_dotenv(BACKEND_DIR / ".env")
+    raw_url = os.environ.get("PROD_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if not raw_url:
+        raise RuntimeError(
+            "Neither PROD_DATABASE_URL nor DATABASE_URL is set. "
+            "Add one to backend/.env or the environment."
+        )
+    async_url, _ = normalize_database_url(raw_url)
+    return async_url
+
+
+async def get_picks_db() -> Database:
+    """Connect (once) to the picks database and reuse the pool after."""
+    global _picks_db
+    if _picks_db is None:
+        _picks_db = Database(picks_database_url())
+    if not _picks_db.is_connected:
+        await _picks_db.connect()
+    return _picks_db
+
+
+async def close_picks_db() -> None:
+    """Disconnect the singleton (scripts call this before exiting)."""
+    global _picks_db
+    if _picks_db is not None and _picks_db.is_connected:
+        await _picks_db.disconnect()
+    _picks_db = None
+
+
+# ---------------------------------------------------------------------------
 # Writes (called by predict_hits_today.py / grade_hit_picks.py)
 # ---------------------------------------------------------------------------
 
 async def replace_picks(
-    db: Database,
     *,
     pick_date: str,
     model_version: str,
@@ -72,6 +117,7 @@ async def replace_picks(
     top: int = STORED_PICKS_PER_DAY,
 ) -> int:
     """Replace the stored pick list for one date (idempotent re-runs)."""
+    db = await get_picks_db()
     rows = []
     for rank, candidate in enumerate(candidates[:top], start=1):
         row = {key: candidate.get(key) for key in _CANDIDATE_COLUMNS}
@@ -93,7 +139,6 @@ async def replace_picks(
 
 
 async def apply_grades(
-    db: Database,
     *,
     pick_date: str,
     outcomes: Mapping[int, Mapping[str, int]],
@@ -104,6 +149,7 @@ async def apply_grades(
     day (from grade_hit_picks.outcomes_for_date). Stored picks missing
     from it are marked played=0 (scratched / lineup projection missed).
     """
+    db = await get_picks_db()
     rows = await db.fetch_all(
         hit_picks.select().where(hit_picks.c.pick_date == pick_date)
     )
@@ -129,8 +175,9 @@ async def apply_grades(
 # Reads (called by the /hit-picks API routes)
 # ---------------------------------------------------------------------------
 
-async def fetch_latest_picks(db: Database, *, top: int = 15) -> Optional[dict[str, Any]]:
+async def fetch_latest_picks(*, top: int = 15) -> Optional[dict[str, Any]]:
     """The most recent day's pick list, shaped like the JSON pick files."""
+    db = await get_picks_db()
     latest = await db.fetch_one(
         "select max(pick_date) as pick_date from hit_picks"
     )
@@ -195,7 +242,8 @@ def summarize_pick_rows(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return by_version
 
 
-async def fetch_ledger_summary(db: Database) -> dict[str, Any]:
+async def fetch_ledger_summary() -> dict[str, Any]:
+    db = await get_picks_db()
     rows = await db.fetch_all(
         "select model_version, pick_date, rank, played, got_hit "
         "from hit_picks where played is not null"
@@ -210,13 +258,10 @@ async def fetch_ledger_summary(db: Database) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 async def _backfill(picks_dir: Path) -> None:
-    load_dotenv(BACKEND_DIR / ".env")
-    raw_url = os.environ.get("DATABASE_URL")
-    if not raw_url:
-        raise RuntimeError("DATABASE_URL is not set. Add it to backend/.env or your shell.")
-    async_url, _ = normalize_database_url(raw_url)
-    db = Database(async_url)
-    await db.connect()
+    from urllib.parse import urlparse
+
+    host = urlparse(picks_database_url().replace("+asyncpg", "")).hostname
+    print(f"Backfilling into picks database at: {host}")
     try:
         for pick_file in sorted(picks_dir.glob("hit_picks_*.json")):
             match = _PICK_FILE_RE.search(pick_file.name)
@@ -224,7 +269,6 @@ async def _backfill(picks_dir: Path) -> None:
                 continue
             payload = json.loads(pick_file.read_text(encoding="utf-8"))
             count = await replace_picks(
-                db,
                 pick_date=match.group(1),
                 model_version=payload.get("model_version") or "hit_logistic_v1",
                 generated_at=payload.get("generated_at"),
@@ -235,7 +279,7 @@ async def _backfill(picks_dir: Path) -> None:
                   f"({payload.get('model_version') or 'hit_logistic_v1'})")
         print("Backfill complete. Run grade_hit_picks.py --regrade to grade them into the DB.")
     finally:
-        await db.disconnect()
+        await close_picks_db()
 
 
 def main() -> int:
