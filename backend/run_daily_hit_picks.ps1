@@ -11,11 +11,12 @@
 # Register with Task Scheduler (one-time, run from any PowerShell):
 #   $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
 #     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\run_daily_hit_picks.ps1`""
-#   $trigger = New-ScheduledTaskTrigger -Daily -At 9:00AM
+#   $trigger = New-ScheduledTaskTrigger -Daily -At 7:30AM
 #   Register-ScheduledTask -TaskName "MLB Daily Hit Picks" -Action $action -Trigger $trigger
 #
 # Notes:
-#   - 9 AM local: yesterday's boxscores are final, today's slate is posted.
+#   - 7:30 AM local: yesterday's boxscores are final, today's slate is
+#     posted, and there's alerting margin before the earliest day games.
 #     Lineups are projected until officials post; the picks endpoint always
 #     serves whatever the latest run produced.
 #   - Output goes to backend/logs/hit_picks_daily.log (gitignored).
@@ -39,12 +40,48 @@ $logDir = Join-Path $backendDir "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "hit_picks_daily.log"
 
+# ---------------------------------------------------------------------------
+# Dead-man's-switch monitoring (healthchecks.io)
+# ---------------------------------------------------------------------------
+# HIT_PICKS_HEALTHCHECK_URL in backend/.env holds the check's ping URL.
+# We signal /start when the run begins, a plain ping on success, and
+# /fail (with the log tail attached) when either step errors. If the
+# success ping never arrives — task didn't run, PC was off, script broke
+# before pinging — healthchecks.io emails after its grace period.
+# When the variable is unset, monitoring is simply skipped.
+
+$hcUrl = $null
+$envFile = Join-Path $backendDir ".env"
+if (Test-Path $envFile) {
+    $match = Select-String -Path $envFile -Pattern '^HIT_PICKS_HEALTHCHECK_URL=(.+)$' | Select-Object -First 1
+    if ($match) { $hcUrl = $match.Matches[0].Groups[1].Value.Trim() }
+}
+
+function Send-Healthcheck([string]$suffix, [string]$body) {
+    if (-not $hcUrl) { return }
+    try {
+        Invoke-RestMethod -Method Post -Uri ($hcUrl + $suffix) -Body $body -TimeoutSec 15 | Out-Null
+    } catch {
+        Add-Content $log "warning: healthcheck ping '$suffix' failed: $_"
+    }
+}
+
+Send-Healthcheck "/start" ""
 Add-Content $log "`n=== hit picks daily run: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ==="
 
 Add-Content $log "--- step 1: grade yesterday's picks ---"
 & $python (Join-Path $backendDir "grade_hit_picks.py") --cache-dir $cacheDir 2>&1 | Add-Content $log
+$gradeExit = $LASTEXITCODE
 
 Add-Content $log "--- step 2: generate today's picks ---"
 & $python (Join-Path $backendDir "predict_hits_today.py") --cache-dir $cacheDir 2>&1 | Add-Content $log
+$predictExit = $LASTEXITCODE
 
-Add-Content $log "=== done: $(Get-Date -Format 'HH:mm:ss') ==="
+Add-Content $log "=== done: $(Get-Date -Format 'HH:mm:ss') (grade=$gradeExit, predict=$predictExit) ==="
+
+if ($gradeExit -eq 0 -and $predictExit -eq 0) {
+    Send-Healthcheck "" "grade=$gradeExit predict=$predictExit"
+} else {
+    $tail = (Get-Content $log -Tail 25) -join "`n"
+    Send-Healthcheck "/fail" "grade=$gradeExit predict=$predictExit`n`n$tail"
+}
