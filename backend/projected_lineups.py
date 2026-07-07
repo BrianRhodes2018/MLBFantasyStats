@@ -9,7 +9,6 @@ the primary truth source; these helpers fill the early-day gaps.
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
@@ -311,6 +310,91 @@ def _lineup_samples_from_game(game_data: Mapping[str, Any]) -> list[dict[str, An
     return samples
 
 
+# Lineups from the most recent week count double in the projection: recent
+# role changes (a bench player becoming the everyday leadoff hitter) should
+# outvote stale lineups from two weeks ago.
+LINEUP_RECENCY_WINDOW_DAYS = 7
+LINEUP_RECENCY_WEIGHT = 2.0
+
+
+def weighted_lineup_projection(
+    entries: Sequence[Mapping[str, Any]],
+    opposing_hand: Optional[str],
+    target_date: str,
+) -> Optional[dict[str, Any]]:
+    """
+    THE lineup-projection formula — shared by the matchups/betting pages
+    and the daily hit picks (predict_hits_today.py) so every part of the
+    app projects the same starters.
+
+    entries: one dict per recent game, oldest first or any order:
+        {"date": "YYYY-MM-DD", "opp_hand": "L"/"R"/None, "order": [player ids]}
+
+    Method: count each player's recency-weighted starts ANYWHERE in the
+    order (games within LINEUP_RECENCY_WINDOW_DAYS count
+    LINEUP_RECENCY_WEIGHT times) — so a player who bounces between slots
+    still registers as an everyday starter. Take the nine highest, order
+    them by weighted average slot. Uses only same-handed-starter games
+    when there are at least RECENT_LINEUP_MIN_SPLIT_GAMES of them.
+    Players not seen within RECENT_LINEUP_MAX_LAST_SEEN_DAYS (injured,
+    traded, demoted) are excluded.
+
+    Returns None when there are no entries, else a dict with:
+        order       — projected player ids, slot 1 first (up to nine)
+        share       — {pid: weighted share of the pool, 1.0 = every game}
+        starts      — {pid: raw start count in the pool}
+        last_seen   — {pid: most recent start date}
+        pool_games  — how many games informed the projection
+        split_label — "vs LHP" / "vs RHP" / "all recent games"
+    """
+    if not entries:
+        return None
+
+    hand = (opposing_hand or "").upper()
+    same_hand = [e for e in entries if hand and (e.get("opp_hand") or "").upper() == hand]
+    pool = same_hand if len(same_hand) >= RECENT_LINEUP_MIN_SPLIT_GAMES else list(entries)
+    split_label = f"vs {hand}HP" if pool is same_hand else "all recent games"
+
+    target = datetime.strptime(target_date, "%Y-%m-%d")
+    week_ago_iso = (target - timedelta(days=LINEUP_RECENCY_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    stale_cutoff_iso = (target - timedelta(days=RECENT_LINEUP_MAX_LAST_SEEN_DAYS)).strftime("%Y-%m-%d")
+
+    weight_by_player: dict[int, float] = {}
+    slot_sum_by_player: dict[int, float] = {}
+    starts_by_player: dict[int, int] = {}
+    last_seen_by_player: dict[int, str] = {}
+    total_weight = 0.0
+    for entry in pool:
+        entry_date = entry.get("date") or ""
+        weight = LINEUP_RECENCY_WEIGHT if entry_date >= week_ago_iso else 1.0
+        total_weight += weight
+        for slot, player_id in enumerate(entry.get("order") or [], start=1):
+            weight_by_player[player_id] = weight_by_player.get(player_id, 0.0) + weight
+            slot_sum_by_player[player_id] = slot_sum_by_player.get(player_id, 0.0) + weight * slot
+            starts_by_player[player_id] = starts_by_player.get(player_id, 0) + 1
+            if entry_date > last_seen_by_player.get(player_id, ""):
+                last_seen_by_player[player_id] = entry_date
+
+    eligible = [
+        pid for pid in weight_by_player
+        if last_seen_by_player.get(pid, "") >= stale_cutoff_iso
+    ]
+    starters = sorted(eligible, key=lambda pid: weight_by_player[pid], reverse=True)[:9]
+    starters.sort(key=lambda pid: slot_sum_by_player[pid] / weight_by_player[pid])
+
+    return {
+        "order": starters,
+        "share": {
+            pid: round(weight_by_player[pid] / total_weight, 4) if total_weight else 0.0
+            for pid in starters
+        },
+        "starts": {pid: starts_by_player[pid] for pid in starters},
+        "last_seen": {pid: last_seen_by_player[pid] for pid in starters},
+        "pool_games": len(pool),
+        "split_label": split_label,
+    }
+
+
 def _choose_recent_lineup_players(
     team_samples: list[dict[str, Any]],
     *,
@@ -320,117 +404,69 @@ def _choose_recent_lineup_players(
     min_confidence: float,
     fetched_at: Optional[str],
 ) -> list[ProjectedLineupPlayer]:
+    """Project a team's lineup from recent per-slot samples.
+
+    Selection is delegated to weighted_lineup_projection — the same
+    formula the daily hit picks use — so the matchups page and the hit
+    picks page can never disagree about who is projected to start.
+    `min_confidence` is applied afterwards as a display floor on the
+    weighted share (low-confidence tail-end players are hidden, not
+    re-slotted).
+    """
     if not team_samples:
         return []
 
-    split = opposing_throw if opposing_throw in {"L", "R"} else None
-    all_game_ids = {sample["game_id"] for sample in team_samples}
-    split_samples = [
-        sample for sample in team_samples
-        if split and sample.get("opposing_hand") == split
-    ]
-    split_game_ids = {sample["game_id"] for sample in split_samples}
-
-    if split and len(split_game_ids) >= RECENT_LINEUP_MIN_SPLIT_GAMES:
-        pool = split_samples
-        games_considered = len(split_game_ids)
-        split_label = f"vs {split}HP"
-    else:
-        pool = team_samples
-        games_considered = len(all_game_ids)
-        split_label = "all"
-
-    if not pool or games_considered <= 0:
-        return []
-
-    recent_cutoff = (
-        datetime.strptime(target_date, "%Y-%m-%d")
-        - timedelta(days=RECENT_LINEUP_MAX_LAST_SEEN_DAYS)
-    ).strftime("%Y-%m-%d")
-
-    by_player: dict[int, dict[str, Any]] = {}
-    for sample in pool:
-        pid = sample["player_id"]
-        entry = by_player.setdefault(pid, {
-            "player_id": pid,
-            "name": sample["name"],
-            "team": sample["team"],
-            "position": sample.get("position"),
-            "starts": 0,
-            "slot_sum": 0,
-            "slot_counts": Counter(),
-            "last_seen": "",
+    # Rebuild one entry per game from the flat per-slot samples.
+    games: dict[str, dict[str, Any]] = {}
+    info_by_player: dict[int, dict[str, Any]] = {}
+    for sample in team_samples:
+        game = games.setdefault(sample["game_id"], {
+            "date": sample.get("game_date", ""),
+            "opp_hand": sample.get("opposing_hand"),
+            "slots": {},
         })
-        entry["starts"] += 1
-        entry["slot_sum"] += sample["slot"]
-        entry["slot_counts"][sample["slot"]] += 1
-        if sample.get("game_date", "") > entry["last_seen"]:
-            entry["last_seen"] = sample.get("game_date", "")
+        game["slots"][sample["slot"]] = sample["player_id"]
+        info_by_player.setdefault(sample["player_id"], {
+            "name": sample["name"],
+            "position": sample.get("position"),
+        })
 
-    eligible = {
-        pid: entry
-        for pid, entry in by_player.items()
-        if entry["last_seen"] >= recent_cutoff
-        and (entry["starts"] / games_considered) >= min_confidence
-    }
-    if not eligible:
-        return []
-
-    selected: dict[int, dict[str, Any]] = {}
-    used_player_ids: set[int] = set()
-    for slot in range(1, 10):
-        candidates = [
-            entry for pid, entry in eligible.items()
-            if pid not in used_player_ids and entry["slot_counts"][slot] > 0
-        ]
-        if not candidates:
-            continue
-        candidates.sort(
-            key=lambda entry: (
-                entry["slot_counts"][slot],
-                entry["starts"],
-                entry["last_seen"],
-            ),
-            reverse=True,
-        )
-        selected[slot] = candidates[0]
-        used_player_ids.add(candidates[0]["player_id"])
-
-    remaining = [
-        entry for pid, entry in eligible.items()
-        if pid not in used_player_ids
+    entries = [
+        {
+            "date": game["date"],
+            "opp_hand": game["opp_hand"],
+            "order": [game["slots"][slot] for slot in sorted(game["slots"])],
+        }
+        for game in games.values()
     ]
-    remaining.sort(
-        key=lambda entry: (entry["starts"], entry["last_seen"]),
-        reverse=True,
-    )
-    for entry in remaining:
-        empty_slots = [slot for slot in range(1, 10) if slot not in selected]
-        if not empty_slots:
-            break
-        avg_slot = entry["slot_sum"] / max(entry["starts"], 1)
-        slot = min(empty_slots, key=lambda candidate_slot: abs(candidate_slot - avg_slot))
-        selected[slot] = entry
+    split = opposing_throw if opposing_throw in {"L", "R"} else None
+    projection = weighted_lineup_projection(entries, split, target_date)
+    if not projection or not projection["order"]:
+        return []
 
     players: list[ProjectedLineupPlayer] = []
-    for slot in sorted(selected):
-        entry = selected[slot]
-        confidence = round(entry["starts"] / games_considered, 2)
+    slot = 0
+    for player_id in projection["order"]:
+        confidence = round(projection["share"][player_id], 2)
+        if confidence < min_confidence:
+            continue
+        slot += 1
+        info = info_by_player.get(player_id, {})
         players.append(
             ProjectedLineupPlayer(
-                name=entry["name"],
+                name=info.get("name") or str(player_id),
                 team=team,
                 batting_order=slot,
-                position=entry.get("position"),
+                position=info.get("position"),
                 confirmed=False,
                 provider=RECENT_LINEUPS_PROVIDER,
-                provider_player_id=entry["player_id"],
+                provider_player_id=player_id,
                 fetched_at=fetched_at,
                 confidence=confidence,
-                sample_size=entry["starts"],
-                games_considered=games_considered,
-                split=split_label,
-                last_seen=entry["last_seen"],
+                sample_size=projection["starts"][player_id],
+                games_considered=projection["pool_games"],
+                split=projection["split_label"],
+                last_seen=projection["last_seen"][player_id],
             )
         )
 

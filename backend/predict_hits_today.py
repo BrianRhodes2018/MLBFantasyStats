@@ -48,6 +48,7 @@ from build_hit_dataset import (
 from database import normalize_database_url
 from hit_picks_store import close_picks_db, replace_picks
 from park_factors import get_park_factor
+from projected_lineups import weighted_lineup_projection
 from train_hit_model import FEATURES, make_models, prepare_frame, to_matrix
 
 SEASON_START = "2026-03-25"
@@ -123,16 +124,6 @@ def collect_recent_lineups(
     return lineups, names
 
 
-# A same-hand subset must have this many games before it's trusted over
-# the full recent sample (mirrors projected_lineups.RECENT_LINEUP_MIN_SPLIT_GAMES).
-MIN_SAME_HAND_GAMES = 3
-
-# Lineups from the most recent week count double: recent role changes
-# (a bench player becoming the everyday leadoff hitter) should outvote
-# stale lineups from two weeks ago.
-RECENT_WEIGHT = 2.0
-
-
 def project_lineup(
     team_lineups: list[dict[str, Any]],
     opposing_hand: Optional[str],
@@ -140,38 +131,21 @@ def project_lineup(
 ) -> tuple[Optional[list[int]], str]:
     """
     Recency-weighted lineup projection (fallback for when officials
-    haven't posted). For each player, sum weighted appearances ANYWHERE
-    in the order — so a player who bounces between slots still registers
-    as an everyday starter — take the nine highest, and order them by
-    their weighted average slot.
-
-    Uses only same-handed-starter games when there are at least
-    MIN_SAME_HAND_GAMES of them (platoon-aware teams field different
-    lineups vs L/R); otherwise all recent games.
+    haven't posted). Thin wrapper around
+    projected_lineups.weighted_lineup_projection — the SAME formula the
+    matchups and betting pages use — so the hit picks can never disagree
+    with the rest of the app about who is projected to start.
     """
-    if not team_lineups:
+    projection = weighted_lineup_projection(
+        team_lineups, opposing_hand, target.isoformat()
+    )
+    if not projection or not projection["order"]:
         return None, "none"
-
-    same_hand = [
-        entry for entry in team_lineups
-        if opposing_hand and entry["opp_hand"] == (opposing_hand or "").upper()
-    ]
-    pool = same_hand if len(same_hand) >= MIN_SAME_HAND_GAMES else team_lineups
-    pool_label = f"vs {opposing_hand}HP" if pool is same_hand else "all recent games"
-
-    week_ago_iso = (target - timedelta(days=7)).isoformat()
-    weight_by_player: dict[int, float] = {}
-    slot_sum_by_player: dict[int, float] = {}
-    for entry in pool:
-        weight = RECENT_WEIGHT if entry["date"] >= week_ago_iso else 1.0
-        for slot, player_id in enumerate(entry["order"], start=1):
-            weight_by_player[player_id] = weight_by_player.get(player_id, 0.0) + weight
-            slot_sum_by_player[player_id] = slot_sum_by_player.get(player_id, 0.0) + weight * slot
-
-    starters = sorted(weight_by_player, key=weight_by_player.get, reverse=True)[:9]
-    starters.sort(key=lambda pid: slot_sum_by_player[pid] / weight_by_player[pid])
-    source = f"projected from {len(pool)} lineups ({pool_label}, recency-weighted)"
-    return starters, source
+    source = (
+        f"projected from {projection['pool_games']} lineups "
+        f"({projection['split_label']}, recency-weighted)"
+    )
+    return projection["order"], source
 
 
 # ---------------------------------------------------------------------------
