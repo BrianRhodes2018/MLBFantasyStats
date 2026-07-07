@@ -123,23 +123,55 @@ def collect_recent_lineups(
     return lineups, names
 
 
-def choose_projected_lineup(
+# A same-hand subset must have this many games before it's trusted over
+# the full recent sample (mirrors projected_lineups.RECENT_LINEUP_MIN_SPLIT_GAMES).
+MIN_SAME_HAND_GAMES = 3
+
+# Lineups from the most recent week count double: recent role changes
+# (a bench player becoming the everyday leadoff hitter) should outvote
+# stale lineups from two weeks ago.
+RECENT_WEIGHT = 2.0
+
+
+def project_lineup(
     team_lineups: list[dict[str, Any]],
     opposing_hand: Optional[str],
+    target: date,
 ) -> tuple[Optional[list[int]], str]:
     """
-    Prefer the team's most recent lineup against a same-handed starter
-    (platoon-aware teams sit different players vs L/R); otherwise fall
-    back to their most recent lineup of any kind.
+    Recency-weighted lineup projection (fallback for when officials
+    haven't posted). For each player, sum weighted appearances ANYWHERE
+    in the order — so a player who bounces between slots still registers
+    as an everyday starter — take the nine highest, and order them by
+    their weighted average slot.
+
+    Uses only same-handed-starter games when there are at least
+    MIN_SAME_HAND_GAMES of them (platoon-aware teams field different
+    lineups vs L/R); otherwise all recent games.
     """
     if not team_lineups:
         return None, "none"
-    if opposing_hand:
-        for entry in reversed(team_lineups):
-            if entry["opp_hand"] == opposing_hand.upper():
-                return entry["order"], f"last lineup vs {opposing_hand}HP ({entry['date']})"
-    latest = team_lineups[-1]
-    return latest["order"], f"most recent lineup ({latest['date']})"
+
+    same_hand = [
+        entry for entry in team_lineups
+        if opposing_hand and entry["opp_hand"] == (opposing_hand or "").upper()
+    ]
+    pool = same_hand if len(same_hand) >= MIN_SAME_HAND_GAMES else team_lineups
+    pool_label = f"vs {opposing_hand}HP" if pool is same_hand else "all recent games"
+
+    week_ago_iso = (target - timedelta(days=7)).isoformat()
+    weight_by_player: dict[int, float] = {}
+    slot_sum_by_player: dict[int, float] = {}
+    for entry in pool:
+        weight = RECENT_WEIGHT if entry["date"] >= week_ago_iso else 1.0
+        for slot, player_id in enumerate(entry["order"], start=1):
+            weight_by_player[player_id] = weight_by_player.get(player_id, 0.0) + weight
+            slot_sum_by_player[player_id] = slot_sum_by_player.get(player_id, 0.0) + weight * slot
+
+    starters = sorted(weight_by_player, key=weight_by_player.get, reverse=True)[:9]
+    starters.sort(key=lambda pid: slot_sum_by_player[pid] / weight_by_player[pid])
+    source = f"projected from {len(pool)} lineups ({pool_label}, recency-weighted)"
+    return starters, source
 
 
 # ---------------------------------------------------------------------------
@@ -188,12 +220,61 @@ def fill_missing_probable_hands(
             builder.throws_by_pitcher[pid] = hand
 
 
+def fetch_confirmed_lineups(
+    slate: list[dict[str, Any]],
+    builder: HitDatasetBuilder,
+    names: dict[int, str],
+) -> dict[int, dict[str, list[int]]]:
+    """
+    Official lineups for today's games, straight from each game's live
+    feed: boxscore battingOrder is populated once managers submit
+    lineups (~2-4 hours before first pitch). Returns
+    {gamePk: {"away": [9 ids], "home": [9 ids]}} with only the sides
+    that are actually posted.
+
+    Deliberately NOT cached — a feed fetched at 7:30 AM says "no lineup
+    yet" and must be re-asked at 2 PM. Also enriches the name and
+    handedness maps from the feed's player blobs, which covers fresh
+    call-ups that recent boxscores have never seen.
+    """
+    confirmed: dict[int, dict[str, list[int]]] = {}
+    for game in slate:
+        game_pk = safe_int(game.get("gamePk"))
+        status = str((game.get("status") or {}).get("detailedState") or "").lower()
+        if not game_pk or status in {"postponed", "cancelled", "suspended"}:
+            continue
+        try:
+            feed = statsapi.get("game", {"gamePk": game_pk})
+        except Exception as exc:
+            print(f"Warning: could not fetch game feed {game_pk}: {exc}")
+            continue
+        box_teams = feed.get("liveData", {}).get("boxscore", {}).get("teams", {})
+        for person in (feed.get("gameData", {}).get("players") or {}).values():
+            pid = safe_int(person.get("id"))
+            if not pid:
+                continue
+            if person.get("fullName"):
+                names.setdefault(pid, person["fullName"])
+            bat_side = ((person.get("batSide") or {}).get("code") or "").upper()
+            if bat_side and pid not in builder.bats_by_player:
+                builder.bats_by_player[pid] = bat_side
+            pitch_hand = ((person.get("pitchHand") or {}).get("code") or "").upper()
+            if pitch_hand and pid not in builder.throws_by_pitcher:
+                builder.throws_by_pitcher[pid] = pitch_hand
+        for side in ("away", "home"):
+            order = [safe_int(p) for p in (box_teams.get(side, {}).get("battingOrder") or [])[:9]]
+            if len(order) == 9:
+                confirmed.setdefault(game_pk, {})[side] = order
+    return confirmed
+
+
 def build_candidates(
     builder: HitDatasetBuilder,
     slate: list[dict[str, Any]],
     lineups: dict[str, list[dict[str, Any]]],
     names: dict[int, str],
     target: date,
+    confirmed: Optional[dict[int, dict[str, list[int]]]] = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for game in slate:
@@ -216,9 +297,14 @@ def build_candidates(
                 builder.throws_by_pitcher.get(starter_id)
                 or (probable.get("pitchHand") or {}).get("code")
             )
-            order, lineup_source = choose_projected_lineup(
-                lineups.get(offense_team, []), throws
-            )
+            # Official lineup when posted; recency-weighted projection until then.
+            official = (confirmed or {}).get(safe_int(game.get("gamePk")), {}).get(offense_side)
+            if official:
+                order, lineup_source = official, "official lineup"
+            else:
+                order, lineup_source = project_lineup(
+                    lineups.get(offense_team, []), throws, target
+                )
             if not order:
                 continue
 
@@ -303,7 +389,10 @@ async def run(args: argparse.Namespace) -> int:
         lineups, names = collect_recent_lineups(source, builder, target)
         slate = fetch_slate(target)
         fill_missing_probable_hands(builder, slate)
-        candidates = build_candidates(builder, slate, lineups, names, target)
+        confirmed = fetch_confirmed_lineups(slate, builder, names)
+        confirmed_sides = sum(len(sides) for sides in confirmed.values())
+        print(f"Official lineups posted: {confirmed_sides} of {len(slate) * 2} team-sides.")
+        candidates = build_candidates(builder, slate, lineups, names, target, confirmed)
         if not candidates:
             # A legitimate daily outcome (off day, All-Star break, lineups
             # not posted yet) — not a failure. Exit 0 so the scheduled

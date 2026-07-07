@@ -11,14 +11,16 @@
 # Register with Task Scheduler (one-time, run from any PowerShell):
 #   $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
 #     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\run_daily_hit_picks.ps1`""
-#   $trigger = New-ScheduledTaskTrigger -Daily -At 7:30AM
-#   Register-ScheduledTask -TaskName "MLB Daily Hit Picks" -Action $action -Trigger $trigger
+#   $t1 = New-ScheduledTaskTrigger -Daily -At 7:30AM   # early board (projections)
+#   $t2 = New-ScheduledTaskTrigger -Daily -At 2:00PM   # refresh with official lineups
+#   Register-ScheduledTask -TaskName "MLB Daily Hit Picks" -Action $action -Trigger $t1, $t2
 #
 # Notes:
 #   - 7:30 AM local: yesterday's boxscores are final, today's slate is
 #     posted, and there's alerting margin before the earliest day games.
-#     Lineups are projected until officials post; the picks endpoint always
-#     serves whatever the latest run produced.
+#     Lineups are mostly projected this early.
+#   - 2:00 PM local: re-scores the slate once most official lineups are
+#     posted (pick storage is idempotent — the page updates in place).
 #   - Output goes to backend/logs/hit_picks_daily.log (gitignored).
 #   - The boxscore cache is shared with the main checkout so nothing is
 #     ever downloaded twice, regardless of which checkout this runs from.
