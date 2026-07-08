@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from database import database, engine, metadata, get_db, snapshot_databases
+from database import database, get_db, snapshot_databases
 from models import players, pitchers, batter_game_logs, pitcher_game_logs, fantasy_leagues, system_metadata, bet_suggestions, hitter_savant_snapshots
 import xwoba
 from betting import compute_composite_score, signals_to_json
@@ -127,21 +127,18 @@ app.include_router(betting_router)
 app.include_router(hit_picks_router)
 
 # ---------------------------------------------------------------------------
-# Database Table Creation & Migration
+# Database Schema Migrations (Alembic)
 # ---------------------------------------------------------------------------
-# metadata.create_all() inspects all Table objects registered with `metadata`
-# (defined in models.py) and creates them in the database if they don't exist.
-# This runs synchronously using the sync `engine` (not the async `database`).
-# It's safe to call on every startup — it won't drop/recreate existing tables.
+# The schema is managed by versioned Alembic migrations in
+# backend/alembic/versions/ — every change is a numbered, reviewable,
+# reversible file (see migrations.py for the day-to-day workflow).
+# run_migrations() brings any database to the current revision on
+# startup: a fresh database gets the full schema from the baseline
+# migration, an existing one applies only what it's missing. This
+# replaced metadata.create_all(), which could create tables but never
+# alter them.
 #
-# IMPORTANT: create_all() does NOT add new columns to existing tables.
-# If the table already exists without the 'position' column, we need to
-# manually ALTER TABLE to add it. This is a simple migration approach.
-# In production, you'd use a migration tool like Alembic for this.
-metadata.create_all(bind=engine)
-
-
-# Schema migrations live in their own module so daily_update.py (GitHub
+# Migrations live in their own module so daily_update.py (GitHub
 # Actions cron) can call them without importing the FastAPI app.
 from migrations import run_migrations
 

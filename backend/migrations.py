@@ -1,142 +1,71 @@
 """
-migrations.py - Lightweight Schema Migration Helper
-====================================================
+migrations.py - Alembic Migration Bootstrap
+============================================
 
-Adds any newly-introduced columns to existing tables. This is a small
-manual alternative to Alembic — it inspects the live schema and runs
-ALTER TABLE for any missing columns.
+Brings the database schema up to date at startup using Alembic's
+versioned migrations (backend/alembic/versions/). This replaced the old
+hand-rolled "add missing columns" helper: every schema change is now a
+numbered, reviewable, reversible migration file — git history for the
+database.
 
 Why this lives in its own module:
     Both `main.py` (FastAPI startup) and `daily_update.py` (GitHub
-    Actions cron) need to ensure the schema is up-to-date before
-    reading/writing data. Extracting the logic here avoids importing
-    main.py from the daily-update entry point (which would pull in
-    the entire FastAPI app and its dependencies).
+    Actions cron) need the schema current before touching data.
 
-Calling `run_migrations()` is idempotent — it's safe to call on every
-startup. Existing columns are skipped, only missing ones are added.
+How the three database states are handled:
+    1. Fresh, empty database        -> `upgrade head` runs every
+       migration from the baseline, creating the full schema.
+    2. Pre-Alembic database         -> it already has the tables the
+       baseline would create (built over time by the old create_all()
+       flow) but no alembic_version bookkeeping table. It gets STAMPED:
+       marked as already at the baseline, applying nothing.
+    3. Alembic-managed database     -> `upgrade head` applies only the
+       migrations it hasn't seen. The common case going forward.
+
+Day-to-day workflow for a schema change:
+    1. Edit models.py
+    2. cd backend && alembic revision --autogenerate -m "what changed"
+    3. Review the generated file in alembic/versions/, commit it
+    4. Every environment upgrades itself on next startup/deploy
+
+Calling `run_migrations()` remains idempotent and safe on every startup.
 """
 
-from sqlalchemy import inspect, text
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect
+
 from database import engine
+
+BACKEND_DIR = Path(__file__).resolve().parent
+
+# Any table from the pre-Alembic era works as the "this database already
+# has a schema" marker; players is the app's oldest table.
+_PRE_ALEMBIC_MARKER_TABLE = "players"
+
+
+def _alembic_config() -> Config:
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    # Absolute path so this works no matter the process's working
+    # directory (uvicorn on Render, pytest, daily_update on a runner).
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    return config
 
 
 def run_migrations():
-    """
-    Check for missing columns and add them to existing tables.
-
-    Inspects the live database schema, compares it against the expected
-    column lists below, and runs ALTER TABLE for any missing columns.
-
-    Add new entries to the missing_columns / pitcher_missing / fl_missing
-    dicts when introducing new columns in models.py.
-    """
+    """Bring the connected database to the current schema revision."""
+    config = _alembic_config()
     inspector = inspect(engine)
+    has_version_table = inspector.has_table("alembic_version")
+    has_legacy_schema = inspector.has_table(_PRE_ALEMBIC_MARKER_TABLE)
 
-    # --- Players table migrations ---
-    if inspector.has_table("players"):
-        existing_columns = [col["name"] for col in inspector.get_columns("players")]
-        missing_columns = {
-            "position": "VARCHAR(10)",
-            "runs": "INTEGER",
-            "strikeouts": "INTEGER",
-            "total_bases": "INTEGER",
-            "at_bats": "INTEGER",
-            "mlb_id": "INTEGER",          # MLB Stats API player ID for game log linking
-            "walks": "INTEGER",           # BB - Bases on balls (needed for OBP calculation)
-            "hit_by_pitch": "INTEGER",    # HBP - Hit by pitch (needed for OBP calculation)
-            "sacrifice_flies": "INTEGER", # SF - Sacrifice flies (needed for OBP calculation)
-            "hits": "INTEGER",            # H - Total hits (needed for fantasy points)
-            "doubles": "INTEGER",         # 2B - Doubles (needed for fantasy points)
-            "triples": "INTEGER",         # 3B - Triples (needed for fantasy points)
-            "caught_stealing": "INTEGER", # CS - Caught stealing (needed for fantasy points)
-            "games_played": "INTEGER",    # G - Games played (needed for fantasy Pts/G)
-            "bats": "VARCHAR(2)",         # Batting handedness: 'R', 'L', or 'S' (switch)
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in missing_columns.items():
-                if col_name not in existing_columns:
-                    conn.execute(text(f"ALTER TABLE players ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-    # --- Pitchers table migrations ---
-    if inspector.has_table("pitchers"):
-        existing_pitcher_cols = [col["name"] for col in inspector.get_columns("pitchers")]
-        pitcher_missing = {
-            "quality_starts": "INTEGER",  # QS - Quality Starts
-            "mlb_id": "INTEGER",          # MLB Stats API player ID
-            "throws": "VARCHAR(2)",       # Throwing handedness: 'R' or 'L'
-            "hit_by_pitch": "INTEGER",    # HBP - Hit By Pitch (needed for true FIP)
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in pitcher_missing.items():
-                if col_name not in existing_pitcher_cols:
-                    conn.execute(text(f"ALTER TABLE pitchers ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-    # --- Bet suggestions table migrations ---
-    # game_time was added later to let the Betting Edge page (and audit)
-    # group historical suggestions by game start time. Old rows have NULL
-    # and can't be retrofitted, but new generations will populate it.
-    if inspector.has_table("bet_suggestions"):
-        existing_bs_cols = [col["name"] for col in inspector.get_columns("bet_suggestions")]
-        bs_missing = {
-            "game_time": "VARCHAR(30)",  # ISO-8601 game datetime
-            "batting_order": "INTEGER",
-            "lineup_source": "VARCHAR(20)",
-            "lineup_provider": "VARCHAR(50)",
-            "lineup_confirmed": "VARCHAR(10)",
-            "lineup_edge_threshold": "DOUBLE PRECISION",
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in bs_missing.items():
-                if col_name not in existing_bs_cols:
-                    conn.execute(text(f"ALTER TABLE bet_suggestions ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-    # --- Pitcher game logs table migrations ---
-    # Add HBP at the per-game level so rolling FIP windows can be computed.
-    if inspector.has_table("pitcher_game_logs"):
-        existing_pgl_cols = [col["name"] for col in inspector.get_columns("pitcher_game_logs")]
-        pgl_missing = {
-            "hit_by_pitch": "INTEGER DEFAULT 0",  # HBP - per-game (for rolling FIP)
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in pgl_missing.items():
-                if col_name not in existing_pgl_cols:
-                    conn.execute(text(f"ALTER TABLE pitcher_game_logs ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-    # --- Fantasy leagues table migrations ---
-    # Add Yahoo-specific columns for the Yahoo Fantasy integration.
-    # The provider column identifies whether a league is ESPN or Yahoo,
-    # and the yahoo_* columns store OAuth tokens and league keys.
-    # DEFAULT 'espn' ensures existing rows are tagged as ESPN leagues.
-    if inspector.has_table("fantasy_leagues"):
-        existing_fl_cols = [col["name"] for col in inspector.get_columns("fantasy_leagues")]
-        fl_missing = {
-            "provider": "VARCHAR(20) DEFAULT 'espn'",      # "espn" or "yahoo"
-            "yahoo_league_key": "VARCHAR(50)",              # e.g. "431.l.123456"
-            "yahoo_access_token": "VARCHAR(2000)",          # OAuth access token
-            "yahoo_refresh_token": "VARCHAR(2000)",         # OAuth refresh token
-            "yahoo_token_expires_at": "VARCHAR(30)",        # Token expiry timestamp
-        }
-
-        with engine.connect() as conn:
-            for col_name, col_type in fl_missing.items():
-                if col_name not in existing_fl_cols:
-                    conn.execute(text(f"ALTER TABLE fantasy_leagues ADD COLUMN {col_name} {col_type}"))
-            conn.commit()
-
-        # Also make league_id nullable for Yahoo leagues (they use yahoo_league_key instead).
-        # This ALTER only needs to run once; it's safe to re-run (no-op if already nullable).
-        with engine.connect() as conn:
-            try:
-                conn.execute(text("ALTER TABLE fantasy_leagues ALTER COLUMN league_id DROP NOT NULL"))
-                conn.commit()
-            except Exception:
-                conn.rollback()  # Silently ignore if column is already nullable
+    if not has_version_table and has_legacy_schema:
+        # Pre-Alembic database: schema already matches the baseline
+        # (built over time by create_all + the old column adder).
+        # Record that fact without executing any DDL.
+        command.stamp(config, "head")
+        print("migrations: pre-Alembic database stamped at baseline")
+    else:
+        command.upgrade(config, "head")
