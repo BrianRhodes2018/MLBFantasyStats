@@ -46,6 +46,7 @@ from build_hit_dataset import (
     safe_int,
 )
 from database import normalize_database_url
+from hit_calibration import apply_calibration, load_calibration
 from hit_picks_store import close_picks_db, replace_picks
 from park_factors import get_park_factor
 from projected_lineups import weighted_lineup_projection
@@ -57,9 +58,12 @@ LINEUP_LOOKBACK_DAYS = 14
 
 # Version stamp written into every pick file so daily results can be
 # attributed to the exact model generation that produced them.
-#   v1: logistic, 2026 data only (68.2% top-10 walk-forward)
-#   v2: gbm, trained on 2023-2025 + current 2026 (72.2% top-10)
+#   v1:     logistic, 2026 data only (68.2% top-10 walk-forward)
+#   v2:     gbm, trained on 2023-2025 + current 2026 (72.2% top-10)
+#   v2_cal: v2 with isotonic probability calibration — identical picks
+#           and ranking, honest probabilities (raw "75%" was landing ~68%)
 MODEL_VERSION = "hit_gbm_v2"
+CALIBRATED_MODEL_VERSION = "hit_gbm_v2_cal"
 MODEL_KIND = "gbm"
 
 # Historical season parquets (built once by build_hit_dataset.py) that are
@@ -377,6 +381,18 @@ async def run(args: argparse.Namespace) -> int:
 
         cand_df = prepare_frame(pl.DataFrame(candidates, infer_schema_length=None))
         probs = model.predict_proba(to_matrix(cand_df))[:, 1]
+
+        # Isotonic calibration: translate raw probabilities into what those
+        # raw values have historically delivered. Order-preserving, so the
+        # ranking (and therefore the picks) is identical either way.
+        calibration = load_calibration()
+        if calibration:
+            probs = apply_calibration(probs, calibration)
+            model_version = CALIBRATED_MODEL_VERSION
+        else:
+            print("Warning: no calibration file found — publishing raw probabilities.")
+            model_version = MODEL_VERSION
+
         cand_df = cand_df.with_columns(pl.Series("hit_probability", probs))
         ranked = cand_df.sort("hit_probability", descending=True)
 
@@ -407,7 +423,7 @@ async def run(args: argparse.Namespace) -> int:
         output = {
             "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
             "date": target.isoformat(),
-            "model_version": MODEL_VERSION,
+            "model_version": model_version,
             "model": f"{MODEL_KIND} (walk-forward validated in train_hit_model.py)",
             "trained_on_rows": train_df.height,
             "training_datasets": ["replayed current season"] + [p.name for p in historical],
@@ -428,7 +444,7 @@ async def run(args: argparse.Namespace) -> int:
         try:
             stored = await replace_picks(
                 pick_date=target.isoformat(),
-                model_version=MODEL_VERSION,
+                model_version=model_version,
                 generated_at=output["generated_at"],
                 trained_on_rows=train_df.height,
                 candidates=output["candidates"],
