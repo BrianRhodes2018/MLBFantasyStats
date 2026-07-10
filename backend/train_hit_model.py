@@ -87,6 +87,22 @@ DEFAULT_FOLDS = [
     ("2026-06-16", "2026-07-03"),
 ]
 
+# Walk-forward folds used to FIT the probability calibrator. Wider than
+# DEFAULT_FOLDS on purpose: calibration needs a large pool of
+# out-of-sample predictions, so every half-season from 2024 on is
+# predicted by a model trained only on strictly earlier data.
+CALIBRATION_FOLDS = [
+    ("2024-03-20", "2024-06-30"),
+    ("2024-07-01", "2024-09-30"),
+    ("2025-03-18", "2025-06-30"),
+    ("2025-07-01", "2025-09-28"),
+    ("2026-03-25", "2026-12-31"),
+]
+
+# The stored curve is the isotonic fit evaluated on a fixed grid — small,
+# smooth to inspect in review, and trivially monotonic.
+CALIBRATION_GRID_POINTS = 201
+
 # Feature groups for the ablation study: drop one group at a time and
 # measure how much the model degrades. Groups that cost nothing when
 # removed aren't earning their complexity.
@@ -438,6 +454,65 @@ def print_report(
     }
 
 
+def fit_calibrator(df: pl.DataFrame, output_path: Path) -> dict[str, Any]:
+    """
+    Fit the isotonic probability calibrator for the gbm and save it as a
+    reviewable JSON lookup table (see hit_calibration.py for the runtime
+    side).
+
+    The training pairs are strictly out-of-sample: CALIBRATION_FOLDS
+    walk forward through 2024-2026, each block predicted by a model that
+    never saw it. Fitting on in-sample predictions would just teach the
+    curve the model's self-flattery.
+    """
+    from sklearn.isotonic import IsotonicRegression
+
+    print("Generating out-of-sample predictions for calibration "
+          f"({len(CALIBRATION_FOLDS)} walk-forward folds)...")
+    _, pooled = run_walk_forward(
+        df, CALIBRATION_FOLDS, include_naive=False, collect_probs=True
+    )
+    if not pooled:
+        raise RuntimeError("No out-of-sample predictions produced — check dataset dates.")
+    y_true = pooled["y_true"]
+    raw = pooled["probs"]["gbm"]
+    print(f"Fitting isotonic curve on {len(raw)} prediction/outcome pairs...")
+
+    iso = IsotonicRegression(y_min=0.0, y_max=1.0, increasing=True, out_of_bounds="clip")
+    iso.fit(raw, y_true)
+    grid = np.linspace(0.0, 1.0, CALIBRATION_GRID_POINTS)
+    curve = iso.predict(grid)
+
+    calibrated = np.interp(raw, grid, curve)
+    payload = {
+        "model": "hit_gbm_v2",
+        "method": f"isotonic regression on {len(raw)} out-of-sample pairs, "
+                  f"{CALIBRATION_GRID_POINTS}-point grid",
+        "fitted_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "folds": CALIBRATION_FOLDS,
+        "n_pairs": int(len(raw)),
+        "brier_raw": round(float(brier_score_loss(y_true, raw)), 5),
+        "brier_calibrated": round(float(brier_score_loss(y_true, calibrated)), 5),
+        "x": [round(float(v), 5) for v in grid],
+        "y": [round(float(v), 5) for v in curve],
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    print(f"\nBrier score (lower is better): raw {payload['brier_raw']} "
+          f"-> calibrated {payload['brier_calibrated']}")
+    for label, probs in (("RAW", raw), ("CALIBRATED", calibrated)):
+        print(f"\nRELIABILITY — {label}")
+        print(f"{'bucket':16s} {'n':>7s} {'predicted':>10s} {'actual':>8s}")
+        for row in reliability_table(y_true, probs):
+            if not row["count"]:
+                continue
+            print(f"{row['bucket']:16s} {row['count']:>7d} "
+                  f"{row['avg_predicted']:>10.3f} {row['actual_hit_rate']:>8.3f}")
+    print(f"\nSaved calibrator: {output_path}")
+    return payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Walk-forward evaluation of hit models.")
     parser.add_argument(
@@ -451,9 +526,19 @@ def main() -> int:
         help="Test on ALL of 2026 as one block (train = everything earlier, "
              "i.e. the historical seasons). The never-seen-season benchmark.",
     )
+    parser.add_argument(
+        "--fit-calibrator", action="store_true",
+        help="Fit the isotonic probability calibrator on out-of-sample "
+             "predictions and save backend/calibration/hit_gbm_v2_isotonic.json.",
+    )
     args = parser.parse_args()
 
     df = load_dataset([Path(p) for p in args.dataset])
+    if args.fit_calibrator:
+        from hit_calibration import CALIBRATION_PATH
+
+        fit_calibrator(df, CALIBRATION_PATH)
+        return 0
     if args.full_2026:
         max_2026 = df.filter(pl.col("game_date") >= "2026-01-01")["game_date"].max()
         if max_2026 is None:
