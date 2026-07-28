@@ -583,6 +583,9 @@ hit_picks = Table(
     # -- pick identity
     Column("pick_date", String(10), nullable=False),      # "YYYY-MM-DD"
     Column("model_version", String(40), nullable=False),  # e.g. "hit_gbm_v2"
+    # One public/champion list per date; shadow model runs use 0 so V2 and V3
+    # can coexist without changing what the normal page displays.
+    Column("is_public", Integer, nullable=False, server_default="1"),
     Column("generated_at", String(40), nullable=True),
     Column("trained_on_rows", Integer, nullable=True),
     Column("rank", Integer, nullable=False),              # 1 = best pick
@@ -606,5 +609,15 @@ hit_picks = Table(
     Column("played", Integer, nullable=True),   # 1/0; NULL = not graded yet
     Column("hits", Integer, nullable=True),     # actual hits that day
     Column("got_hit", Integer, nullable=True),  # 1/0; NULL if didn't play
+    Column("at_bats", Integer, nullable=True),
+    Column("plate_appearances", Integer, nullable=True),
+    Column("doubles", Integer, nullable=True),
+    Column("triples", Integer, nullable=True),
+    Column("home_runs", Integer, nullable=True),
+    Column("runs", Integer, nullable=True),
+    Column("rbi", Integer, nullable=True),
+    Column("walks", Integer, nullable=True),
+    Column("strikeouts", Integer, nullable=True),
+    Column("total_bases", Integer, nullable=True),
     Column("graded_at", String(40), nullable=True),
 )

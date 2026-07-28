@@ -44,6 +44,7 @@ BACKEND_DIR = Path(__file__).resolve().parent
 # Any table from the pre-Alembic era works as the "this database already
 # has a schema" marker; players is the app's oldest table.
 _PRE_ALEMBIC_MARKER_TABLE = "players"
+_BASELINE_REVISION = "c8a75a27355e"
 
 
 def _alembic_config() -> Config:
@@ -64,8 +65,11 @@ def run_migrations():
     if not has_version_table and has_legacy_schema:
         # Pre-Alembic database: schema already matches the baseline
         # (built over time by create_all + the old column adder).
-        # Record that fact without executing any DDL.
-        command.stamp(config, "head")
-        print("migrations: pre-Alembic database stamped at baseline")
+        # Stamp the explicit baseline rather than "head": once follow-up
+        # migrations exist, stamping head would incorrectly mark them applied
+        # without executing their DDL.
+        command.stamp(config, _BASELINE_REVISION)
+        command.upgrade(config, "head")
+        print("migrations: pre-Alembic database stamped at baseline and upgraded")
     else:
         command.upgrade(config, "head")

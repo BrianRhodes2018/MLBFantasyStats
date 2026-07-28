@@ -50,7 +50,7 @@ _PICK_FILE_RE = re.compile(r"hit_picks_(\d{4}-\d{2}-\d{2})\.json$")
 
 
 def outcomes_for_date(source: BoxscoreSource, target: date) -> dict[int, dict[str, int]]:
-    """player_id -> {hits, pa} for every batter who batted that day.
+    """Player id -> full batting line for every batter who appeared that day.
 
     The schedule is force-refreshed: grading runs the morning after, and
     the cached copy may have been written earlier that day while games
@@ -66,7 +66,19 @@ def outcomes_for_date(source: BoxscoreSource, target: date) -> dict[int, dict[st
                 batting = box_player.get("stats", {}).get("batting") or {}
                 pa = safe_int(batting.get("plateAppearances"))
                 if pid and pa > 0:
-                    outcomes[pid] = {"hits": safe_int(batting.get("hits")), "pa": pa}
+                    outcomes[pid] = {
+                        "hits": safe_int(batting.get("hits")),
+                        "at_bats": safe_int(batting.get("atBats")),
+                        "plate_appearances": pa,
+                        "doubles": safe_int(batting.get("doubles")),
+                        "triples": safe_int(batting.get("triples")),
+                        "home_runs": safe_int(batting.get("homeRuns")),
+                        "runs": safe_int(batting.get("runs")),
+                        "rbi": safe_int(batting.get("rbi")),
+                        "walks": safe_int(batting.get("baseOnBalls")),
+                        "strikeouts": safe_int(batting.get("strikeOuts")),
+                        "total_bases": safe_int(batting.get("totalBases")),
+                    }
     return outcomes
 
 

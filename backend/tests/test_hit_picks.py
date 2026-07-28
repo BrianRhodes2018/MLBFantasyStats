@@ -1,12 +1,20 @@
 """Tests for grade_hit_picks.py, hit_picks_store.py, and the /hit-picks routes."""
 
+from datetime import date
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import hit_picks_store
-from grade_hit_picks import grade_candidates, summarize_ledger
-from hit_picks_store import summarize_pick_rows
+from grade_hit_picks import grade_candidates, outcomes_for_date, summarize_ledger
+from hit_picks_store import (
+    apply_grades,
+    replace_picks,
+    shape_pick_rows,
+    summarize_available_dates,
+    summarize_pick_rows,
+)
 from routers.hit_picks import router
 
 
@@ -35,6 +43,61 @@ class TestGradeCandidates:
     def test_no_outcomes_means_nobody_played(self):
         grades = grade_candidates(make_candidates(), {}, top_ns=(4,))
         assert grades["top4"] == {"picks": 4, "played": 0, "hits": 0}
+
+
+class TestOutcomeStatlines:
+    def test_extracts_full_batting_line(self):
+        class Source:
+            def final_games(self, target, refresh_schedule):
+                assert target == date(2026, 7, 4)
+                assert refresh_schedule is True
+                return [{
+                    "game": {
+                        "liveData": {
+                            "boxscore": {
+                                "teams": {
+                                    "away": {
+                                        "players": {
+                                            "ID42": {
+                                                "person": {"id": 42},
+                                                "stats": {
+                                                    "batting": {
+                                                        "plateAppearances": 5,
+                                                        "atBats": 4,
+                                                        "hits": 2,
+                                                        "doubles": 1,
+                                                        "triples": 0,
+                                                        "homeRuns": 1,
+                                                        "runs": 2,
+                                                        "rbi": 3,
+                                                        "baseOnBalls": 1,
+                                                        "strikeOuts": 1,
+                                                        "totalBases": 6,
+                                                    }
+                                                },
+                                            }
+                                        }
+                                    },
+                                    "home": {"players": {}},
+                                }
+                            }
+                        }
+                    }
+                }]
+
+        assert outcomes_for_date(Source(), date(2026, 7, 4))[42] == {
+            "hits": 2,
+            "at_bats": 4,
+            "plate_appearances": 5,
+            "doubles": 1,
+            "triples": 0,
+            "home_runs": 1,
+            "runs": 2,
+            "rbi": 3,
+            "walks": 1,
+            "strikeouts": 1,
+            "total_bases": 6,
+        }
 
 
 class TestSummarizeLedger:
@@ -95,6 +158,166 @@ class TestSummarizePickRows:
         assert summary["hit_gbm_v2"]["top5"]["hit_rate"] == 0.0
 
 
+def full_pick_row(**overrides):
+    row = {
+        "pick_date": "2026-07-05",
+        "model_version": "hit_gbm_v2",
+        "is_public": 1,
+        "generated_at": "2026-07-05T12:00:00+00:00",
+        "trained_on_rows": 149241,
+        "rank": 1,
+        "player_id": 1,
+        "player_name": "A",
+        "team": "DET",
+        "opponent": "CLE",
+        "venue": "Comerica Park",
+        "batting_order": 1,
+        "bats": "L",
+        "pitcher_id": 2,
+        "pitcher_name": "Pitcher",
+        "pitcher_throws": "R",
+        "lineup_source": "confirmed",
+        "hit_probability": 0.72,
+        "season_hit_per_pa": 0.28,
+        "last10_hit_per_pa": 0.31,
+        "platoon_advantage": 1,
+        "played": 1,
+        "got_hit": 1,
+        "hits": 2,
+        "at_bats": 4,
+        "plate_appearances": 5,
+        "doubles": 1,
+        "triples": 0,
+        "home_runs": 0,
+        "runs": 1,
+        "rbi": 1,
+        "walks": 1,
+        "strikeouts": 0,
+        "total_bases": 3,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestHistoryPayloads:
+    def test_shapes_statline_and_model_metadata(self):
+        payload = shape_pick_rows(
+            [full_pick_row()],
+            available_models=[
+                {"model_version": "hit_gbm_v2", "is_public": True},
+                {"model_version": "hit_gbm_v3", "is_public": False},
+            ],
+        )
+        assert payload["grading_status"] == "graded"
+        assert payload["picks"][0]["at_bats"] == 4
+        assert payload["picks"][0]["home_runs"] == 0
+        assert len(payload["available_models"]) == 2
+
+    def test_summarizes_calendar_dates(self):
+        rows = [
+            full_pick_row(rank=1, got_hit=1),
+            full_pick_row(rank=2, player_id=2, got_hit=0),
+            full_pick_row(
+                pick_date="2026-07-06",
+                rank=1,
+                played=None,
+                got_hit=None,
+                hits=None,
+            ),
+        ]
+        payload = summarize_available_dates(rows)
+        assert payload["latest_date"] == "2026-07-06"
+        assert payload["dates"][0]["grading_status"] == "pending"
+        assert payload["dates"][1]["grading_status"] == "graded"
+        assert payload["dates"][1]["played"] == 2
+        assert payload["dates"][1]["hits"] == 1
+
+
+class FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class FakePicksDatabase:
+    def __init__(self, rows=None):
+        self.rows = rows or []
+        self.executed = []
+        self.inserted = []
+
+    def transaction(self):
+        return FakeTransaction()
+
+    async def execute(self, query):
+        self.executed.append(query)
+
+    async def execute_many(self, query, rows):
+        self.inserted.extend(rows)
+
+    async def fetch_all(self, query):
+        return self.rows
+
+
+class TestHistoryWrites:
+    @pytest.mark.asyncio
+    async def test_public_replace_preserves_other_versions(self, monkeypatch):
+        database = FakePicksDatabase()
+
+        async def fake_database():
+            return database
+
+        monkeypatch.setattr(hit_picks_store, "get_picks_db", fake_database)
+        inserted = await replace_picks(
+            pick_date="2026-07-05",
+            model_version="hit_gbm_v3",
+            generated_at="2026-07-05T12:00:00+00:00",
+            trained_on_rows=150000,
+            candidates=[full_pick_row()],
+            is_public=True,
+        )
+
+        assert inserted == 1
+        assert len(database.executed) == 2  # demote other models, delete this model
+        assert database.inserted[0]["is_public"] == 1
+        delete_sql = str(database.executed[1])
+        assert "pick_date" in delete_sql and "model_version" in delete_sql
+
+    @pytest.mark.asyncio
+    async def test_grade_write_includes_full_statline(self, monkeypatch):
+        database = FakePicksDatabase(rows=[{"id": 10, "player_id": 42}])
+
+        async def fake_database():
+            return database
+
+        monkeypatch.setattr(hit_picks_store, "get_picks_db", fake_database)
+        updated = await apply_grades(
+            pick_date="2026-07-05",
+            outcomes={
+                42: {
+                    "hits": 2,
+                    "at_bats": 4,
+                    "plate_appearances": 5,
+                    "doubles": 1,
+                    "triples": 0,
+                    "home_runs": 1,
+                    "runs": 2,
+                    "rbi": 3,
+                    "walks": 1,
+                    "strikeouts": 1,
+                    "total_bases": 6,
+                }
+            },
+        )
+
+        assert updated == 1
+        params = database.executed[0].compile().params
+        assert params["at_bats"] == 4
+        assert params["home_runs"] == 1
+        assert params["total_bases"] == 6
+
+
 @pytest.fixture
 def client():
     app = FastAPI()
@@ -141,3 +364,51 @@ class TestHitPicksRoutes:
 
         monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)
         assert client.get("/hit-picks/ledger").status_code == 404
+
+    def test_dates_returns_calendar_metadata(self, client, monkeypatch):
+        payload = {
+            "dates": [{"date": "2026-07-05", "grading_status": "graded"}],
+            "latest_date": "2026-07-05",
+            "count": 1,
+        }
+
+        async def fake_dates(*, limit):
+            assert limit == 30
+            return payload
+
+        monkeypatch.setattr(hit_picks_store, "fetch_available_dates", fake_dates)
+        response = client.get("/hit-picks/dates?limit=30")
+        assert response.status_code == 200
+        assert response.json()["data"] == payload
+
+    def test_historical_date_returns_store_payload(self, client, monkeypatch):
+        payload = {
+            "date": "2026-07-05",
+            "model_version": "hit_gbm_v2",
+            "grading_status": "graded",
+            "picks": [{"rank": 1, "hits": 2, "at_bats": 4}],
+        }
+
+        async def fake_history(*, pick_date, top, model_version):
+            assert pick_date == "2026-07-05"
+            assert top == 10
+            assert model_version == "hit_gbm_v2"
+            return payload
+
+        monkeypatch.setattr(hit_picks_store, "fetch_picks_for_date", fake_history)
+        response = client.get(
+            "/hit-picks/2026-07-05?top=10&model_version=hit_gbm_v2"
+        )
+        assert response.status_code == 200
+        assert response.json()["data"] == payload
+
+    def test_historical_date_validates_and_404s(self, client, monkeypatch):
+        assert client.get("/hit-picks/not-a-date").status_code == 422
+
+        async def fake_history(*, pick_date, top, model_version):
+            return None
+
+        monkeypatch.setattr(hit_picks_store, "fetch_picks_for_date", fake_history)
+        response = client.get("/hit-picks/2026-07-05")
+        assert response.status_code == 404
+        assert "2026-07-05" in response.json()["detail"]

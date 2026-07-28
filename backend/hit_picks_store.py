@@ -8,10 +8,11 @@ the scripts write picks and grades into the shared Postgres database,
 and the /hit-picks API routes read them back out — same pattern as the
 daily stats update.
 
-Layout: one row per (pick_date, rank) in the `hit_picks` table. Grading
-columns start NULL and get filled the morning after, once boxscores are
-final. The summary math is a pure function so it can be unit tested
-without a database.
+Layout: one row per (pick_date, model_version, rank) in the `hit_picks`
+table. One model is public for a date; shadow challengers can coexist
+without replacing it. Grading columns start NULL and get filled the
+morning after, once boxscores are final. The summary/history math is
+pure so it can be unit tested without a database.
 
 Which database? The picks live in the PRODUCTION database — the one the
 deployed backend reads. Resolution order:
@@ -56,6 +57,11 @@ _CANDIDATE_COLUMNS = [
     "batting_order", "bats", "pitcher_id", "pitcher_name", "pitcher_throws",
     "lineup_source", "hit_probability", "season_hit_per_pa",
     "last10_hit_per_pa", "platoon_advantage",
+]
+
+_STATLINE_COLUMNS = [
+    "hits", "at_bats", "plate_appearances", "doubles", "triples",
+    "home_runs", "runs", "rbi", "walks", "strikeouts", "total_bases",
 ]
 
 _PICK_FILE_RE = re.compile(r"hit_picks_(\d{4}-\d{2}-\d{2})\.json$")
@@ -115,8 +121,9 @@ async def replace_picks(
     trained_on_rows: Optional[int],
     candidates: list[Mapping[str, Any]],
     top: int = STORED_PICKS_PER_DAY,
+    is_public: bool = True,
 ) -> int:
-    """Replace the stored pick list for one date (idempotent re-runs)."""
+    """Replace one model's stored list without deleting shadow competitors."""
     db = await get_picks_db()
     rows = []
     for rank, candidate in enumerate(candidates[:top], start=1):
@@ -126,13 +133,22 @@ async def replace_picks(
         rows.append({
             "pick_date": pick_date,
             "model_version": model_version,
+            "is_public": 1 if is_public else 0,
             "generated_at": generated_at,
             "trained_on_rows": trained_on_rows,
             "rank": rank,
             **row,
         })
     async with db.transaction():
-        await db.execute(hit_picks.delete().where(hit_picks.c.pick_date == pick_date))
+        date_match = hit_picks.c.pick_date == pick_date
+        version_match = hit_picks.c.model_version == model_version
+        if is_public:
+            await db.execute(
+                hit_picks.update()
+                .where(date_match & ~version_match)
+                .values(is_public=0)
+            )
+        await db.execute(hit_picks.delete().where(date_match & version_match))
         if rows:
             await db.execute_many(hit_picks.insert(), rows)
     return len(rows)
@@ -164,6 +180,9 @@ async def apply_grades(
                 "got_hit": (1 if outcome["hits"] >= 1 else 0) if outcome else None,
                 "graded_at": graded_at,
             }
+            for column in _STATLINE_COLUMNS:
+                if column != "hits":
+                    values[column] = outcome.get(column) if outcome else None
             await db.execute(
                 hit_picks.update().where(hit_picks.c.id == row["id"]).values(**values)
             )
@@ -175,20 +194,19 @@ async def apply_grades(
 # Reads (called by the /hit-picks API routes)
 # ---------------------------------------------------------------------------
 
-async def fetch_latest_picks(*, top: int = 15) -> Optional[dict[str, Any]]:
-    """The most recent day's pick list, shaped like the JSON pick files."""
-    db = await get_picks_db()
-    latest = await db.fetch_one(
-        "select max(pick_date) as pick_date from hit_picks"
-    )
-    if latest is None or latest["pick_date"] is None:
+def _row_value(row: Mapping[str, Any], key: str) -> Any:
+    try:
+        return row[key]
+    except (KeyError, IndexError):
         return None
-    rows = await db.fetch_all(
-        hit_picks.select()
-        .where(hit_picks.c.pick_date == latest["pick_date"])
-        .order_by(hit_picks.c.rank)
-        .limit(max(top, 0))
-    )
+
+
+def shape_pick_rows(
+    rows: list[Mapping[str, Any]],
+    *,
+    available_models: Optional[list[dict[str, Any]]] = None,
+) -> Optional[dict[str, Any]]:
+    """Shape one model/date result for both latest and historical routes."""
     if not rows:
         return None
     first = rows[0]
@@ -197,16 +215,139 @@ async def fetch_latest_picks(*, top: int = 15) -> Optional[dict[str, Any]]:
         "generated_at": first["generated_at"],
         "model_version": first["model_version"],
         "trained_on_rows": first["trained_on_rows"],
+        "grading_status": (
+            "graded"
+            if all(_row_value(row, "played") is not None for row in rows)
+            else "pending"
+        ),
+        "available_models": available_models or [
+            {
+                "model_version": first["model_version"],
+                "is_public": bool(_row_value(first, "is_public")),
+            }
+        ],
         "picks": [
             {
                 **{key: row[key] for key in _CANDIDATE_COLUMNS},
                 "rank": row["rank"],
-                "played": row["played"],
-                "got_hit": row["got_hit"],
+                "played": _row_value(row, "played"),
+                "got_hit": _row_value(row, "got_hit"),
+                **{key: _row_value(row, key) for key in _STATLINE_COLUMNS},
             }
             for row in rows
         ],
     }
+
+
+def summarize_available_dates(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    limit: int = 180,
+) -> dict[str, Any]:
+    """Turn public pick rows into calendar metadata, newest date first."""
+    by_date: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        pick_date = row["pick_date"]
+        day = by_date.setdefault(
+            pick_date,
+            {
+                "date": pick_date,
+                "model_version": row["model_version"],
+                "generated_at": _row_value(row, "generated_at"),
+                "pick_count": 0,
+                "played": 0,
+                "hits": 0,
+                "_all_graded": True,
+            },
+        )
+        day["pick_count"] += 1
+        played = _row_value(row, "played")
+        if played is None:
+            day["_all_graded"] = False
+        elif played:
+            day["played"] += 1
+            day["hits"] += int(_row_value(row, "got_hit") or 0)
+
+    dates = []
+    for pick_date in sorted(by_date, reverse=True)[:max(limit, 0)]:
+        day = by_date[pick_date]
+        day["grading_status"] = "graded" if day.pop("_all_graded") else "pending"
+        dates.append(day)
+    return {
+        "dates": dates,
+        "latest_date": dates[0]["date"] if dates else None,
+        "count": len(dates),
+    }
+
+
+async def _available_models_for_date(
+    db: Database,
+    pick_date: str,
+) -> list[dict[str, Any]]:
+    rows = await db.fetch_all(
+        hit_picks.select()
+        .where(hit_picks.c.pick_date == pick_date)
+        .order_by(hit_picks.c.is_public.desc(), hit_picks.c.generated_at.desc())
+    )
+    models = []
+    seen = set()
+    for row in rows:
+        version = row["model_version"]
+        if version in seen:
+            continue
+        seen.add(version)
+        models.append(
+            {
+                "model_version": version,
+                "is_public": bool(row["is_public"]),
+                "generated_at": row["generated_at"],
+            }
+        )
+    return models
+
+
+async def fetch_picks_for_date(
+    *,
+    pick_date: str,
+    top: int = 15,
+    model_version: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Fetch the public list, or a requested model, for an ISO date."""
+    db = await get_picks_db()
+    query = hit_picks.select().where(hit_picks.c.pick_date == pick_date)
+    if model_version:
+        query = query.where(hit_picks.c.model_version == model_version)
+    else:
+        query = query.where(hit_picks.c.is_public == 1)
+    rows = await db.fetch_all(
+        query.order_by(hit_picks.c.rank).limit(max(top, 0))
+    )
+    if not rows:
+        return None
+    models = await _available_models_for_date(db, pick_date)
+    return shape_pick_rows([dict(row) for row in rows], available_models=models)
+
+
+async def fetch_latest_picks(*, top: int = 15) -> Optional[dict[str, Any]]:
+    """The most recent public pick list, shaped like the historical route."""
+    db = await get_picks_db()
+    latest = await db.fetch_one(
+        "select max(pick_date) as pick_date from hit_picks where is_public = 1"
+    )
+    if latest is None or latest["pick_date"] is None:
+        return None
+    return await fetch_picks_for_date(pick_date=latest["pick_date"], top=top)
+
+
+async def fetch_available_dates(*, limit: int = 180) -> dict[str, Any]:
+    """Calendar metadata for dates with a stored public pick list."""
+    db = await get_picks_db()
+    rows = await db.fetch_all(
+        hit_picks.select()
+        .where(hit_picks.c.is_public == 1)
+        .order_by(hit_picks.c.pick_date.desc(), hit_picks.c.rank)
+    )
+    return summarize_available_dates([dict(row) for row in rows], limit=limit)
 
 
 def summarize_pick_rows(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:

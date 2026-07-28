@@ -665,6 +665,292 @@ body {
   font-style: italic;
 }
 
+/* Hit Picks history calendar and graded outcomes */
+.hit-history-panel {
+  background:
+    radial-gradient(circle at top right, rgba(68, 122, 184, 0.2), transparent 42%),
+    #101b2e;
+  border: 1px solid #31527a;
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 22px;
+  max-width: 430px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+}
+
+.hit-history-heading,
+.hit-calendar-nav,
+.hit-calendar-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hit-history-heading h3 {
+  margin: 2px 0 0;
+  color: #e8ecf0;
+  font-size: 1.12rem;
+}
+
+.hit-history-eyebrow {
+  color: #7fb3e8;
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hit-history-latest,
+.hit-calendar-nav button {
+  border: 1px solid #3b6088;
+  background: #162b45;
+  color: #d8e7f7;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.hit-history-latest {
+  padding: 7px 11px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hit-history-latest:disabled,
+.hit-calendar-nav button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.hit-calendar-nav {
+  margin: 18px 0 12px;
+}
+
+.hit-calendar-nav strong {
+  color: #e8ecf0;
+  font-size: 0.92rem;
+}
+
+.hit-calendar-nav button {
+  width: 32px;
+  height: 30px;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.hit-calendar-weekdays,
+.hit-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.hit-calendar-weekdays {
+  margin-bottom: 5px;
+}
+
+.hit-calendar-weekdays span {
+  color: #7890aa;
+  font-size: 0.63rem;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.hit-calendar-day,
+.hit-calendar-empty {
+  aspect-ratio: 1;
+  min-height: 35px;
+}
+
+.hit-calendar-day {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #536b82;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  font-size: 0.78rem;
+  gap: 3px;
+  justify-content: center;
+  padding: 2px;
+}
+
+.hit-calendar-day.available {
+  background: #1b3350;
+  border-color: #31527a;
+  color: #e8ecf0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.hit-calendar-day.available:hover {
+  background: #244566;
+  border-color: #6b9ccc;
+  transform: translateY(-1px);
+}
+
+.hit-calendar-day.selected {
+  background: #2f6594;
+  border-color: #9cc9ef;
+  box-shadow: 0 0 0 2px rgba(93, 158, 211, 0.18);
+}
+
+.hit-calendar-day:disabled {
+  opacity: 1;
+}
+
+.hit-calendar-day i,
+.hit-calendar-legend i {
+  border-radius: 999px;
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+}
+
+.hit-calendar-day.status-graded i,
+.hit-calendar-legend i.graded {
+  background: #72ce87;
+}
+
+.hit-calendar-day.status-pending i,
+.hit-calendar-legend i.pending {
+  background: #e8b867;
+}
+
+.hit-calendar-legend {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.hit-calendar-legend span {
+  align-items: center;
+  color: #8da4c0;
+  display: inline-flex;
+  font-size: 0.7rem;
+  gap: 5px;
+}
+
+.hit-picks-header h2 {
+  margin: 3px 0 0;
+}
+
+.hit-model-selector {
+  color: #8da4c0;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.72rem;
+  font-weight: 700;
+  gap: 4px;
+  margin-left: auto;
+  text-transform: uppercase;
+}
+
+.hit-model-selector select {
+  background: #101b2e;
+  border: 1px solid #31527a;
+  border-radius: 7px;
+  color: #e8ecf0;
+  font: inherit;
+  min-width: 210px;
+  padding: 8px 10px;
+  text-transform: none;
+}
+
+.hit-history-error {
+  background: rgba(161, 56, 56, 0.14);
+  border: 1px solid rgba(217, 122, 122, 0.55);
+  border-radius: 8px;
+  color: #f0b1b1;
+  margin-bottom: 14px;
+  padding: 10px 13px;
+}
+
+.hit-picks-table-wrap {
+  overflow-x: auto;
+  position: relative;
+}
+
+.hit-picks-table {
+  min-width: 1120px;
+}
+
+.hit-history-loading {
+  align-items: center;
+  backdrop-filter: blur(2px);
+  background: rgba(9, 19, 32, 0.68);
+  color: #c7dbef;
+  display: flex;
+  font-weight: 700;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: 2;
+}
+
+.hit-result {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  min-width: 52px;
+  padding: 4px 7px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.hit-result-hit {
+  background: rgba(69, 174, 94, 0.15);
+  border-color: rgba(114, 206, 135, 0.45);
+  color: #8fe1a2;
+}
+
+.hit-result-miss {
+  background: rgba(191, 74, 74, 0.14);
+  border-color: rgba(217, 122, 122, 0.45);
+  color: #eda0a0;
+}
+
+.hit-result-pending {
+  background: rgba(209, 155, 61, 0.14);
+  border-color: rgba(232, 184, 103, 0.45);
+  color: #f0c77e;
+}
+
+.hit-result-dnp {
+  background: rgba(130, 148, 166, 0.12);
+  border-color: rgba(157, 174, 190, 0.35);
+  color: #aebdca;
+}
+
+@media (max-width: 640px) {
+  .hit-history-panel {
+    max-width: none;
+    padding: 14px;
+  }
+
+  .hit-calendar-day,
+  .hit-calendar-empty {
+    min-height: 32px;
+  }
+
+  .hit-picks-header {
+    align-items: flex-start;
+  }
+
+  .hit-model-selector {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
 /* ---- Date-grouped audit cards ----
    Each date renders as a section: header showing the date + how many
    candidates hit, then a grid of cards mirroring the live Betting Edge
