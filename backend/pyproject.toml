@@ -1,0 +1,33 @@
+[project]
+name = "mlb-fantasy-stats-backend"
+version = "0.1.0"
+description = "FastAPI backend and daily MLB hit-prediction workflows."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic",
+    "asyncpg",
+    "databases[postgresql]",
+    "fastapi",
+    "httpx",
+    "mlb-statsapi",
+    "numpy>=2.0,<3",
+    "pandas>=2.2.3,<4",
+    "polars>=1.32,<2",
+    "psycopg2-binary",
+    "pyarrow>=17,<24",
+    "python-dotenv",
+    "requests-oauthlib",
+    "scikit-learn>=1.6,<2",
+    "scipy>=1.14.1,<2",
+    "sqlalchemy",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.uv]
+package = false

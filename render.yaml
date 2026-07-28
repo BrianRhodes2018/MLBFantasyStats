@@ -86,24 +86,23 @@ services:
     # Also becomes part of the URL: https://mlb-stats-api.onrender.com
     name: mlb-stats-api
 
-    # Runtime environment — tells Render to set up Python with pip.
+    # Runtime environment — Render detects uv from backend/uv.lock.
     runtime: python
 
     # Which folder contains the backend code.
     # Render will cd into this directory before running build/start commands.
     rootDir: backend
 
-    # Build command — runs ONCE when deploying (installs dependencies).
-    # pip install -r requirements.txt reads the file and installs all listed
-    # packages (FastAPI, Polars, asyncpg, etc.) into the deployment environment.
-    buildCommand: pip install -r requirements.txt
+    # Build from the reviewed lock, then reject native-library incompatibilities
+    # before the service can be deployed.
+    buildCommand: uv sync --locked --no-dev && uv run --locked --no-dev python scripts/check_ml_environment.py --json
 
     # Start command — runs your FastAPI server.
     # - uvicorn: The ASGI server that runs FastAPI
     # - main:app: Import the `app` object from main.py
     # - --host 0.0.0.0: Listen on all network interfaces (required for Render)
     # - --port $PORT: Use the port Render assigns (they set this automatically)
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uv run --locked --no-dev uvicorn main:app --host 0.0.0.0 --port $PORT
 
     # Use the free plan (no credit card required).
     # Free plan limitations:
@@ -117,6 +116,13 @@ services:
     # You'll set the actual VALUES in the Render dashboard (not here,
     # because this file is committed to GitHub and shouldn't contain secrets).
     envVars:
+      # Pin both runtimes so a platform default cannot silently change a build.
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+
+      - key: UV_VERSION
+        value: "0.11.33"
+
       # DATABASE_URL: Your Neon PostgreSQL connection string.
       # The app's database.py auto-converts the URL format and adds SSL.
       # Set this in the Render dashboard to your Neon connection string.

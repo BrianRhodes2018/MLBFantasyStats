@@ -46,8 +46,9 @@ from build_hit_dataset import (
     safe_int,
 )
 from database import normalize_database_url
-from hit_calibration import apply_calibration, load_calibration
+from hit_calibration import CALIBRATION_PATH, apply_calibration, load_calibration
 from hit_picks_store import close_picks_db, replace_picks
+from ml_environment import dataframe_fingerprint, runtime_manifest
 from park_factors import get_park_factor
 from projected_lineups import weighted_lineup_projection
 from train_hit_model import FEATURES, make_models, prepare_frame, to_matrix
@@ -427,6 +428,13 @@ async def run(args: argparse.Namespace) -> int:
             "model": f"{MODEL_KIND} (walk-forward validated in train_hit_model.py)",
             "trained_on_rows": train_df.height,
             "training_datasets": ["replayed current season"] + [p.name for p in historical],
+            "runtime": runtime_manifest(
+                feature_names=FEATURES,
+                calibration_path=CALIBRATION_PATH,
+                training_paths=historical,
+                training_row_count=train_df.height,
+                training_frame_sha256=dataframe_fingerprint(train_df),
+            ),
             "candidates": ranked.select(keep).to_dicts(),
         }
         if args.output_json:

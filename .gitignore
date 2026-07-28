@@ -11,6 +11,7 @@ __pycache__/
 htmlcov/
 venv/
 .venv/
+.uv-cache/
 
 # --- Environment / secrets ---
 .env

@@ -1,111 +1,138 @@
-# ===========================================================================
-# Python Dependencies for the MLB Player Stats Backend
-# ===========================================================================
-# Install all dependencies with: pip install -r requirements.txt
-#
-# Each library serves a specific purpose in the stack:
-
-# --- Web Framework ---
-# FastAPI: Modern, high-performance Python web framework for building APIs.
-# It provides automatic request validation (via Pydantic), auto-generated
-# Swagger UI docs at /docs, async support, and type-based routing.
-# This is the core framework that defines all our API endpoints.
-fastapi
-
-# Uvicorn: ASGI server that actually RUNS the FastAPI application.
-# FastAPI defines the endpoints, but uvicorn is what listens for HTTP
-# requests and passes them to FastAPI. The [standard] extra installs
-# uvloop (faster event loop) and httptools (faster HTTP parsing).
-# Run with: uvicorn main:app --reload
-uvicorn[standard]
-
-# --- Database ---
-# databases: Async database interface that works with FastAPI's async/await.
-# It manages a connection pool and supports non-blocking queries so the
-# server can handle other requests while waiting for database responses.
-# The [postgresql] extra installs the PostgreSQL-specific dependencies.
-# Used for all runtime queries: SELECT, INSERT, UPDATE via await database.execute()
-databases[postgresql]
-
-# asyncpg: The async PostgreSQL driver that 'databases' uses under the hood.
-# It's the fastest Python PostgreSQL driver because it's written in C and
-# uses PostgreSQL's binary protocol (not text). You never import this
-# directly — the 'databases' library uses it automatically when the
-# connection string includes "+asyncpg".
-asyncpg
-
-# SQLAlchemy: SQL toolkit for Python. We use SQLAlchemy Core (not the ORM)
-# to define our table schema in models.py. It builds SQL queries as Python
-# objects: players.select(), players.insert().values(...), etc.
-# Also used for metadata.create_all() to create tables on startup.
-# Note: We use SQLAlchemy for query building + schema, but 'databases'
-# for actually executing queries asynchronously.
-sqlalchemy
-
-# psycopg2-binary: Synchronous PostgreSQL driver needed ONLY for
-# metadata.create_all() at startup (which is a sync operation).
-# The "binary" variant includes pre-compiled C extensions so you don't
-# need PostgreSQL development headers installed on your system.
-# All async queries use asyncpg instead — this is just for table creation.
-psycopg2-binary
-
-# --- Data Analysis ---
-# Polars: High-performance DataFrame library (like Pandas but faster).
-# Written in Rust, it's used here to compute:
-# - League-wide averages (pl.col().mean())
-# - Per-player derived stats (.with_columns() with column arithmetic)
-# - Team-level aggregations (.group_by().agg())
-# - Dynamic search filtering (.filter() with conditional expressions)
-# Polars is the core data analysis engine of this project.
-polars
-
-# --- Configuration ---
-# python-dotenv: Loads environment variables from a .env file into os.environ.
-# This lets you store config like DATABASE_URL in a .env file instead of
-# setting environment variables manually. Used in database.py to load
-# the database connection string. The .env file is not committed to git
-# (it often contains passwords and secrets).
-python-dotenv
-
-# --- MLB Data ---
-# MLB-StatsAPI: Official Python wrapper for the MLB Stats API.
-# Provides easy access to real-time and historical MLB statistics including:
-# - Player batting/pitching stats by season
-# - Team rosters and standings
-# - Game schedules and scores
-# - Player biographical info and positions
-# Free to use, no API key required. Used by mlb_data_fetcher.py to
-# fetch real player stats and populate/update the database.
-# Documentation: https://pypi.org/project/MLB-StatsAPI/
-MLB-StatsAPI
-
-# --- Fantasy League Integration (ESPN + Yahoo) ---
-# httpx: Modern async HTTP client for Python. Used to call the ESPN Fantasy
-# API to fetch league scoring settings. Unlike the standard `requests` library,
-# httpx supports async/await which is needed for FastAPI's async endpoints.
-# We use it in espn_fantasy.py to fetch league data from:
-# https://lm-api-reads.fantasy.espn.com/apis/v3/games/flb/...
-httpx
-
-# requests-oauthlib: OAuth 2.0 support for the Yahoo Fantasy Sports API.
-# Yahoo Fantasy uses OAuth 2.0 with an authorization code flow.
-# This package wraps the 'requests' library with OAuth session management,
-# handling token exchange, refresh, and Bearer token injection.
-# Used in yahoo_fantasy.py for:
-#   1. Generating the Yahoo authorization URL (user opens in browser)
-#   2. Exchanging the authorization code for access/refresh tokens
-#   3. Auto-refreshing expired tokens and making authenticated API calls
-# Also installs 'requests' and 'oauthlib' as dependencies automatically.
-requests-oauthlib
-
-# scikit-learn: Machine learning library used by train_hit_model.py to
-# train and evaluate the daily 1+ hit prediction models (logistic
-# regression and gradient-boosted trees) with walk-forward validation.
-# Needs >=1.6 for NumPy 2.x compatibility.
-scikit-learn>=1.6
-
-# Alembic: versioned database schema migrations ("git for the database").
-# Migration files live in backend/alembic/versions/; migrations.py brings
-# any database to the current revision at startup. See migrations.py for
-# the day-to-day workflow when changing models.py.
-alembic
+# Compatibility export only. pyproject.toml + uv.lock are authoritative.
+# Regenerate: uv export --locked --no-dev --no-hashes --no-header -o requirements.txt
+alembic==1.18.5
+    # via mlb-fantasy-stats-backend
+annotated-doc==0.0.4
+    # via fastapi
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.14.2
+    # via
+    #   httpx
+    #   starlette
+    #   watchfiles
+asyncpg==0.31.0
+    # via
+    #   databases
+    #   mlb-fantasy-stats-backend
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+    #   requests
+charset-normalizer==3.4.9
+    # via requests
+click==8.4.2
+    # via uvicorn
+colorama==0.4.6 ; sys_platform == 'win32'
+    # via click
+databases==0.9.0
+    # via mlb-fantasy-stats-backend
+fastapi==0.140.8
+    # via mlb-fantasy-stats-backend
+greenlet==3.5.4 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
+    # via sqlalchemy
+h11==0.16.0
+    # via
+    #   httpcore
+    #   uvicorn
+httpcore==1.0.9
+    # via httpx
+httptools==0.8.0
+    # via uvicorn
+httpx==0.28.1
+    # via mlb-fantasy-stats-backend
+idna==3.18
+    # via
+    #   anyio
+    #   httpx
+    #   requests
+joblib==1.5.3
+    # via scikit-learn
+mako==1.3.12
+    # via alembic
+markupsafe==3.0.3
+    # via mako
+mlb-statsapi==1.9.0
+    # via mlb-fantasy-stats-backend
+narwhals==2.24.0
+    # via scikit-learn
+numpy==2.5.1
+    # via
+    #   mlb-fantasy-stats-backend
+    #   pandas
+    #   scikit-learn
+    #   scipy
+oauthlib==3.3.1
+    # via requests-oauthlib
+pandas==3.0.5
+    # via mlb-fantasy-stats-backend
+polars==1.43.1
+    # via mlb-fantasy-stats-backend
+polars-runtime-32==1.43.1
+    # via polars
+psycopg2-binary==2.9.12
+    # via mlb-fantasy-stats-backend
+pyarrow==23.0.1
+    # via mlb-fantasy-stats-backend
+pydantic==2.13.4
+    # via fastapi
+pydantic-core==2.46.4
+    # via pydantic
+python-dateutil==2.9.0.post0
+    # via pandas
+python-dotenv==1.2.2
+    # via
+    #   mlb-fantasy-stats-backend
+    #   uvicorn
+pyyaml==6.0.3
+    # via uvicorn
+requests==2.34.2
+    # via
+    #   mlb-statsapi
+    #   requests-oauthlib
+requests-oauthlib==2.0.0
+    # via mlb-fantasy-stats-backend
+scikit-learn==1.9.0
+    # via mlb-fantasy-stats-backend
+scipy==1.18.0
+    # via
+    #   mlb-fantasy-stats-backend
+    #   scikit-learn
+six==1.17.0
+    # via python-dateutil
+sqlalchemy==2.0.51
+    # via
+    #   alembic
+    #   databases
+    #   mlb-fantasy-stats-backend
+starlette==1.3.1
+    # via fastapi
+threadpoolctl==3.6.0
+    # via scikit-learn
+typing-extensions==4.16.0
+    # via
+    #   alembic
+    #   anyio
+    #   fastapi
+    #   pydantic
+    #   pydantic-core
+    #   sqlalchemy
+    #   starlette
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via
+    #   fastapi
+    #   pydantic
+tzdata==2026.3 ; sys_platform == 'emscripten' or sys_platform == 'win32'
+    # via pandas
+urllib3==2.7.0
+    # via requests
+uvicorn==0.51.0
+    # via mlb-fantasy-stats-backend
+uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
+    # via uvicorn
+watchfiles==1.2.0
+    # via uvicorn
+websockets==16.1.1
+    # via uvicorn
