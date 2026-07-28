@@ -1,6 +1,7 @@
 """Guards for the Alembic migration setup."""
 
 from pathlib import Path
+from unittest.mock import Mock
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -40,3 +41,23 @@ def test_baseline_creates_every_model_table():
         assert f"op.create_table('{table_name}'" in baseline_source, (
             f"{table_name} missing from baseline migration"
         )
+
+
+def test_legacy_database_stamps_baseline_before_upgrading(monkeypatch):
+    """A legacy database must not skip migrations added after the baseline."""
+    import migrations
+
+    inspector = Mock()
+    inspector.has_table.side_effect = lambda name: name == "players"
+    monkeypatch.setattr(migrations, "inspect", lambda _engine: inspector)
+    stamp = Mock()
+    upgrade = Mock()
+    monkeypatch.setattr(migrations.command, "stamp", stamp)
+    monkeypatch.setattr(migrations.command, "upgrade", upgrade)
+
+    migrations.run_migrations()
+
+    stamp.assert_called_once()
+    assert stamp.call_args.args[1] == "c8a75a27355e"
+    upgrade.assert_called_once()
+    assert upgrade.call_args.args[1] == "head"
