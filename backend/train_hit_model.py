@@ -29,10 +29,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+# Restricted Windows service accounts can reject joblib's physical-core probe
+# and print a long traceback. Use nearly all logical cores without probing.
+_logical_cpu_count = os.cpu_count() or 1
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(max(1, _logical_cpu_count - 1)))
 
 import numpy as np
 import polars as pl

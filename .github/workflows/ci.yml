@@ -24,18 +24,52 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: backend/requirements-dev.txt
+          python-version-file: backend/.python-version
 
-      - name: Install backend dependencies
-        run: pip install -r requirements-dev.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.33"
+          enable-cache: true
+
+      - name: Install locked backend dependencies
+        run: uv sync --locked
+
+      - name: Validate scientific environment
+        run: uv run --locked python scripts/check_ml_environment.py --json
 
       - name: Compile backend modules
-        run: python -m py_compile baseball_math.py betting_math.py settings.py routers/system.py routers/betting.py main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py
+        run: uv run --locked python -m py_compile baseball_math.py betting_math.py settings.py routers/system.py routers/betting.py main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py ml_environment.py predict_hits_today.py
 
       - name: Run backend tests
-        run: python -m pytest -q
+        run: uv run --locked python -m pytest -q
+
+  backend-environment-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.33"
+          enable-cache: true
+
+      - name: Install locked backend dependencies
+        run: uv sync --locked
+
+      - name: Validate Windows scientific environment
+        run: uv run --locked python scripts/check_ml_environment.py --json
 
   frontend:
     runs-on: ubuntu-latest
