@@ -108,7 +108,31 @@ No single metric is sufficient. Top-N hit rate measures the visible product, whi
 
 ## Phase 0 - Freeze the experiment contract
 
-### 0.1 Create a reproducible V2 benchmark
+### 0.1 Lock the run, game, and cohort identities
+
+Before producing a V3 score:
+
+- Persist every prediction as an immutable `run_id`; never overwrite a prior
+  date/model run.
+- Record `as_of_timestamp`, `prediction_mode`, model/runtime provenance, and
+  the full candidate-cohort manifest on the run.
+- Treat `is_public` as the current display pointer and `is_evaluation` as the
+  one date/model run allowed into the live ledger. Moving either pointer must
+  not alter the saved predictions.
+- Carry MLB `game_pk` from candidate construction through JSON, database
+  storage, API output, and grading.
+- Grade by `(game_pk, player_id)`, not `(date, player_id)`, so doubleheaders
+  remain separate and unfinished games on a partial slate remain pending.
+- Build the candidate cohort once from game, player, lineup slot/source, and
+  expected starter identity. V2 and V3 must match its SHA-256 id exactly.
+- Fail the paired comparison if either model drops a candidate because a V3
+  feature is missing. Missing optional features require an explicit fallback,
+  not a different eligible population.
+
+Legacy rows without `game_pk` may remain visible, but ambiguous doubleheader
+rows must not be guessed or recomputed as if the two games were one.
+
+### 0.2 Create a reproducible V2 benchmark
 
 - Run V2 in the clean, locked environment.
 - Save the exact training datasets, row counts, date bounds, feature order, model parameters, and calibration file hash.
@@ -117,7 +141,7 @@ No single metric is sufficient. Top-N hit rate measures the visible product, whi
 - Record the code commit and dependency-lock hash.
 - Run V2 twice and confirm identical predictions or document a justified numeric tolerance.
 
-### 0.2 Predeclare evaluation periods
+### 0.3 Predeclare evaluation periods
 
 Use strictly chronological folds. A proposed layout is:
 
@@ -128,7 +152,7 @@ Use strictly chronological folds. A proposed layout is:
 
 The final dates must be written into the experiment configuration before V3 results are inspected.
 
-### 0.3 Define uncertainty reporting
+### 0.4 Define uncertainty reporting
 
 - Bootstrap by game date, not by individual player row.
 - Report 95% confidence intervals for top-N rates and metric differences.
@@ -138,6 +162,10 @@ The final dates must be written into the experiment configuration before V3 resu
 **Exit criteria:**
 
 - V2 reproduces successfully in the locked environment.
+- Prediction reruns are retained as separate runs, while the ledger counts
+  only the designated evaluation run.
+- The V2/V3 paired comparison rejects mismatched candidate-cohort ids.
+- Doubleheader fixtures grade each game independently.
 - The fold definitions and untouched final test are committed.
 - The benchmark report includes predictions, metrics, confidence intervals, and provenance.
 
@@ -234,10 +262,18 @@ Candidate features:
 Train an opportunity model to estimate:
 
 ```text
-P(PA = 3), P(PA = 4), P(PA = 5), P(PA >= 6)
+P(PA = 0), P(PA = 1), P(PA = 2), P(PA = 3),
+P(PA = 4), P(PA = 5), P(PA >= 6)
 ```
 
 Do not use the eventual game plate-appearance count as an input.
+
+The 0-2 buckets are required. They represent scratches, late substitutions,
+pinch-hit-only appearances, shortened opportunity, and other real outcomes
+that reduce the chance of recording a hit. If the opportunity model is
+instead conditioned on "confirmed starter," that condition must be explicit
+and the separate starter probability must be multiplied back into the final
+game probability.
 
 ### 2.2 Batter contact and hit-quality features
 
@@ -513,8 +549,11 @@ The Phase 0 power analysis should define the practical improvement threshold. Do
 ### Backend
 
 - Score V2 and V3 from the same slate and lineup snapshot.
-- Persist both predictions without changing the public winner.
-- Store a run manifest for both models.
+- Materialize the candidate cohort once and require both models to match its
+  id before either result enters the comparison.
+- Persist both as immutable runs without changing the public winner.
+- Store a run manifest, as-of timestamp, prediction mode, and cohort manifest
+  for both models.
 - Record feature coverage, fallback use, and lineup source.
 - Add a comparison endpoint restricted to development/admin use initially.
 
@@ -582,6 +621,7 @@ Do not estimate same-team joint probability by arbitrarily increasing the produc
 backend/
   hit_model/
     __init__.py
+    cohort.py
     config.py
     feature_schema.py
     opportunity.py
@@ -615,6 +655,8 @@ Large datasets, trained models, and prediction outputs remain outside Git. Small
 - Shrinkage behavior at zero, small, and large samples.
 - Arsenal-weighted feature math.
 - Plate-appearance probability sums to one.
+- Plate-appearance labels cover 0, 1, 2, 3, 4, 5, and 6+.
+- `P(1+ hits | PA=0)` is exactly zero.
 - At-least-one-hit conversion.
 - Missing-data fallbacks.
 - Weather and park neutral fallbacks.
@@ -633,7 +675,10 @@ Large datasets, trained models, and prediction outputs remain outside Git. Small
 - Score the same date in official, projected, and hybrid modes.
 - Train and score a small deterministic fixture.
 - Run a full daily shadow generation without database writes.
-- Persist both model versions idempotently.
+- Persist both model versions as immutable runs; retrying the same `run_id`
+  is idempotent.
+- Reject a V2/V3 pair whose candidate-cohort ids differ.
+- Grade a same-player doubleheader fixture by `game_pk`.
 
 ### Regression tests
 
