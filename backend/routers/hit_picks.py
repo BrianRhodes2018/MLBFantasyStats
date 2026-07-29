@@ -10,6 +10,7 @@ lets the DEPLOYED backend serve picks generated on the dev machine.
 
 from datetime import date
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -55,16 +56,20 @@ async def get_hit_picks_for_date(
     pick_date: date,
     top: int = Query(15, ge=1, le=25),
     model_version: Optional[str] = Query(None, max_length=40),
+    run_id: Optional[UUID] = Query(None),
 ):
-    """A historical pick list with its final statlines when graded."""
+    """A historical list; run_id retrieves one immutable audit snapshot."""
     data = await hit_picks_store.fetch_picks_for_date(
         pick_date=pick_date.isoformat(),
         top=top,
         model_version=model_version,
+        run_id=str(run_id) if run_id else None,
     )
     if data is None:
         detail = f"No hit picks stored for {pick_date.isoformat()}"
         if model_version:
             detail += f" and model {model_version}"
+        if run_id:
+            detail += f" and run {run_id}"
         raise HTTPException(status_code=404, detail=detail)
     return ApiResponse(code=200, message="Historical hit picks", data=data)

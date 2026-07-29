@@ -30,6 +30,7 @@ import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 import polars as pl
 import statsapi
@@ -47,6 +48,11 @@ from build_hit_dataset import (
 )
 from database import normalize_database_url
 from hit_calibration import CALIBRATION_PATH, apply_calibration, load_calibration
+from hit_model.cohort import (
+    assert_candidate_cohort,
+    freeze_candidate_cohort,
+    prediction_mode,
+)
 from hit_picks_store import close_picks_db, replace_picks
 from ml_environment import dataframe_fingerprint, runtime_manifest
 from park_factors import get_park_factor
@@ -294,7 +300,7 @@ def build_candidates(
                 bats = builder.bats_by_player.get(player_id)
                 candidates.append({
                     "game_date": target.isoformat(),
-                    "game_id": safe_int(game.get("gamePk")),
+                    "game_pk": safe_int(game.get("gamePk")),
                     "player_id": player_id,
                     "player_name": names.get(player_id, str(player_id)),
                     "team": offense_team,
@@ -369,6 +375,11 @@ async def run(args: argparse.Namespace) -> int:
         slate = fetch_slate(target)
         fill_missing_probable_hands(builder, slate)
         confirmed = fetch_confirmed_lineups(slate, builder, names)
+        # The point-in-time boundary is recorded after the live schedule and
+        # lineup reads complete, so every retained input was available by it.
+        as_of_timestamp = (
+            datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        )
         confirmed_sides = sum(len(sides) for sides in confirmed.values())
         print(f"Official lineups posted: {confirmed_sides} of {len(slate) * 2} team-sides.")
         candidates = build_candidates(builder, slate, lineups, names, target, confirmed)
@@ -379,6 +390,8 @@ async def run(args: argparse.Namespace) -> int:
             # serving the most recent stored list.
             print(f"No scoreable games for {target.isoformat()} (no probables/lineups yet).")
             return 0
+        frozen_cohort = freeze_candidate_cohort(candidates)
+        snapshot_mode = prediction_mode(candidates)
 
         cand_df = prepare_frame(pl.DataFrame(candidates, infer_schema_length=None))
         probs = model.predict_proba(to_matrix(cand_df))[:, 1]
@@ -396,6 +409,12 @@ async def run(args: argparse.Namespace) -> int:
 
         cand_df = cand_df.with_columns(pl.Series("hit_probability", probs))
         ranked = cand_df.sort("hit_probability", descending=True)
+        # Feature preparation and model scoring may not silently drop or add
+        # players. V3 will be required to pass this same assertion against the
+        # saved V2 cohort before a comparison is valid.
+        assert_candidate_cohort(
+            ranked.to_dicts(), frozen_cohort["candidate_cohort_id"]
+        )
 
         print(f"\nTOP {args.top} HIT CANDIDATES — {target.isoformat()}"
               f"  ({len(slate)} scheduled games, {cand_df.height} hitters scored)\n")
@@ -416,25 +435,30 @@ async def run(args: argparse.Namespace) -> int:
             )
 
         keep = [
-            "game_date", "player_id", "player_name", "team", "opponent", "venue",
+            "game_date", "game_pk", "player_id", "player_name", "team", "opponent", "venue",
             "batting_order", "bats", "pitcher_id", "pitcher_name", "pitcher_throws",
             "lineup_source", "hit_probability",
             "season_hit_per_pa", "last10_hit_per_pa", "platoon_advantage",
         ]
+        runtime = runtime_manifest(
+            feature_names=FEATURES,
+            calibration_path=CALIBRATION_PATH,
+            training_paths=historical,
+            training_row_count=train_df.height,
+            training_frame_sha256=dataframe_fingerprint(train_df),
+        )
         output = {
+            "run_id": str(uuid4()),
             "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "as_of_timestamp": as_of_timestamp,
             "date": target.isoformat(),
+            "prediction_mode": snapshot_mode,
             "model_version": model_version,
             "model": f"{MODEL_KIND} (walk-forward validated in train_hit_model.py)",
             "trained_on_rows": train_df.height,
             "training_datasets": ["replayed current season"] + [p.name for p in historical],
-            "runtime": runtime_manifest(
-                feature_names=FEATURES,
-                calibration_path=CALIBRATION_PATH,
-                training_paths=historical,
-                training_row_count=train_df.height,
-                training_frame_sha256=dataframe_fingerprint(train_df),
-            ),
+            "runtime": runtime,
+            **frozen_cohort,
             "candidates": ranked.select(keep).to_dicts(),
         }
         if args.output_json:
@@ -443,8 +467,22 @@ async def run(args: argparse.Namespace) -> int:
             DEFAULT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
             output_path = DEFAULT_RESULTS_DIR / f"hit_picks_{target.isoformat()}.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(output, indent=2, sort_keys=True), encoding="utf-8")
+        serialized_output = json.dumps(output, indent=2, sort_keys=True)
+        output_path.write_text(serialized_output, encoding="utf-8")
         print(f"\nSaved JSON: {output_path}")
+
+        # Keep the date-named file as the grader's compatibility pointer, but
+        # also retain the exact payload under its immutable run id.
+        run_output_path = (
+            DEFAULT_RESULTS_DIR
+            / "runs"
+            / target.isoformat()
+            / f"{output['run_id']}.json"
+        )
+        run_output_path.parent.mkdir(parents=True, exist_ok=True)
+        if run_output_path.resolve() != output_path.resolve():
+            run_output_path.write_text(serialized_output, encoding="utf-8")
+        print(f"Saved immutable run JSON: {run_output_path}")
 
         # Persist to the production database (PROD_DATABASE_URL, falling
         # back to DATABASE_URL) so the deployed backend can serve today's
@@ -456,6 +494,12 @@ async def run(args: argparse.Namespace) -> int:
                 generated_at=output["generated_at"],
                 trained_on_rows=train_df.height,
                 candidates=output["candidates"],
+                run_id=output["run_id"],
+                as_of_timestamp=as_of_timestamp,
+                prediction_mode=snapshot_mode,
+                candidate_cohort_id=frozen_cohort["candidate_cohort_id"],
+                candidate_manifest=frozen_cohort["candidate_manifest"],
+                runtime_manifest=runtime,
             )
             print(f"Stored top {stored} picks in the picks database.")
         finally:

@@ -18,7 +18,17 @@ Tables:
 - fantasy_leagues: Fantasy league configurations and scoring rules (ESPN + Yahoo)
 """
 
-from sqlalchemy import Table, Column, Integer, String, Float
+from sqlalchemy import (
+    Column,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from database import metadata  # Import the shared metadata registry
 
 # =============================================================================
@@ -570,17 +580,54 @@ hitter_prop_projections = Table(
 # ---------------------------------------------------------------------------
 # HIT PICKS - Daily hit-model pick lists plus their graded outcomes
 # ---------------------------------------------------------------------------
-# One row per (pick_date, rank). Written each morning by
-# predict_hits_today.py; the grading columns start NULL and are filled in
-# the next morning by grade_hit_picks.py once boxscores are final.
+# One immutable run record plus one row per ranked pick. Prediction rows are
+# append-only; only publication/evaluation pointers and eventual grading
+# columns may change after a run is written.
 # Storing picks in the database (instead of only local JSON files) is what
 # lets the deployed Render backend serve them to the Vercel frontend.
+
+hit_pick_runs = Table(
+    "hit_pick_runs",
+    metadata,
+    Column("run_id", String(36), primary_key=True),
+    Column("pick_date", String(10), nullable=False),
+    Column("model_version", String(40), nullable=False),
+    Column("generated_at", String(40), nullable=False),
+    # Snapshot time is separate from generated_at: a long model run must retain
+    # the exact time at which its slate and lineups were frozen.
+    Column("as_of_timestamp", String(40), nullable=True),
+    Column("prediction_mode", String(20), nullable=False),
+    Column("is_public", Integer, nullable=False, server_default="0"),
+    # One designated evaluation run per date/model keeps reruns out of the
+    # live ledger while retaining every prediction snapshot for audit.
+    Column("is_evaluation", Integer, nullable=False, server_default="1"),
+    Column("trained_on_rows", Integer, nullable=True),
+    Column("candidate_cohort_id", String(64), nullable=True),
+    Column("candidate_count", Integer, nullable=False),
+    Column("candidate_manifest_json", Text, nullable=True),
+    Column("runtime_manifest_json", Text, nullable=True),
+    Column("created_at", String(40), nullable=False),
+)
+
+Index("ix_hit_pick_runs_date_public", hit_pick_runs.c.pick_date, hit_pick_runs.c.is_public)
+Index(
+    "ix_hit_pick_runs_date_model_evaluation",
+    hit_pick_runs.c.pick_date,
+    hit_pick_runs.c.model_version,
+    hit_pick_runs.c.is_evaluation,
+)
 
 hit_picks = Table(
     "hit_picks",
     metadata,
     Column("id", Integer, primary_key=True),
     # -- pick identity
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("hit_pick_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
     Column("pick_date", String(10), nullable=False),      # "YYYY-MM-DD"
     Column("model_version", String(40), nullable=False),  # e.g. "hit_gbm_v2"
     # One public/champion list per date; shadow model runs use 0 so V2 and V3
@@ -590,6 +637,9 @@ hit_picks = Table(
     Column("trained_on_rows", Integer, nullable=True),
     Column("rank", Integer, nullable=False),              # 1 = best pick
     # -- the pick itself
+    # Nullable only for pre-migration history whose JSON never retained the
+    # game id. Every newly written run validates and stores this value.
+    Column("game_pk", Integer, nullable=True),
     Column("player_id", Integer, nullable=False),
     Column("player_name", String(150)),
     Column("team", String(60)),
@@ -620,4 +670,8 @@ hit_picks = Table(
     Column("strikeouts", Integer, nullable=True),
     Column("total_bases", Integer, nullable=True),
     Column("graded_at", String(40), nullable=True),
+    UniqueConstraint("run_id", "rank", name="uq_hit_picks_run_rank"),
 )
+
+Index("ix_hit_picks_date_public", hit_picks.c.pick_date, hit_picks.c.is_public)
+Index("ix_hit_picks_game_player", hit_picks.c.game_pk, hit_picks.c.player_id)

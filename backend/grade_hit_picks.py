@@ -31,7 +31,7 @@ from hit_picks_store import apply_grades, close_picks_db
 
 
 async def write_grades_to_db(
-    graded_outcomes: list[tuple[str, dict[int, dict[str, int]]]],
+    graded_outcomes: list[tuple[str, dict[tuple[int, int], dict[str, int]]]],
 ) -> None:
     """Fill the grading columns on the stored hit_picks rows (in the
     production picks database — see hit_picks_store module doc)."""
@@ -49,24 +49,51 @@ TOP_NS = (5, 10, 15)
 _PICK_FILE_RE = re.compile(r"hit_picks_(\d{4}-\d{2}-\d{2})\.json$")
 
 
-def outcomes_for_date(source: BoxscoreSource, target: date) -> dict[int, dict[str, int]]:
-    """Player id -> full batting line for every batter who appeared that day.
+class GameOutcomes(dict[tuple[int, int], dict[str, int]]):
+    """Statlines plus final-game membership needed for safe legacy handling."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.final_game_pks: set[int] = set()
+        self.player_game_pks: dict[int, set[int]] = {}
+
+
+def _game_pk(slate_game: Mapping[str, Any]) -> int:
+    game = slate_game.get("game") or {}
+    return safe_int(
+        (slate_game.get("schedule") or {}).get("game_id")
+        or game.get("gamePk")
+        or ((game.get("gameData") or {}).get("game") or {}).get("pk")
+    )
+
+
+def outcomes_for_date(
+    source: BoxscoreSource,
+    target: date,
+) -> GameOutcomes:
+    """(game_pk, player_id) -> batting line for each batter who appeared.
 
     The schedule is force-refreshed: grading runs the morning after, and
     the cached copy may have been written earlier that day while games
     were still scheduled/in progress (which would read as "no final
     games" forever). One extra API call per newly graded date.
     """
-    outcomes: dict[int, dict[str, int]] = {}
+    outcomes = GameOutcomes()
     for slate_game in source.final_games(target, refresh_schedule=True):
+        game_pk = _game_pk(slate_game)
+        if not game_pk:
+            continue
+        outcomes.final_game_pks.add(game_pk)
         teams = slate_game["game"].get("liveData", {}).get("boxscore", {}).get("teams", {})
         for side in ("away", "home"):
             for box_player in (teams.get(side, {}).get("players") or {}).values():
                 pid = safe_int((box_player.get("person") or {}).get("id"))
+                if pid:
+                    outcomes.player_game_pks.setdefault(pid, set()).add(game_pk)
                 batting = box_player.get("stats", {}).get("batting") or {}
                 pa = safe_int(batting.get("plateAppearances"))
                 if pid and pa > 0:
-                    outcomes[pid] = {
+                    outcomes[(game_pk, pid)] = {
                         "hits": safe_int(batting.get("hits")),
                         "at_bats": safe_int(batting.get("atBats")),
                         "plate_appearances": pa,
@@ -82,9 +109,34 @@ def outcomes_for_date(source: BoxscoreSource, target: date) -> dict[int, dict[st
     return outcomes
 
 
+def _candidate_outcome(
+    candidate: Mapping[str, Any],
+    outcomes: Mapping[Any, Mapping[str, int]],
+) -> Optional[Mapping[str, int]]:
+    player_id = safe_int(candidate.get("player_id"))
+    game_pk = safe_int(candidate.get("game_pk") or candidate.get("game_id"))
+    if game_pk and (game_pk, player_id) in outcomes:
+        return outcomes[(game_pk, player_id)]
+    player_game_pks = getattr(outcomes, "player_game_pks", {}).get(player_id, set())
+    if not game_pk and len(player_game_pks) > 1:
+        return None
+    if player_id in outcomes:  # Legacy player-only input.
+        return outcomes[player_id]
+    matches = [
+        outcome
+        for key, outcome in outcomes.items()
+        if isinstance(key, tuple)
+        and len(key) == 2
+        and safe_int(key[1]) == player_id
+    ]
+    # A game-less legacy pick can be matched only when the player appeared
+    # in exactly one final game. Never combine or guess across a doubleheader.
+    return matches[0] if len(matches) == 1 else None
+
+
 def grade_candidates(
     candidates: list[Mapping[str, Any]],
-    outcomes: Mapping[int, Mapping[str, int]],
+    outcomes: Mapping[Any, Mapping[str, int]],
     top_ns: tuple[int, ...] = TOP_NS,
 ) -> dict[str, dict[str, int]]:
     """
@@ -96,8 +148,12 @@ def grade_candidates(
     grades = {}
     for n in top_ns:
         top = candidates[:n]
-        played = [c for c in top if safe_int(c.get("player_id")) in outcomes]
-        hits = sum(1 for c in played if outcomes[safe_int(c["player_id"])]["hits"] >= 1)
+        played = [
+            (candidate, _candidate_outcome(candidate, outcomes))
+            for candidate in top
+        ]
+        played = [(candidate, outcome) for candidate, outcome in played if outcome]
+        hits = sum(1 for _, outcome in played if outcome["hits"] >= 1)
         grades[f"top{n}"] = {"picks": len(top), "played": len(played), "hits": hits}
     return grades
 
@@ -151,7 +207,9 @@ def main() -> int:
         return 1
 
     graded = skipped = 0
-    graded_outcomes: list[tuple[str, dict[int, dict[str, int]]]] = []
+    graded_outcomes: list[
+        tuple[str, dict[tuple[int, int], dict[str, int]]]
+    ] = []
     for pick_file in pick_files:
         match = _PICK_FILE_RE.search(pick_file.name)
         if not match:

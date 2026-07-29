@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import hit_picks_store
 from grade_hit_picks import grade_candidates, outcomes_for_date, summarize_ledger
+from hit_model.cohort import freeze_candidate_cohort
 from hit_picks_store import (
     apply_grades,
     replace_picks,
@@ -21,10 +22,10 @@ from routers.hit_picks import router
 def make_candidates():
     # Saved pick lists are sorted by predicted probability descending.
     return [
-        {"player_id": 1, "player_name": "A"},
-        {"player_id": 2, "player_name": "B"},
-        {"player_id": 3, "player_name": "C"},
-        {"player_id": 4, "player_name": "D"},
+        {"game_pk": 100, "player_id": 1, "player_name": "A"},
+        {"game_pk": 100, "player_id": 2, "player_name": "B"},
+        {"game_pk": 100, "player_id": 3, "player_name": "C"},
+        {"game_pk": 100, "player_id": 4, "player_name": "D"},
     ]
 
 
@@ -52,6 +53,7 @@ class TestOutcomeStatlines:
                 assert target == date(2026, 7, 4)
                 assert refresh_schedule is True
                 return [{
+                    "schedule": {"game_id": 777},
                     "game": {
                         "liveData": {
                             "boxscore": {
@@ -85,7 +87,7 @@ class TestOutcomeStatlines:
                     }
                 }]
 
-        assert outcomes_for_date(Source(), date(2026, 7, 4))[42] == {
+        assert outcomes_for_date(Source(), date(2026, 7, 4))[(777, 42)] == {
             "hits": 2,
             "at_bats": 4,
             "plate_appearances": 5,
@@ -98,6 +100,56 @@ class TestOutcomeStatlines:
             "strikeouts": 1,
             "total_bases": 6,
         }
+
+    def test_keeps_doubleheader_statlines_separate(self):
+        class Source:
+            def final_games(self, target, refresh_schedule):
+                def game(game_pk, hits):
+                    return {
+                        "schedule": {"game_id": game_pk},
+                        "game": {
+                            "liveData": {
+                                "boxscore": {
+                                    "teams": {
+                                        "away": {
+                                            "players": {
+                                                "ID42": {
+                                                    "person": {"id": 42},
+                                                    "stats": {
+                                                        "batting": {
+                                                            "plateAppearances": 4,
+                                                            "atBats": 4,
+                                                            "hits": hits,
+                                                        }
+                                                    },
+                                                }
+                                            }
+                                        },
+                                        "home": {"players": {}},
+                                    }
+                                }
+                            }
+                        },
+                    }
+
+                return [game(701, 0), game(702, 2)]
+
+        outcomes = outcomes_for_date(Source(), date(2026, 7, 4))
+        assert outcomes[(701, 42)]["hits"] == 0
+        assert outcomes[(702, 42)]["hits"] == 2
+        grades = grade_candidates(
+            [
+                {"game_pk": 701, "player_id": 42},
+                {"game_pk": 702, "player_id": 42},
+            ],
+            outcomes,
+            top_ns=(2,),
+        )
+        assert grades["top2"] == {"picks": 2, "played": 2, "hits": 1}
+        ambiguous_legacy = grade_candidates(
+            [{"player_id": 42}], outcomes, top_ns=(1,)
+        )
+        assert ambiguous_legacy["top1"] == {"picks": 1, "played": 0, "hits": 0}
 
 
 class TestSummarizeLedger:
@@ -160,12 +212,19 @@ class TestSummarizePickRows:
 
 def full_pick_row(**overrides):
     row = {
+        "run_id": "3e77a1fa-6ff8-4821-aa20-ee51687b483c",
         "pick_date": "2026-07-05",
         "model_version": "hit_gbm_v2",
         "is_public": 1,
+        "is_evaluation": 1,
         "generated_at": "2026-07-05T12:00:00+00:00",
+        "as_of_timestamp": "2026-07-05T11:55:00+00:00",
+        "prediction_mode": "official",
+        "candidate_cohort_id": "a" * 64,
+        "candidate_count": 18,
         "trained_on_rows": 149241,
         "rank": 1,
+        "game_pk": 777,
         "player_id": 1,
         "player_name": "A",
         "team": "DET",
@@ -211,6 +270,9 @@ class TestHistoryPayloads:
         assert payload["grading_status"] == "graded"
         assert payload["picks"][0]["at_bats"] == 4
         assert payload["picks"][0]["home_runs"] == 0
+        assert payload["picks"][0]["game_pk"] == 777
+        assert payload["run_id"] == "3e77a1fa-6ff8-4821-aa20-ee51687b483c"
+        assert payload["candidate_cohort_id"] == "a" * 64
         assert len(payload["available_models"]) == 2
 
     def test_summarizes_calendar_dates(self):
@@ -242,8 +304,9 @@ class FakeTransaction:
 
 
 class FakePicksDatabase:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, fetch_one_row=None):
         self.rows = rows or []
+        self.fetch_one_row = fetch_one_row
         self.executed = []
         self.inserted = []
 
@@ -259,10 +322,13 @@ class FakePicksDatabase:
     async def fetch_all(self, query):
         return self.rows
 
+    async def fetch_one(self, query):
+        return self.fetch_one_row
+
 
 class TestHistoryWrites:
     @pytest.mark.asyncio
-    async def test_public_replace_preserves_other_versions(self, monkeypatch):
+    async def test_public_write_appends_an_immutable_run(self, monkeypatch):
         database = FakePicksDatabase()
 
         async def fake_database():
@@ -279,14 +345,51 @@ class TestHistoryWrites:
         )
 
         assert inserted == 1
-        assert len(database.executed) == 2  # demote other models, delete this model
+        # Demote public pick/run pointers, demote the previous evaluation
+        # pointer, then insert the new run. No prediction DELETE is issued.
+        assert len(database.executed) == 4
         assert database.inserted[0]["is_public"] == 1
-        delete_sql = str(database.executed[1])
-        assert "pick_date" in delete_sql and "model_version" in delete_sql
+        assert database.inserted[0]["game_pk"] == 777
+        assert all("DELETE" not in str(query).upper() for query in database.executed)
+        insert_sql = str(database.executed[-1])
+        assert "INSERT INTO hit_pick_runs" in insert_sql
+
+    @pytest.mark.asyncio
+    async def test_retrying_same_run_id_is_idempotent(self, monkeypatch):
+        candidates = [full_pick_row()]
+        cohort_id = freeze_candidate_cohort(candidates)["candidate_cohort_id"]
+        existing = {
+            "run_id": "3e77a1fa-6ff8-4821-aa20-ee51687b483c",
+            "pick_date": "2026-07-05",
+            "model_version": "hit_gbm_v2",
+            "candidate_cohort_id": cohort_id,
+            "candidate_count": 18,
+        }
+        database = FakePicksDatabase(fetch_one_row=existing)
+
+        async def fake_database():
+            return database
+
+        monkeypatch.setattr(hit_picks_store, "get_picks_db", fake_database)
+        inserted = await replace_picks(
+            pick_date="2026-07-05",
+            model_version="hit_gbm_v2",
+            generated_at="2026-07-05T12:00:00+00:00",
+            trained_on_rows=150000,
+            candidates=candidates,
+            run_id=existing["run_id"],
+            candidate_cohort_id=existing["candidate_cohort_id"],
+        )
+
+        assert inserted == 18
+        assert database.executed == []
+        assert database.inserted == []
 
     @pytest.mark.asyncio
     async def test_grade_write_includes_full_statline(self, monkeypatch):
-        database = FakePicksDatabase(rows=[{"id": 10, "player_id": 42}])
+        database = FakePicksDatabase(
+            rows=[{"id": 10, "game_pk": 701, "player_id": 42}]
+        )
 
         async def fake_database():
             return database
@@ -295,7 +398,7 @@ class TestHistoryWrites:
         updated = await apply_grades(
             pick_date="2026-07-05",
             outcomes={
-                42: {
+                (701, 42): {
                     "hits": 2,
                     "at_bats": 4,
                     "plate_appearances": 5,
@@ -316,6 +419,28 @@ class TestHistoryWrites:
         assert params["at_bats"] == 4
         assert params["home_runs"] == 1
         assert params["total_bases"] == 6
+
+    @pytest.mark.asyncio
+    async def test_grading_waits_for_each_specific_game(self, monkeypatch):
+        database = FakePicksDatabase(
+            rows=[
+                {"id": 10, "game_pk": 701, "player_id": 42},
+                {"id": 11, "game_pk": 702, "player_id": 42},
+            ]
+        )
+
+        async def fake_database():
+            return database
+
+        monkeypatch.setattr(hit_picks_store, "get_picks_db", fake_database)
+        updated = await apply_grades(
+            pick_date="2026-07-05",
+            outcomes={(701, 42): {"hits": 0}},
+        )
+
+        assert updated == 1
+        params = database.executed[0].compile().params
+        assert params["got_hit"] == 0
 
 
 @pytest.fixture
@@ -389,10 +514,11 @@ class TestHitPicksRoutes:
             "picks": [{"rank": 1, "hits": 2, "at_bats": 4}],
         }
 
-        async def fake_history(*, pick_date, top, model_version):
+        async def fake_history(*, pick_date, top, model_version, run_id):
             assert pick_date == "2026-07-05"
             assert top == 10
             assert model_version == "hit_gbm_v2"
+            assert run_id is None
             return payload
 
         monkeypatch.setattr(hit_picks_store, "fetch_picks_for_date", fake_history)
@@ -402,10 +528,24 @@ class TestHitPicksRoutes:
         assert response.status_code == 200
         assert response.json()["data"] == payload
 
+    def test_historical_run_id_retrieves_exact_snapshot(self, client, monkeypatch):
+        run_id = "3e77a1fa-6ff8-4821-aa20-ee51687b483c"
+
+        async def fake_history(*, pick_date, top, model_version, run_id):
+            assert pick_date == "2026-07-05"
+            assert model_version is None
+            assert run_id == "3e77a1fa-6ff8-4821-aa20-ee51687b483c"
+            return {"run_id": run_id, "picks": []}
+
+        monkeypatch.setattr(hit_picks_store, "fetch_picks_for_date", fake_history)
+        response = client.get(f"/hit-picks/2026-07-05?run_id={run_id}")
+        assert response.status_code == 200
+        assert response.json()["data"]["run_id"] == run_id
+
     def test_historical_date_validates_and_404s(self, client, monkeypatch):
         assert client.get("/hit-picks/not-a-date").status_code == 422
 
-        async def fake_history(*, pick_date, top, model_version):
+        async def fake_history(*, pick_date, top, model_version, run_id):
             return None
 
         monkeypatch.setattr(hit_picks_store, "fetch_picks_for_date", fake_history)

@@ -106,6 +106,23 @@ def upgrade() -> None:
     sa.Column('created_at', sa.String(length=30), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('hit_pick_runs',
+    sa.Column('run_id', sa.String(length=36), nullable=False),
+    sa.Column('pick_date', sa.String(length=10), nullable=False),
+    sa.Column('model_version', sa.String(length=40), nullable=False),
+    sa.Column('generated_at', sa.String(length=40), nullable=False),
+    sa.Column('as_of_timestamp', sa.String(length=40), nullable=True),
+    sa.Column('prediction_mode', sa.String(length=20), nullable=False),
+    sa.Column('is_public', sa.Integer(), server_default='0', nullable=False),
+    sa.Column('is_evaluation', sa.Integer(), server_default='1', nullable=False),
+    sa.Column('trained_on_rows', sa.Integer(), nullable=True),
+    sa.Column('candidate_cohort_id', sa.String(length=64), nullable=True),
+    sa.Column('candidate_count', sa.Integer(), nullable=False),
+    sa.Column('candidate_manifest_json', sa.Text(), nullable=True),
+    sa.Column('runtime_manifest_json', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.String(length=40), nullable=False),
+    sa.PrimaryKeyConstraint('run_id')
+    )
     op.create_table('hit_picks',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('pick_date', sa.String(length=10), nullable=False),
@@ -257,6 +274,7 @@ def downgrade() -> None:
     op.drop_table('hitter_savant_snapshots')
     op.drop_table('hitter_prop_projections')
     op.drop_table('hit_picks')
+    op.drop_table('hit_pick_runs')
     op.drop_table('fantasy_leagues')
     op.drop_table('betting_odds_snapshots')
     op.drop_table('bet_suggestions')
