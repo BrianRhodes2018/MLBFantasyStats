@@ -44,6 +44,14 @@ def sha256_file(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+def canonical_text_sha256(path: Path) -> str | None:
+    """Hash text identically after a Windows or Linux Git checkout."""
+    if not path.is_file():
+        return None
+    normalized = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def package_versions() -> dict[str, str]:
     """Return the installed versions that can materially affect model output."""
     versions: dict[str, str] = {}
@@ -57,7 +65,7 @@ def package_versions() -> dict[str, str]:
 
 def dependency_fingerprint() -> tuple[str, str | None]:
     """Hash the Python contract, uv lock, and installed scientific versions."""
-    lock_sha256 = sha256_file(LOCK_PATH)
+    lock_sha256 = canonical_text_sha256(LOCK_PATH)
     payload = {
         "python": f"{platform.python_version_tuple()[0]}.{platform.python_version_tuple()[1]}",
         "lock_sha256": lock_sha256,

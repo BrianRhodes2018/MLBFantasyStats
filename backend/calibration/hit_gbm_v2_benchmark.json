@@ -22,6 +22,6 @@
   },
   "base_model_recipe_sha256": "62085cbb712d030aad828ad1f1a337fccce9997155539ae2931dea70fd8be490",
   "feature_schema_sha256": "0c6c415c261bdc31ee36437a046b3f916d1603461d6162c3bdf8ec36fe1b6236",
-  "dependency_fingerprint": "416400407dffff984639e03a2f2fe310f139627e0e3d5df7e2fa336154466a15",
+  "dependency_fingerprint": "567665c6a0b0c388958243f93da535119b69c3a580b2a4b25ef517a9b5e44425",
   "generated_at": "2026-07-30T11:30:33+00:00"
 }
