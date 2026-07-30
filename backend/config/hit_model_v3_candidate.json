@@ -1,0 +1,86 @@
+{
+  "candidate_version": "hit_model_v3_candidate_v1",
+  "status": "frozen_before_locked_final",
+  "locked": true,
+  "locked_at": "2026-07-30T19:44:00Z",
+  "model_version": "hit_gbm_v3_e4",
+  "experiment_id": "E4",
+  "architecture": "game_level_binary_classifier",
+  "estimator": "sklearn.ensemble.HistGradientBoostingClassifier",
+  "feature_source": "hit_model.v3_model.FEATURE_LADDER.E4",
+  "feature_count": 98,
+  "feature_schema_sha256": "4df9ca6d4c6e76b723ab8f1a258911fa454de9650ab20f4af518cbdc9c22ffc3",
+  "recipe_source": "hit_model.v3_model.V3_GBM_RECIPE",
+  "recipe_sha256": "47ef8518ecc0619a5f0d14b74d92f665f0c2c998ecdf9be13247f9670a42dc8f",
+  "experiment_contract_sha256": "d85af642692fbaaa11fef3dc8aeec3d73d9e2590217749518677bceaae0cdfe8",
+  "development_dataset_frame_sha256": "7344d5ed4165f0938c74212f64d00a4bb9f460920a1f2a8a76deceec48a7b62a",
+  "development_evidence": {
+    "report": "reports/v3/v3_development_ladder.json",
+    "report_sha256_at_freeze": "67fe3932d42db8fb7d605d0c64e47af424f94a243ea4917c80ccf56254275b8d",
+    "prediction_artifact_sha256": "23062eedc8a32c8886c81181f55f14ae3d5bb97ea65d2d2a46d6e8cf9620877e",
+    "daily_topn_artifact_sha256": "c0ebed1697ab4b1dd13f05af61978f7dc5a3130673da2995291ef24646f8b5e8",
+    "game_dates": 432,
+    "top10_rate": 0.689352,
+    "top10_delta_vs_e1": 0.011111,
+    "nonnegative_folds": 4,
+    "brier": 0.231253,
+    "brier_delta_vs_e1": -0.001009,
+    "log_loss": 0.653223,
+    "log_loss_delta_vs_e1": -0.002208,
+    "passed_all_shadow_entry_gates": true
+  },
+  "excluded_after_ablation": {
+    "E5_starter_workload_and_bullpen": "Improved pooled Brier and log loss but failed the predeclared one-percentage-point top-10 entry gate.",
+    "E6_weather": "No approved, versioned historical weather source.",
+    "E7_decomposed_opportunity_per_pa": "Reduced top-10 hit rate and worsened Brier and log loss on development folds."
+  },
+  "calibration_protocol": {
+    "method_candidates": [
+      "uncalibrated",
+      "isotonic",
+      "sigmoid_platt"
+    ],
+    "method_parameters": {
+      "isotonic": {
+        "out_of_bounds": "clip",
+        "increasing": true
+      },
+      "sigmoid_platt": {
+        "input": "logit(raw_probability_clipped_to_1e-6)",
+        "C": 1.0,
+        "solver": "lbfgs",
+        "random_state": 7
+      },
+      "serialized_lookup_grid_points": 201
+    },
+    "method_fit_window": {
+      "start": "2025-07-01",
+      "end": "2025-09-28"
+    },
+    "method_validation_window": {
+      "start": "2026-03-25",
+      "end": "2026-05-31"
+    },
+    "selection_metric_order": [
+      "brier",
+      "log_loss"
+    ],
+    "maximum_allowed_brier_increase_vs_raw": 0.0,
+    "final_calibration_fit_window": {
+      "start": "2025-07-01",
+      "end": "2026-05-31"
+    },
+    "locked_final_evaluation_window": {
+      "start": "2026-06-01",
+      "end": "2026-07-03"
+    },
+    "ranking_rule": "raw_model_score_is_the_deterministic_tiebreaker"
+  },
+  "publication": {
+    "initial_model_role": "challenger",
+    "probability_status_if_calibration_passes": "calibrated",
+    "probability_status_if_calibration_fails": "experimental",
+    "visible": true,
+    "primary_model_remains": "hit_gbm_v2_cal"
+  }
+}

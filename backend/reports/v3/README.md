@@ -14,6 +14,9 @@ recorded in the summaries.
   gitignored `backend/data/` directory
 - E1 corrected datasets: the official and projected Parquet files under
   local `backend/backtest_results/v3_foundation/`
+- V3 augmented projected datasets: one file per season under local
+  `backend/backtest_results/v3_development/`
+- Frozen E4 candidate: `backend/config/hit_model_v3_candidate.json`
 
 ## Reproduction commands
 
@@ -32,8 +35,21 @@ Run commands from `backend/` in the locked project environment.
   --dataset data\hit_dataset_2023.parquet data\hit_dataset_2024.parquet `
             data\hit_dataset_2025.parquet data\hit_dataset.parquet `
   --game-cache .backtest_cache
+
+.\.venv\Scripts\python.exe scripts\evaluate_v3_ladder.py `
+  --dataset backtest_results\v3_development\hit_v3_projected_2023.parquet `
+            backtest_results\v3_development\hit_v3_projected_2024.parquet `
+            backtest_results\v3_development\hit_v3_projected_2025.parquet `
+            backtest_results\v3_development\hit_v3_projected_2026.parquet
+
+.\.venv\Scripts\python.exe scripts\evaluate_v3_decomposed.py `
+  --dataset backtest_results\v3_development\hit_v3_projected_2023.parquet `
+            backtest_results\v3_development\hit_v3_projected_2024.parquet `
+            backtest_results\v3_development\hit_v3_projected_2025.parquet `
+            backtest_results\v3_development\hit_v3_projected_2026.parquet
 ```
 
 The V2 package must produce the same `determinism_key` on repeated runs.
-The locked final window must not be inspected for a V3 candidate until its
-feature groups and hyperparameters are frozen.
+The locked final was opened after E4 and its calibration protocol were frozen.
+`v3_locked_final.json` records the rejected shadow-entry decision. Do not
+rerun or use that final block to tune a replacement candidate.

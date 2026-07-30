@@ -1,0 +1,2015 @@
+{
+  "code_commit": "2778c890b1335cb8ecdc5c315a77913f58a250f2",
+  "contract_sha256": "d85af642692fbaaa11fef3dc8aeec3d73d9e2590217749518677bceaae0cdfe8",
+  "dataset": {
+    "dates": {
+      "end": "2026-07-03",
+      "start": "2023-03-31"
+    },
+    "files": [
+      {
+        "bytes": 6794390,
+        "path": "C:\\tmp\\MLBFantasyStats-hit-picks-v3\\backend\\backtest_results\\v3_development\\hit_v3_projected_2023.parquet",
+        "sha256": "ae51d3617e0209442deed360d986a4811724162d9d41185f5c3d3a63d4538054"
+      },
+      {
+        "bytes": 6805613,
+        "path": "C:\\tmp\\MLBFantasyStats-hit-picks-v3\\backend\\backtest_results\\v3_development\\hit_v3_projected_2024.parquet",
+        "sha256": "658210ce111d1e417a6b5acca3adc43dff1b1331bea72fa34a90e8d23d5317fa"
+      },
+      {
+        "bytes": 6813049,
+        "path": "C:\\tmp\\MLBFantasyStats-hit-picks-v3\\backend\\backtest_results\\v3_development\\hit_v3_projected_2025.parquet",
+        "sha256": "6467fe10df87248978703c0cf3947b18397e2f6e449ce392841eec9ed6b49c9e"
+      },
+      {
+        "bytes": 3569673,
+        "path": "C:\\tmp\\MLBFantasyStats-hit-picks-v3\\backend\\backtest_results\\v3_development\\hit_v3_projected_2026.parquet",
+        "sha256": "f687c9626df36b8ea21a18243cc2606c9635a789b7f22a116371ccf53cb93d7f"
+      }
+    ],
+    "frame_sha256": "7344d5ed4165f0938c74212f64d00a4bb9f460920a1f2a8a76deceec48a7b62a",
+    "rows": 153027
+  },
+  "dependency_fingerprint": "567665c6a0b0c388958243f93da535119b69c3a580b2a4b25ef517a9b5e44425",
+  "dependency_lock_sha256": "2d94fa612d134ead986ebce427cc5eadf77003e42358d201a64941092ef898f2",
+  "development_folds": [
+    {
+      "name": "2024_early",
+      "test_end": "2024-06-30",
+      "test_start": "2024-03-20"
+    },
+    {
+      "name": "2024_late",
+      "test_end": "2024-09-30",
+      "test_start": "2024-07-01"
+    },
+    {
+      "name": "2025_early",
+      "test_end": "2025-06-30",
+      "test_start": "2025-03-18"
+    },
+    {
+      "name": "2025_late",
+      "test_end": "2025-09-28",
+      "test_start": "2025-07-01"
+    },
+    {
+      "name": "2026_early",
+      "test_end": "2026-05-31",
+      "test_start": "2026-03-25"
+    }
+  ],
+  "experiments": {
+    "E1": {
+      "artifacts": {
+        "daily_topn": {
+          "filename": "e1_dev_daily_topn.parquet",
+          "rows": 12960,
+          "sha256": "6cd1997229fe7620d8bb9f054e78ed94a6cfeb80ca86d84848516db5da3d6f55"
+        },
+        "predictions": {
+          "filename": "e1_dev_predictions.parquet",
+          "rows": 102132,
+          "sha256": "bbd348008420e3637601c320626d3e519ff845300e31019f7ec7948a40f6ca4f"
+        }
+      },
+      "coverage": {
+        "features": 51,
+        "mean_missing_fraction": 0.0299,
+        "missing_fraction": {
+          "batter_k_x_pitcher_k": 0.049743,
+          "batting_order": 0.0,
+          "days_rest": 0.000732,
+          "faced_pitcher_hit_per_pa": 0.842564,
+          "faced_pitcher_pa": 0.0,
+          "games_last7": 0.0,
+          "is_home": 0.0,
+          "last10_contact_rate": 0.000745,
+          "last10_hit_per_pa": 0.000745,
+          "last10_k_pct": 0.000745,
+          "last10_pa": 0.0,
+          "last10_woba": 0.000745,
+          "last20_contact_rate": 0.000745,
+          "last20_hit_per_pa": 0.000745,
+          "last20_k_pct": 0.000745,
+          "last20_pa": 0.0,
+          "last20_woba": 0.000745,
+          "last5_contact_rate": 0.000745,
+          "last5_hit_per_pa": 0.000745,
+          "last5_k_pct": 0.000745,
+          "last5_pa": 0.0,
+          "last5_woba": 0.000745,
+          "opp_bullpen_h_per_9": 0.000118,
+          "opp_bullpen_ip": 0.0,
+          "opp_bullpen_k_pct": 0.000118,
+          "opp_bullpen_whip": 0.000118,
+          "p_last3_fip": 0.049462,
+          "p_last3_h_per_9": 0.049462,
+          "p_last3_ip": 0.0,
+          "p_last3_k_bb_pct": 0.049462,
+          "p_last3_k_pct": 0.049462,
+          "p_last3_whip": 0.049462,
+          "p_season_bb_pct": 0.049462,
+          "p_season_fip": 0.049462,
+          "p_season_h_per_9": 0.049462,
+          "p_season_hr_per_9": 0.049462,
+          "p_season_ip": 0.0,
+          "p_season_k_bb_pct": 0.049462,
+          "p_season_k_pct": 0.049462,
+          "p_season_starts": 0.0,
+          "p_season_whip": 0.049462,
+          "park_hr_factor": 0.0,
+          "park_runs_factor": 0.0,
+          "platoon_advantage": 0.0066,
+          "season_contact_rate": 0.000745,
+          "season_hit_per_pa": 0.000745,
+          "season_k_pct": 0.000745,
+          "season_pa": 0.0,
+          "season_woba": 0.000745,
+          "vs_hand_hit_per_pa": 0.019461,
+          "vs_hand_pa": 0.0
+        },
+        "rows": 153027
+      },
+      "experiment_id": "E1",
+      "feature_count": 51,
+      "feature_schema_sha256": "0c6c415c261bdc31ee36437a046b3f916d1603461d6162c3bdf8ec36fe1b6236",
+      "fold_metrics": [
+        {
+          "brier": 0.233214,
+          "fold": "2024_early",
+          "log_loss": 0.657224,
+          "n_test": 22311,
+          "n_train": 43191,
+          "roc_auc": 0.641013,
+          "test_end": "2024-06-30",
+          "test_start": "2024-03-20",
+          "top10": {
+            "game_dates": 96,
+            "hits": 650,
+            "picks": 960,
+            "rate": 0.677083
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 945,
+            "picks": 1440,
+            "rate": 0.65625
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 331,
+            "picks": 480,
+            "rate": 0.689583
+          }
+        },
+        {
+          "brier": 0.232781,
+          "fold": "2024_late",
+          "log_loss": 0.656213,
+          "n_test": 20988,
+          "n_train": 65502,
+          "roc_auc": 0.642751,
+          "test_end": "2024-09-30",
+          "test_start": "2024-07-01",
+          "top10": {
+            "game_dates": 88,
+            "hits": 610,
+            "picks": 880,
+            "rate": 0.693182
+          },
+          "top15": {
+            "game_dates": 88,
+            "hits": 884,
+            "picks": 1320,
+            "rate": 0.669697
+          },
+          "top5": {
+            "game_dates": 88,
+            "hits": 313,
+            "picks": 440,
+            "rate": 0.711364
+          }
+        },
+        {
+          "brier": 0.231871,
+          "fold": "2025_early",
+          "log_loss": 0.65469,
+          "n_test": 22374,
+          "n_train": 86490,
+          "roc_auc": 0.646153,
+          "test_end": "2025-06-30",
+          "test_start": "2025-03-18",
+          "top10": {
+            "game_dates": 96,
+            "hits": 655,
+            "picks": 960,
+            "rate": 0.682292
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 992,
+            "picks": 1440,
+            "rate": 0.688889
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 334,
+            "picks": 480,
+            "rate": 0.695833
+          }
+        },
+        {
+          "brier": 0.231182,
+          "fold": "2025_late",
+          "log_loss": 0.65307,
+          "n_test": 20844,
+          "n_train": 108864,
+          "roc_auc": 0.649637,
+          "test_end": "2025-09-28",
+          "test_start": "2025-07-01",
+          "top10": {
+            "game_dates": 86,
+            "hits": 579,
+            "picks": 860,
+            "rate": 0.673256
+          },
+          "top15": {
+            "game_dates": 86,
+            "hits": 862,
+            "picks": 1290,
+            "rate": 0.668217
+          },
+          "top5": {
+            "game_dates": 86,
+            "hits": 295,
+            "picks": 430,
+            "rate": 0.686047
+          }
+        },
+        {
+          "brier": 0.232203,
+          "fold": "2026_early",
+          "log_loss": 0.656032,
+          "n_test": 15615,
+          "n_train": 129708,
+          "roc_auc": 0.646195,
+          "test_end": "2026-05-31",
+          "test_start": "2026-03-25",
+          "top10": {
+            "game_dates": 66,
+            "hits": 436,
+            "picks": 660,
+            "rate": 0.660606
+          },
+          "top15": {
+            "game_dates": 66,
+            "hits": 654,
+            "picks": 990,
+            "rate": 0.660606
+          },
+          "top5": {
+            "game_dates": 66,
+            "hits": 212,
+            "picks": 330,
+            "rate": 0.642424
+          }
+        }
+      ],
+      "metrics": {
+        "probability": {
+          "brier": 0.232262,
+          "log_loss": 0.655431,
+          "roc_auc": 0.645097
+        },
+        "top_n": {
+          "top10": {
+            "ci_high": 0.692824,
+            "ci_low": 0.663657,
+            "clustered_standard_error": 0.007383,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 2930,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.020683,
+            "picks": 4320,
+            "rate": 0.678241,
+            "seed": 7302027
+          },
+          "top15": {
+            "ci_high": 0.680864,
+            "ci_low": 0.657562,
+            "clustered_standard_error": 0.005925,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 4337,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.016601,
+            "picks": 6480,
+            "rate": 0.66929,
+            "seed": 7302028
+          },
+          "top5": {
+            "ci_high": 0.706944,
+            "ci_low": 0.668056,
+            "clustered_standard_error": 0.009871,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 1485,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.027655,
+            "picks": 2160,
+            "rate": 0.6875,
+            "seed": 7302026
+          }
+        }
+      },
+      "oos_game_dates": 432,
+      "oos_rows": 102132,
+      "promotion_check": {
+        "passes": false,
+        "reason": "E1 is the comparison baseline."
+      },
+      "recipe_sha256": "8d1ae8ce4e854be23db023a561cc14c2c66b7af9c8598d771f7eab1119f217e2"
+    },
+    "E2": {
+      "artifacts": {
+        "daily_topn": {
+          "filename": "e2_dev_daily_topn.parquet",
+          "rows": 12960,
+          "sha256": "5989444ff2a3206af87bb7429b42aad251f1d212c3cce29f112dc4a88167049c"
+        },
+        "predictions": {
+          "filename": "e2_dev_predictions.parquet",
+          "rows": 102132,
+          "sha256": "feb10681fa6b2ea2fdc6244ab5bdc495803a3a39d316e316495dfb486014c775"
+        }
+      },
+      "coverage": {
+        "features": 59,
+        "mean_missing_fraction": 0.025846,
+        "missing_fraction": {
+          "batter_k_x_pitcher_k": 0.049743,
+          "batting_order": 0.0,
+          "days_rest": 0.000732,
+          "faced_pitcher_hit_per_pa": 0.842564,
+          "faced_pitcher_pa": 0.0,
+          "games_last7": 0.0,
+          "is_home": 0.0,
+          "last10_contact_rate": 0.000745,
+          "last10_hit_per_pa": 0.000745,
+          "last10_k_pct": 0.000745,
+          "last10_pa": 0.0,
+          "last10_woba": 0.000745,
+          "last20_contact_rate": 0.000745,
+          "last20_hit_per_pa": 0.000745,
+          "last20_k_pct": 0.000745,
+          "last20_pa": 0.0,
+          "last20_woba": 0.000745,
+          "last5_contact_rate": 0.000745,
+          "last5_hit_per_pa": 0.000745,
+          "last5_k_pct": 0.000745,
+          "last5_pa": 0.0,
+          "last5_woba": 0.000745,
+          "lineup_confidence": 0.0,
+          "lineup_confidence_missing": 0.0,
+          "lineup_confirmed": 0.0,
+          "opp_bullpen_h_per_9": 0.000118,
+          "opp_bullpen_ip": 0.0,
+          "opp_bullpen_k_pct": 0.000118,
+          "opp_bullpen_whip": 0.000118,
+          "p_last3_fip": 0.049462,
+          "p_last3_h_per_9": 0.049462,
+          "p_last3_ip": 0.0,
+          "p_last3_k_bb_pct": 0.049462,
+          "p_last3_k_pct": 0.049462,
+          "p_last3_whip": 0.049462,
+          "p_season_bb_pct": 0.049462,
+          "p_season_fip": 0.049462,
+          "p_season_h_per_9": 0.049462,
+          "p_season_hr_per_9": 0.049462,
+          "p_season_ip": 0.0,
+          "p_season_k_bb_pct": 0.049462,
+          "p_season_k_pct": 0.049462,
+          "p_season_starts": 0.0,
+          "p_season_whip": 0.049462,
+          "park_hr_factor": 0.0,
+          "park_runs_factor": 0.0,
+          "platoon_advantage": 0.0066,
+          "season_contact_rate": 0.000745,
+          "season_hit_per_pa": 0.000745,
+          "season_k_pct": 0.000745,
+          "season_pa": 0.0,
+          "season_woba": 0.000745,
+          "team_recent_games": 0.0,
+          "team_recent_hits_per_game": 0.0,
+          "team_recent_pa_per_game": 0.0,
+          "team_recent_runs_per_game": 0.0,
+          "top_order_indicator": 0.0,
+          "vs_hand_hit_per_pa": 0.019461,
+          "vs_hand_pa": 0.0
+        },
+        "rows": 153027
+      },
+      "experiment_id": "E2",
+      "feature_count": 59,
+      "feature_schema_sha256": "d2f1d14073124940614ad7a43cdceb5cad11fefa45a436d22acec11d392363f0",
+      "fold_metrics": [
+        {
+          "brier": 0.232596,
+          "fold": "2024_early",
+          "log_loss": 0.655893,
+          "n_test": 22311,
+          "n_train": 43191,
+          "roc_auc": 0.643639,
+          "test_end": "2024-06-30",
+          "test_start": "2024-03-20",
+          "top10": {
+            "game_dates": 96,
+            "hits": 651,
+            "picks": 960,
+            "rate": 0.678125
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 977,
+            "picks": 1440,
+            "rate": 0.678472
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 331,
+            "picks": 480,
+            "rate": 0.689583
+          }
+        },
+        {
+          "brier": 0.231964,
+          "fold": "2024_late",
+          "log_loss": 0.654404,
+          "n_test": 20988,
+          "n_train": 65502,
+          "roc_auc": 0.646223,
+          "test_end": "2024-09-30",
+          "test_start": "2024-07-01",
+          "top10": {
+            "game_dates": 88,
+            "hits": 601,
+            "picks": 880,
+            "rate": 0.682955
+          },
+          "top15": {
+            "game_dates": 88,
+            "hits": 895,
+            "picks": 1320,
+            "rate": 0.67803
+          },
+          "top5": {
+            "game_dates": 88,
+            "hits": 313,
+            "picks": 440,
+            "rate": 0.711364
+          }
+        },
+        {
+          "brier": 0.231224,
+          "fold": "2025_early",
+          "log_loss": 0.653307,
+          "n_test": 22374,
+          "n_train": 86490,
+          "roc_auc": 0.648258,
+          "test_end": "2025-06-30",
+          "test_start": "2025-03-18",
+          "top10": {
+            "game_dates": 96,
+            "hits": 658,
+            "picks": 960,
+            "rate": 0.685417
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 969,
+            "picks": 1440,
+            "rate": 0.672917
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 343,
+            "picks": 480,
+            "rate": 0.714583
+          }
+        },
+        {
+          "brier": 0.23065,
+          "fold": "2025_late",
+          "log_loss": 0.651965,
+          "n_test": 20844,
+          "n_train": 108864,
+          "roc_auc": 0.651182,
+          "test_end": "2025-09-28",
+          "test_start": "2025-07-01",
+          "top10": {
+            "game_dates": 86,
+            "hits": 579,
+            "picks": 860,
+            "rate": 0.673256
+          },
+          "top15": {
+            "game_dates": 86,
+            "hits": 870,
+            "picks": 1290,
+            "rate": 0.674419
+          },
+          "top5": {
+            "game_dates": 86,
+            "hits": 302,
+            "picks": 430,
+            "rate": 0.702326
+          }
+        },
+        {
+          "brier": 0.231699,
+          "fold": "2026_early",
+          "log_loss": 0.654834,
+          "n_test": 15615,
+          "n_train": 129708,
+          "roc_auc": 0.647552,
+          "test_end": "2026-05-31",
+          "test_start": "2026-03-25",
+          "top10": {
+            "game_dates": 66,
+            "hits": 451,
+            "picks": 660,
+            "rate": 0.683333
+          },
+          "top15": {
+            "game_dates": 66,
+            "hits": 666,
+            "picks": 990,
+            "rate": 0.672727
+          },
+          "top5": {
+            "game_dates": 66,
+            "hits": 227,
+            "picks": 330,
+            "rate": 0.687879
+          }
+        }
+      ],
+      "metrics": {
+        "probability": {
+          "brier": 0.231631,
+          "log_loss": 0.654057,
+          "roc_auc": 0.647399
+        },
+        "top_n": {
+          "top10": {
+            "ci_high": 0.694907,
+            "ci_low": 0.666204,
+            "clustered_standard_error": 0.007387,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 2940,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.020695,
+            "picks": 4320,
+            "rate": 0.680556,
+            "seed": 7302027
+          },
+          "top15": {
+            "ci_high": 0.687037,
+            "ci_low": 0.664043,
+            "clustered_standard_error": 0.005915,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 4377,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.01657,
+            "picks": 6480,
+            "rate": 0.675463,
+            "seed": 7302028
+          },
+          "top5": {
+            "ci_high": 0.72037,
+            "ci_low": 0.68287,
+            "clustered_standard_error": 0.009645,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 1516,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.027021,
+            "picks": 2160,
+            "rate": 0.701852,
+            "seed": 7302026
+          }
+        }
+      },
+      "oos_game_dates": 432,
+      "oos_rows": 102132,
+      "promotion_check": {
+        "brier_delta": -0.000631,
+        "checks": {
+          "maximum_brier_increase": true,
+          "maximum_log_loss_increase": true,
+          "minimum_nonnegative_development_folds": true,
+          "minimum_pooled_top10_delta": false
+        },
+        "fold_top10_deltas": {
+          "2024_early": 0.001042,
+          "2024_late": -0.010227,
+          "2025_early": 0.003125,
+          "2025_late": 0.0,
+          "2026_early": 0.022727
+        },
+        "log_loss_delta": -0.001374,
+        "nonnegative_folds": 4,
+        "passes": false,
+        "top10_delta": 0.002315
+      },
+      "recipe_sha256": "0aff55ee9731cbe5b2cb55f7ce1981e27c8cbc340ab798e3e083b1224d12eab3"
+    },
+    "E3": {
+      "artifacts": {
+        "daily_topn": {
+          "filename": "e3_dev_daily_topn.parquet",
+          "rows": 12960,
+          "sha256": "026c82e5d6d2f805811001b510293fbd329d134f8d550c51f76409d103ab46e9"
+        },
+        "predictions": {
+          "filename": "e3_dev_predictions.parquet",
+          "rows": 102132,
+          "sha256": "aa1802573df8b3857fe0a3b7f276a60fa9bae44241ac51bbeeb2d8b25e79aa4c"
+        }
+      },
+      "coverage": {
+        "features": 77,
+        "mean_missing_fraction": 0.020267,
+        "missing_fraction": {
+          "batter_avg_exit_velocity": 0.001523,
+          "batter_bip_hit_rate": 0.001496,
+          "batter_bip_sample": 0.0,
+          "batter_contact_missing": 0.0,
+          "batter_contact_rate": 0.000791,
+          "batter_hand_avg_exit_velocity": 0.007051,
+          "batter_hand_bip_hit_rate": 0.006966,
+          "batter_hand_bip_sample": 0.0,
+          "batter_hand_contact_missing": 0.0,
+          "batter_hand_contact_rate": 0.004241,
+          "batter_hand_hard_hit_rate": 0.007051,
+          "batter_hand_pitch_sample": 0.0,
+          "batter_hand_swing_sample": 0.0,
+          "batter_hand_whiff_rate": 0.004241,
+          "batter_hard_hit_rate": 0.001523,
+          "batter_k_x_pitcher_k": 0.049743,
+          "batter_pitch_sample": 0.0,
+          "batter_swing_sample": 0.0,
+          "batter_whiff_rate": 0.000791,
+          "batting_order": 0.0,
+          "days_rest": 0.000732,
+          "faced_pitcher_hit_per_pa": 0.842564,
+          "faced_pitcher_pa": 0.0,
+          "games_last7": 0.0,
+          "is_home": 0.0,
+          "last10_contact_rate": 0.000745,
+          "last10_hit_per_pa": 0.000745,
+          "last10_k_pct": 0.000745,
+          "last10_pa": 0.0,
+          "last10_woba": 0.000745,
+          "last20_contact_rate": 0.000745,
+          "last20_hit_per_pa": 0.000745,
+          "last20_k_pct": 0.000745,
+          "last20_pa": 0.0,
+          "last20_woba": 0.000745,
+          "last5_contact_rate": 0.000745,
+          "last5_hit_per_pa": 0.000745,
+          "last5_k_pct": 0.000745,
+          "last5_pa": 0.0,
+          "last5_woba": 0.000745,
+          "lineup_confidence": 0.0,
+          "lineup_confidence_missing": 0.0,
+          "lineup_confirmed": 0.0,
+          "opp_bullpen_h_per_9": 0.000118,
+          "opp_bullpen_ip": 0.0,
+          "opp_bullpen_k_pct": 0.000118,
+          "opp_bullpen_whip": 0.000118,
+          "p_last3_fip": 0.049462,
+          "p_last3_h_per_9": 0.049462,
+          "p_last3_ip": 0.0,
+          "p_last3_k_bb_pct": 0.049462,
+          "p_last3_k_pct": 0.049462,
+          "p_last3_whip": 0.049462,
+          "p_season_bb_pct": 0.049462,
+          "p_season_fip": 0.049462,
+          "p_season_h_per_9": 0.049462,
+          "p_season_hr_per_9": 0.049462,
+          "p_season_ip": 0.0,
+          "p_season_k_bb_pct": 0.049462,
+          "p_season_k_pct": 0.049462,
+          "p_season_starts": 0.0,
+          "p_season_whip": 0.049462,
+          "park_hr_factor": 0.0,
+          "park_runs_factor": 0.0,
+          "platoon_advantage": 0.0066,
+          "season_contact_rate": 0.000745,
+          "season_hit_per_pa": 0.000745,
+          "season_k_pct": 0.000745,
+          "season_pa": 0.0,
+          "season_woba": 0.000745,
+          "team_recent_games": 0.0,
+          "team_recent_hits_per_game": 0.0,
+          "team_recent_pa_per_game": 0.0,
+          "team_recent_runs_per_game": 0.0,
+          "top_order_indicator": 0.0,
+          "vs_hand_hit_per_pa": 0.019461,
+          "vs_hand_pa": 0.0
+        },
+        "rows": 153027
+      },
+      "experiment_id": "E3",
+      "feature_count": 77,
+      "feature_schema_sha256": "eaf38a5aefe917fab9b57c9342ccb1b0347eda1f6f1fbfa58aa59d3cdaaa5136",
+      "fold_metrics": [
+        {
+          "brier": 0.232394,
+          "fold": "2024_early",
+          "log_loss": 0.655482,
+          "n_test": 22311,
+          "n_train": 43191,
+          "roc_auc": 0.645021,
+          "test_end": "2024-06-30",
+          "test_start": "2024-03-20",
+          "top10": {
+            "game_dates": 96,
+            "hits": 665,
+            "picks": 960,
+            "rate": 0.692708
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 986,
+            "picks": 1440,
+            "rate": 0.684722
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 340,
+            "picks": 480,
+            "rate": 0.708333
+          }
+        },
+        {
+          "brier": 0.231544,
+          "fold": "2024_late",
+          "log_loss": 0.653452,
+          "n_test": 20988,
+          "n_train": 65502,
+          "roc_auc": 0.648025,
+          "test_end": "2024-09-30",
+          "test_start": "2024-07-01",
+          "top10": {
+            "game_dates": 88,
+            "hits": 614,
+            "picks": 880,
+            "rate": 0.697727
+          },
+          "top15": {
+            "game_dates": 88,
+            "hits": 898,
+            "picks": 1320,
+            "rate": 0.680303
+          },
+          "top5": {
+            "game_dates": 88,
+            "hits": 313,
+            "picks": 440,
+            "rate": 0.711364
+          }
+        },
+        {
+          "brier": 0.230718,
+          "fold": "2025_early",
+          "log_loss": 0.65222,
+          "n_test": 22374,
+          "n_train": 86490,
+          "roc_auc": 0.650846,
+          "test_end": "2025-06-30",
+          "test_start": "2025-03-18",
+          "top10": {
+            "game_dates": 96,
+            "hits": 650,
+            "picks": 960,
+            "rate": 0.677083
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 965,
+            "picks": 1440,
+            "rate": 0.670139
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 334,
+            "picks": 480,
+            "rate": 0.695833
+          }
+        },
+        {
+          "brier": 0.230299,
+          "fold": "2025_late",
+          "log_loss": 0.651155,
+          "n_test": 20844,
+          "n_train": 108864,
+          "roc_auc": 0.652462,
+          "test_end": "2025-09-28",
+          "test_start": "2025-07-01",
+          "top10": {
+            "game_dates": 86,
+            "hits": 590,
+            "picks": 860,
+            "rate": 0.686047
+          },
+          "top15": {
+            "game_dates": 86,
+            "hits": 865,
+            "picks": 1290,
+            "rate": 0.670543
+          },
+          "top5": {
+            "game_dates": 86,
+            "hits": 303,
+            "picks": 430,
+            "rate": 0.704651
+          }
+        },
+        {
+          "brier": 0.231586,
+          "fold": "2026_early",
+          "log_loss": 0.654616,
+          "n_test": 15615,
+          "n_train": 129708,
+          "roc_auc": 0.647972,
+          "test_end": "2026-05-31",
+          "test_start": "2026-03-25",
+          "top10": {
+            "game_dates": 66,
+            "hits": 437,
+            "picks": 660,
+            "rate": 0.662121
+          },
+          "top15": {
+            "game_dates": 66,
+            "hits": 648,
+            "picks": 990,
+            "rate": 0.654545
+          },
+          "top5": {
+            "game_dates": 66,
+            "hits": 220,
+            "picks": 330,
+            "rate": 0.666667
+          }
+        }
+      ],
+      "metrics": {
+        "probability": {
+          "brier": 0.231301,
+          "log_loss": 0.653335,
+          "roc_auc": 0.648993
+        },
+        "top_n": {
+          "top10": {
+            "ci_high": 0.698148,
+            "ci_low": 0.669907,
+            "clustered_standard_error": 0.00725,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 2956,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.020311,
+            "picks": 4320,
+            "rate": 0.684259,
+            "seed": 7302027
+          },
+          "top15": {
+            "ci_high": 0.685031,
+            "ci_low": 0.661265,
+            "clustered_standard_error": 0.006035,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 4362,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.016908,
+            "picks": 6480,
+            "rate": 0.673148,
+            "seed": 7302028
+          },
+          "top5": {
+            "ci_high": 0.718056,
+            "ci_low": 0.679167,
+            "clustered_standard_error": 0.009893,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 1510,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.027717,
+            "picks": 2160,
+            "rate": 0.699074,
+            "seed": 7302026
+          }
+        }
+      },
+      "oos_game_dates": 432,
+      "oos_rows": 102132,
+      "promotion_check": {
+        "brier_delta": -0.000961,
+        "checks": {
+          "maximum_brier_increase": true,
+          "maximum_log_loss_increase": true,
+          "minimum_nonnegative_development_folds": true,
+          "minimum_pooled_top10_delta": false
+        },
+        "fold_top10_deltas": {
+          "2024_early": 0.015625,
+          "2024_late": 0.004545,
+          "2025_early": -0.005209,
+          "2025_late": 0.012791,
+          "2026_early": 0.001515
+        },
+        "log_loss_delta": -0.002096,
+        "nonnegative_folds": 4,
+        "passes": false,
+        "top10_delta": 0.006018
+      },
+      "recipe_sha256": "07cc47a2f91e8f4a800ddfbb5da42fa693888aacb3442323d8eb4bdd4a418fc5"
+    },
+    "E4": {
+      "artifacts": {
+        "daily_topn": {
+          "filename": "e4_dev_daily_topn.parquet",
+          "rows": 12960,
+          "sha256": "c0ebed1697ab4b1dd13f05af61978f7dc5a3130673da2995291ef24646f8b5e8"
+        },
+        "predictions": {
+          "filename": "e4_dev_predictions.parquet",
+          "rows": 102132,
+          "sha256": "23062eedc8a32c8886c81181f55f14ae3d5bb97ea65d2d2a46d6e8cf9620877e"
+        }
+      },
+      "coverage": {
+        "features": 98,
+        "mean_missing_fraction": 0.02299,
+        "missing_fraction": {
+          "arsenal_coverage": 0.0,
+          "arsenal_match_bip_hit": 0.049462,
+          "arsenal_match_contact": 0.049462,
+          "arsenal_match_exit_velocity": 0.049462,
+          "arsenal_match_whiff": 0.049462,
+          "arsenal_matchup_missing": 0.0,
+          "arsenal_pitch_families": 0.0,
+          "arsenal_usage_entropy": 0.049462,
+          "batter_avg_exit_velocity": 0.001523,
+          "batter_bip_hit_rate": 0.001496,
+          "batter_bip_sample": 0.0,
+          "batter_contact_missing": 0.0,
+          "batter_contact_rate": 0.000791,
+          "batter_hand_avg_exit_velocity": 0.007051,
+          "batter_hand_bip_hit_rate": 0.006966,
+          "batter_hand_bip_sample": 0.0,
+          "batter_hand_contact_missing": 0.0,
+          "batter_hand_contact_rate": 0.004241,
+          "batter_hand_hard_hit_rate": 0.007051,
+          "batter_hand_pitch_sample": 0.0,
+          "batter_hand_swing_sample": 0.0,
+          "batter_hand_whiff_rate": 0.004241,
+          "batter_hard_hit_rate": 0.001523,
+          "batter_k_x_pitcher_k": 0.049743,
+          "batter_pitch_sample": 0.0,
+          "batter_swing_sample": 0.0,
+          "batter_whiff_rate": 0.000791,
+          "batting_order": 0.0,
+          "days_rest": 0.000732,
+          "faced_pitcher_hit_per_pa": 0.842564,
+          "faced_pitcher_pa": 0.0,
+          "games_last7": 0.0,
+          "is_home": 0.0,
+          "last10_contact_rate": 0.000745,
+          "last10_hit_per_pa": 0.000745,
+          "last10_k_pct": 0.000745,
+          "last10_pa": 0.0,
+          "last10_woba": 0.000745,
+          "last20_contact_rate": 0.000745,
+          "last20_hit_per_pa": 0.000745,
+          "last20_k_pct": 0.000745,
+          "last20_pa": 0.0,
+          "last20_woba": 0.000745,
+          "last5_contact_rate": 0.000745,
+          "last5_hit_per_pa": 0.000745,
+          "last5_k_pct": 0.000745,
+          "last5_pa": 0.0,
+          "last5_woba": 0.000745,
+          "lineup_confidence": 0.0,
+          "lineup_confidence_missing": 0.0,
+          "lineup_confirmed": 0.0,
+          "opp_bullpen_h_per_9": 0.000118,
+          "opp_bullpen_ip": 0.0,
+          "opp_bullpen_k_pct": 0.000118,
+          "opp_bullpen_whip": 0.000118,
+          "p_last3_fip": 0.049462,
+          "p_last3_h_per_9": 0.049462,
+          "p_last3_ip": 0.0,
+          "p_last3_k_bb_pct": 0.049462,
+          "p_last3_k_pct": 0.049462,
+          "p_last3_whip": 0.049462,
+          "p_season_bb_pct": 0.049462,
+          "p_season_fip": 0.049462,
+          "p_season_h_per_9": 0.049462,
+          "p_season_hr_per_9": 0.049462,
+          "p_season_ip": 0.0,
+          "p_season_k_bb_pct": 0.049462,
+          "p_season_k_pct": 0.049462,
+          "p_season_starts": 0.0,
+          "p_season_whip": 0.049462,
+          "park_hr_factor": 0.0,
+          "park_runs_factor": 0.0,
+          "pitcher_avg_exit_velocity_allowed": 0.049462,
+          "pitcher_avg_extension": 0.049462,
+          "pitcher_avg_horizontal_break": 0.049462,
+          "pitcher_avg_induced_vertical_break": 0.049462,
+          "pitcher_avg_velocity": 0.049462,
+          "pitcher_bip_hit_rate": 0.049462,
+          "pitcher_bip_sample": 0.0,
+          "pitcher_contact_allowed": 0.049462,
+          "pitcher_hard_hit_rate_allowed": 0.049462,
+          "pitcher_pitch_data_missing": 0.0,
+          "pitcher_pitch_sample": 0.0,
+          "pitcher_swing_sample": 0.0,
+          "pitcher_whiff_rate": 0.049462,
+          "platoon_advantage": 0.0066,
+          "season_contact_rate": 0.000745,
+          "season_hit_per_pa": 0.000745,
+          "season_k_pct": 0.000745,
+          "season_pa": 0.0,
+          "season_woba": 0.000745,
+          "team_recent_games": 0.0,
+          "team_recent_hits_per_game": 0.0,
+          "team_recent_pa_per_game": 0.0,
+          "team_recent_runs_per_game": 0.0,
+          "top_order_indicator": 0.0,
+          "vs_hand_hit_per_pa": 0.019461,
+          "vs_hand_pa": 0.0
+        },
+        "rows": 153027
+      },
+      "experiment_id": "E4",
+      "feature_count": 98,
+      "feature_schema_sha256": "4df9ca6d4c6e76b723ab8f1a258911fa454de9650ab20f4af518cbdc9c22ffc3",
+      "fold_metrics": [
+        {
+          "brier": 0.232415,
+          "fold": "2024_early",
+          "log_loss": 0.65551,
+          "n_test": 22311,
+          "n_train": 43191,
+          "roc_auc": 0.644849,
+          "test_end": "2024-06-30",
+          "test_start": "2024-03-20",
+          "top10": {
+            "game_dates": 96,
+            "hits": 657,
+            "picks": 960,
+            "rate": 0.684375
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 984,
+            "picks": 1440,
+            "rate": 0.683333
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 332,
+            "picks": 480,
+            "rate": 0.691667
+          }
+        },
+        {
+          "brier": 0.231394,
+          "fold": "2024_late",
+          "log_loss": 0.653138,
+          "n_test": 20988,
+          "n_train": 65502,
+          "roc_auc": 0.648917,
+          "test_end": "2024-09-30",
+          "test_start": "2024-07-01",
+          "top10": {
+            "game_dates": 88,
+            "hits": 607,
+            "picks": 880,
+            "rate": 0.689773
+          },
+          "top15": {
+            "game_dates": 88,
+            "hits": 910,
+            "picks": 1320,
+            "rate": 0.689394
+          },
+          "top5": {
+            "game_dates": 88,
+            "hits": 304,
+            "picks": 440,
+            "rate": 0.690909
+          }
+        },
+        {
+          "brier": 0.230846,
+          "fold": "2025_early",
+          "log_loss": 0.652482,
+          "n_test": 22374,
+          "n_train": 86490,
+          "roc_auc": 0.650317,
+          "test_end": "2025-06-30",
+          "test_start": "2025-03-18",
+          "top10": {
+            "game_dates": 96,
+            "hits": 666,
+            "picks": 960,
+            "rate": 0.69375
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 972,
+            "picks": 1440,
+            "rate": 0.675
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 347,
+            "picks": 480,
+            "rate": 0.722917
+          }
+        },
+        {
+          "brier": 0.230224,
+          "fold": "2025_late",
+          "log_loss": 0.650977,
+          "n_test": 20844,
+          "n_train": 108864,
+          "roc_auc": 0.652643,
+          "test_end": "2025-09-28",
+          "test_start": "2025-07-01",
+          "top10": {
+            "game_dates": 86,
+            "hits": 596,
+            "picks": 860,
+            "rate": 0.693023
+          },
+          "top15": {
+            "game_dates": 86,
+            "hits": 883,
+            "picks": 1290,
+            "rate": 0.684496
+          },
+          "top5": {
+            "game_dates": 86,
+            "hits": 300,
+            "picks": 430,
+            "rate": 0.697674
+          }
+        },
+        {
+          "brier": 0.231358,
+          "fold": "2026_early",
+          "log_loss": 0.654131,
+          "n_test": 15615,
+          "n_train": 129708,
+          "roc_auc": 0.649059,
+          "test_end": "2026-05-31",
+          "test_start": "2026-03-25",
+          "top10": {
+            "game_dates": 66,
+            "hits": 452,
+            "picks": 660,
+            "rate": 0.684848
+          },
+          "top15": {
+            "game_dates": 66,
+            "hits": 651,
+            "picks": 990,
+            "rate": 0.657576
+          },
+          "top5": {
+            "game_dates": 66,
+            "hits": 223,
+            "picks": 330,
+            "rate": 0.675758
+          }
+        }
+      ],
+      "metrics": {
+        "probability": {
+          "brier": 0.231253,
+          "log_loss": 0.653223,
+          "roc_auc": 0.649215
+        },
+        "top_n": {
+          "top10": {
+            "ci_high": 0.702778,
+            "ci_low": 0.675694,
+            "clustered_standard_error": 0.006978,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 2978,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.019549,
+            "picks": 4320,
+            "rate": 0.689352,
+            "seed": 7302027
+          },
+          "top15": {
+            "ci_high": 0.690741,
+            "ci_low": 0.667284,
+            "clustered_standard_error": 0.006025,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 4400,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.01688,
+            "picks": 6480,
+            "rate": 0.679012,
+            "seed": 7302028
+          },
+          "top5": {
+            "ci_high": 0.71713,
+            "ci_low": 0.677315,
+            "clustered_standard_error": 0.010061,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 1506,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.028186,
+            "picks": 2160,
+            "rate": 0.697222,
+            "seed": 7302026
+          }
+        }
+      },
+      "oos_game_dates": 432,
+      "oos_rows": 102132,
+      "promotion_check": {
+        "brier_delta": -0.001009,
+        "checks": {
+          "maximum_brier_increase": true,
+          "maximum_log_loss_increase": true,
+          "minimum_nonnegative_development_folds": true,
+          "minimum_pooled_top10_delta": true
+        },
+        "fold_top10_deltas": {
+          "2024_early": 0.007292,
+          "2024_late": -0.003409,
+          "2025_early": 0.011458,
+          "2025_late": 0.019767,
+          "2026_early": 0.024242
+        },
+        "log_loss_delta": -0.002208,
+        "nonnegative_folds": 4,
+        "passes": true,
+        "top10_delta": 0.011111
+      },
+      "recipe_sha256": "47ef8518ecc0619a5f0d14b74d92f665f0c2c998ecdf9be13247f9670a42dc8f"
+    },
+    "E5": {
+      "artifacts": {
+        "daily_topn": {
+          "filename": "e5_dev_daily_topn.parquet",
+          "rows": 12960,
+          "sha256": "0b94065c58fa2e6b75386ce45eee01d02cf213432827b32131293afce8f87e39"
+        },
+        "predictions": {
+          "filename": "e5_dev_predictions.parquet",
+          "rows": 102132,
+          "sha256": "25b4bdc8865bb200e6ac3558da60b1cf786f7b1c774b9074c04ff6218ed2a3a5"
+        }
+      },
+      "coverage": {
+        "features": 109,
+        "mean_missing_fraction": 0.024156,
+        "missing_fraction": {
+          "arsenal_coverage": 0.0,
+          "arsenal_match_bip_hit": 0.049462,
+          "arsenal_match_contact": 0.049462,
+          "arsenal_match_exit_velocity": 0.049462,
+          "arsenal_match_whiff": 0.049462,
+          "arsenal_matchup_missing": 0.0,
+          "arsenal_pitch_families": 0.0,
+          "arsenal_usage_entropy": 0.049462,
+          "batter_avg_exit_velocity": 0.001523,
+          "batter_bip_hit_rate": 0.001496,
+          "batter_bip_sample": 0.0,
+          "batter_contact_missing": 0.0,
+          "batter_contact_rate": 0.000791,
+          "batter_hand_avg_exit_velocity": 0.007051,
+          "batter_hand_bip_hit_rate": 0.006966,
+          "batter_hand_bip_sample": 0.0,
+          "batter_hand_contact_missing": 0.0,
+          "batter_hand_contact_rate": 0.004241,
+          "batter_hand_hard_hit_rate": 0.007051,
+          "batter_hand_pitch_sample": 0.0,
+          "batter_hand_swing_sample": 0.0,
+          "batter_hand_whiff_rate": 0.004241,
+          "batter_hard_hit_rate": 0.001523,
+          "batter_k_x_pitcher_k": 0.049743,
+          "batter_pitch_sample": 0.0,
+          "batter_swing_sample": 0.0,
+          "batter_whiff_rate": 0.000791,
+          "batting_order": 0.0,
+          "bullpen_pitches_last3_days": 0.0,
+          "bullpen_pitches_yesterday": 0.0,
+          "bullpen_recent_appearances": 0.0,
+          "bullpen_relievers_last3_days": 0.0,
+          "bullpen_relievers_yesterday": 0.0,
+          "days_rest": 0.000732,
+          "faced_pitcher_hit_per_pa": 0.842564,
+          "faced_pitcher_pa": 0.0,
+          "games_last7": 0.0,
+          "is_home": 0.0,
+          "last10_contact_rate": 0.000745,
+          "last10_hit_per_pa": 0.000745,
+          "last10_k_pct": 0.000745,
+          "last10_pa": 0.0,
+          "last10_woba": 0.000745,
+          "last20_contact_rate": 0.000745,
+          "last20_hit_per_pa": 0.000745,
+          "last20_k_pct": 0.000745,
+          "last20_pa": 0.0,
+          "last20_woba": 0.000745,
+          "last5_contact_rate": 0.000745,
+          "last5_hit_per_pa": 0.000745,
+          "last5_k_pct": 0.000745,
+          "last5_pa": 0.0,
+          "last5_woba": 0.000745,
+          "lineup_confidence": 0.0,
+          "lineup_confidence_missing": 0.0,
+          "lineup_confirmed": 0.0,
+          "opp_bullpen_h_per_9": 0.000118,
+          "opp_bullpen_ip": 0.0,
+          "opp_bullpen_k_pct": 0.000118,
+          "opp_bullpen_whip": 0.000118,
+          "p_last3_fip": 0.049462,
+          "p_last3_h_per_9": 0.049462,
+          "p_last3_ip": 0.0,
+          "p_last3_k_bb_pct": 0.049462,
+          "p_last3_k_pct": 0.049462,
+          "p_last3_whip": 0.049462,
+          "p_season_bb_pct": 0.049462,
+          "p_season_fip": 0.049462,
+          "p_season_h_per_9": 0.049462,
+          "p_season_hr_per_9": 0.049462,
+          "p_season_ip": 0.0,
+          "p_season_k_bb_pct": 0.049462,
+          "p_season_k_pct": 0.049462,
+          "p_season_starts": 0.0,
+          "p_season_whip": 0.049462,
+          "park_hr_factor": 0.0,
+          "park_runs_factor": 0.0,
+          "pitcher_avg_exit_velocity_allowed": 0.049462,
+          "pitcher_avg_extension": 0.049462,
+          "pitcher_avg_horizontal_break": 0.049462,
+          "pitcher_avg_induced_vertical_break": 0.049462,
+          "pitcher_avg_velocity": 0.049462,
+          "pitcher_bip_hit_rate": 0.049462,
+          "pitcher_bip_sample": 0.0,
+          "pitcher_contact_allowed": 0.049462,
+          "pitcher_hard_hit_rate_allowed": 0.049462,
+          "pitcher_pitch_data_missing": 0.0,
+          "pitcher_pitch_sample": 0.0,
+          "pitcher_swing_sample": 0.0,
+          "pitcher_whiff_rate": 0.049462,
+          "platoon_advantage": 0.0066,
+          "season_contact_rate": 0.000745,
+          "season_hit_per_pa": 0.000745,
+          "season_k_pct": 0.000745,
+          "season_pa": 0.0,
+          "season_woba": 0.000745,
+          "starter_days_rest": 0.075987,
+          "starter_last3_batters_faced": 0.075987,
+          "starter_last3_innings": 0.075987,
+          "starter_last3_pitches": 0.075987,
+          "starter_short_start_rate": 0.075987,
+          "starter_workload_sample": 0.0,
+          "team_recent_games": 0.0,
+          "team_recent_hits_per_game": 0.0,
+          "team_recent_pa_per_game": 0.0,
+          "team_recent_runs_per_game": 0.0,
+          "top_order_indicator": 0.0,
+          "vs_hand_hit_per_pa": 0.019461,
+          "vs_hand_pa": 0.0
+        },
+        "rows": 153027
+      },
+      "experiment_id": "E5",
+      "feature_count": 109,
+      "feature_schema_sha256": "7904cdbf0adc08cfa20f9f6299778012614d99e612eff6f3f48ef453946f1053",
+      "fold_metrics": [
+        {
+          "brier": 0.232292,
+          "fold": "2024_early",
+          "log_loss": 0.65527,
+          "n_test": 22311,
+          "n_train": 43191,
+          "roc_auc": 0.645555,
+          "test_end": "2024-06-30",
+          "test_start": "2024-03-20",
+          "top10": {
+            "game_dates": 96,
+            "hits": 659,
+            "picks": 960,
+            "rate": 0.686458
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 986,
+            "picks": 1440,
+            "rate": 0.684722
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 332,
+            "picks": 480,
+            "rate": 0.691667
+          }
+        },
+        {
+          "brier": 0.231239,
+          "fold": "2024_late",
+          "log_loss": 0.652838,
+          "n_test": 20988,
+          "n_train": 65502,
+          "roc_auc": 0.649697,
+          "test_end": "2024-09-30",
+          "test_start": "2024-07-01",
+          "top10": {
+            "game_dates": 88,
+            "hits": 614,
+            "picks": 880,
+            "rate": 0.697727
+          },
+          "top15": {
+            "game_dates": 88,
+            "hits": 919,
+            "picks": 1320,
+            "rate": 0.696212
+          },
+          "top5": {
+            "game_dates": 88,
+            "hits": 309,
+            "picks": 440,
+            "rate": 0.702273
+          }
+        },
+        {
+          "brier": 0.230724,
+          "fold": "2025_early",
+          "log_loss": 0.652245,
+          "n_test": 22374,
+          "n_train": 86490,
+          "roc_auc": 0.650845,
+          "test_end": "2025-06-30",
+          "test_start": "2025-03-18",
+          "top10": {
+            "game_dates": 96,
+            "hits": 648,
+            "picks": 960,
+            "rate": 0.675
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 967,
+            "picks": 1440,
+            "rate": 0.671528
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 339,
+            "picks": 480,
+            "rate": 0.70625
+          }
+        },
+        {
+          "brier": 0.229625,
+          "fold": "2025_late",
+          "log_loss": 0.649687,
+          "n_test": 20844,
+          "n_train": 108864,
+          "roc_auc": 0.655307,
+          "test_end": "2025-09-28",
+          "test_start": "2025-07-01",
+          "top10": {
+            "game_dates": 86,
+            "hits": 582,
+            "picks": 860,
+            "rate": 0.676744
+          },
+          "top15": {
+            "game_dates": 86,
+            "hits": 876,
+            "picks": 1290,
+            "rate": 0.67907
+          },
+          "top5": {
+            "game_dates": 86,
+            "hits": 298,
+            "picks": 430,
+            "rate": 0.693023
+          }
+        },
+        {
+          "brier": 0.231244,
+          "fold": "2026_early",
+          "log_loss": 0.653813,
+          "n_test": 15615,
+          "n_train": 129708,
+          "roc_auc": 0.64892,
+          "test_end": "2026-05-31",
+          "test_start": "2026-03-25",
+          "top10": {
+            "game_dates": 66,
+            "hits": 457,
+            "picks": 660,
+            "rate": 0.692424
+          },
+          "top15": {
+            "game_dates": 66,
+            "hits": 661,
+            "picks": 990,
+            "rate": 0.667677
+          },
+          "top5": {
+            "game_dates": 66,
+            "hits": 228,
+            "picks": 330,
+            "rate": 0.690909
+          }
+        }
+      ],
+      "metrics": {
+        "probability": {
+          "brier": 0.231028,
+          "log_loss": 0.652745,
+          "roc_auc": 0.650165
+        },
+        "top_n": {
+          "top10": {
+            "ci_high": 0.699074,
+            "ci_low": 0.671065,
+            "clustered_standard_error": 0.007131,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 2960,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.019977,
+            "picks": 4320,
+            "rate": 0.685185,
+            "seed": 7302027
+          },
+          "top15": {
+            "ci_high": 0.692438,
+            "ci_low": 0.668056,
+            "clustered_standard_error": 0.006246,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 4409,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.017499,
+            "picks": 6480,
+            "rate": 0.680401,
+            "seed": 7302028
+          },
+          "top5": {
+            "ci_high": 0.716667,
+            "ci_low": 0.677315,
+            "clustered_standard_error": 0.009987,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 1506,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.027979,
+            "picks": 2160,
+            "rate": 0.697222,
+            "seed": 7302026
+          }
+        }
+      },
+      "oos_game_dates": 432,
+      "oos_rows": 102132,
+      "promotion_check": {
+        "brier_delta": -0.001234,
+        "checks": {
+          "maximum_brier_increase": true,
+          "maximum_log_loss_increase": true,
+          "minimum_nonnegative_development_folds": true,
+          "minimum_pooled_top10_delta": false
+        },
+        "fold_top10_deltas": {
+          "2024_early": 0.009375,
+          "2024_late": 0.004545,
+          "2025_early": -0.007292,
+          "2025_late": 0.003488,
+          "2026_early": 0.031818
+        },
+        "log_loss_delta": -0.002686,
+        "nonnegative_folds": 4,
+        "passes": false,
+        "top10_delta": 0.006944
+      },
+      "recipe_sha256": "53e67e38b33ed288c0a0994c0a3885607468ea51de55a17a640d2e4eb1d7dcba"
+    },
+    "E7": {
+      "architecture": "decomposed_opportunity_per_pa",
+      "artifacts": {
+        "daily_topn": {
+          "filename": "e7_dev_daily_topn.parquet",
+          "rows": 12960,
+          "sha256": "bddc9bf94107cc99fca3facc293aba2ef6a3cec90ec10c105b5cede600ef295f"
+        },
+        "predictions": {
+          "filename": "e7_dev_predictions.parquet",
+          "rows": 102132,
+          "sha256": "be043bf2ff81819255ed7fc89bb33f620abd7a35d91c3350d3d225b05a27be04"
+        }
+      },
+      "bundle_preview": {
+        "architecture": "decomposed_opportunity_per_pa",
+        "experiment_id": "E4",
+        "feature_schema_sha256": "c39a2bfafa6c0ddc71e882285e1afbf90f4b51fbc6d327606a0be5119dcd6c24",
+        "model_version": "hit_gbm_v3",
+        "recipe_sha256": "543305c4d7d2aac1b990ca3f2cc3e54331790f26cbc9e29d1051e1cc1158d26f",
+        "trained_on_rows": 145323,
+        "training_end": "2026-05-31"
+      },
+      "coverage": {
+        "features": 102,
+        "mean_missing_fraction": 0.024324,
+        "missing_fraction": {
+          "arsenal_coverage": 0.0,
+          "arsenal_match_bip_hit": 0.049462,
+          "arsenal_match_contact": 0.049462,
+          "arsenal_match_exit_velocity": 0.049462,
+          "arsenal_match_whiff": 0.049462,
+          "arsenal_matchup_missing": 0.0,
+          "arsenal_pitch_families": 0.0,
+          "arsenal_usage_entropy": 0.049462,
+          "batter_avg_exit_velocity": 0.001523,
+          "batter_bip_hit_rate": 0.001496,
+          "batter_bip_sample": 0.0,
+          "batter_contact_missing": 0.0,
+          "batter_contact_rate": 0.000791,
+          "batter_hand_avg_exit_velocity": 0.007051,
+          "batter_hand_bip_hit_rate": 0.006966,
+          "batter_hand_bip_sample": 0.0,
+          "batter_hand_contact_missing": 0.0,
+          "batter_hand_contact_rate": 0.004241,
+          "batter_hand_hard_hit_rate": 0.007051,
+          "batter_hand_pitch_sample": 0.0,
+          "batter_hand_swing_sample": 0.0,
+          "batter_hand_whiff_rate": 0.004241,
+          "batter_hard_hit_rate": 0.001523,
+          "batter_k_x_pitcher_k": 0.049743,
+          "batter_pitch_sample": 0.0,
+          "batter_swing_sample": 0.0,
+          "batter_whiff_rate": 0.000791,
+          "batting_order": 0.0,
+          "days_rest": 0.000732,
+          "faced_pitcher_hit_per_pa": 0.842564,
+          "faced_pitcher_pa": 0.0,
+          "games_last7": 0.0,
+          "is_home": 0.0,
+          "last10_contact_rate": 0.000745,
+          "last10_hit_per_pa": 0.000745,
+          "last10_k_pct": 0.000745,
+          "last10_pa": 0.0,
+          "last10_woba": 0.000745,
+          "last20_contact_rate": 0.000745,
+          "last20_hit_per_pa": 0.000745,
+          "last20_k_pct": 0.000745,
+          "last20_pa": 0.0,
+          "last20_woba": 0.000745,
+          "last5_contact_rate": 0.000745,
+          "last5_hit_per_pa": 0.000745,
+          "last5_k_pct": 0.000745,
+          "last5_pa": 0.0,
+          "last5_woba": 0.000745,
+          "lineup_confidence": 0.0,
+          "lineup_confidence_missing": 0.0,
+          "lineup_confirmed": 0.0,
+          "opp_bullpen_h_per_9": 0.000118,
+          "opp_bullpen_ip": 0.0,
+          "opp_bullpen_k_pct": 0.000118,
+          "opp_bullpen_whip": 0.000118,
+          "p_last3_fip": 0.049462,
+          "p_last3_h_per_9": 0.049462,
+          "p_last3_ip": 0.0,
+          "p_last3_k_bb_pct": 0.049462,
+          "p_last3_k_pct": 0.049462,
+          "p_last3_whip": 0.049462,
+          "p_season_bb_pct": 0.049462,
+          "p_season_fip": 0.049462,
+          "p_season_h_per_9": 0.049462,
+          "p_season_hr_per_9": 0.049462,
+          "p_season_ip": 0.0,
+          "p_season_k_bb_pct": 0.049462,
+          "p_season_k_pct": 0.049462,
+          "p_season_starts": 0.0,
+          "p_season_whip": 0.049462,
+          "park_hr_factor": 0.0,
+          "park_runs_factor": 0.0,
+          "pitcher_avg_exit_velocity_allowed": 0.049462,
+          "pitcher_avg_extension": 0.049462,
+          "pitcher_avg_horizontal_break": 0.049462,
+          "pitcher_avg_induced_vertical_break": 0.049462,
+          "pitcher_avg_velocity": 0.049462,
+          "pitcher_bip_hit_rate": 0.049462,
+          "pitcher_bip_sample": 0.0,
+          "pitcher_contact_allowed": 0.049462,
+          "pitcher_hard_hit_rate_allowed": 0.049462,
+          "pitcher_pitch_data_missing": 0.0,
+          "pitcher_pitch_sample": 0.0,
+          "pitcher_swing_sample": 0.0,
+          "pitcher_whiff_rate": 0.049462,
+          "platoon_advantage": 0.0066,
+          "season_contact_rate": 0.000745,
+          "season_hit_per_pa": 0.000745,
+          "season_k_pct": 0.000745,
+          "season_pa": 0.0,
+          "season_woba": 0.000745,
+          "starter_days_rest": 0.075987,
+          "starter_last3_batters_faced": 0.075987,
+          "starter_last3_innings": 0.075987,
+          "starter_workload_sample": 0.0,
+          "team_recent_games": 0.0,
+          "team_recent_hits_per_game": 0.0,
+          "team_recent_pa_per_game": 0.0,
+          "team_recent_runs_per_game": 0.0,
+          "top_order_indicator": 0.0,
+          "vs_hand_hit_per_pa": 0.019461,
+          "vs_hand_pa": 0.0
+        },
+        "rows": 153027
+      },
+      "experiment_id": "E7",
+      "feature_count": 102,
+      "feature_schema_sha256": "c39a2bfafa6c0ddc71e882285e1afbf90f4b51fbc6d327606a0be5119dcd6c24",
+      "fold_metrics": [
+        {
+          "brier": 0.240079,
+          "fold": "2024_early",
+          "log_loss": 0.673044,
+          "n_test": 22311,
+          "n_train": 43191,
+          "roc_auc": 0.615817,
+          "test_end": "2024-06-30",
+          "test_start": "2024-03-20",
+          "top10": {
+            "game_dates": 96,
+            "hits": 641,
+            "picks": 960,
+            "rate": 0.667708
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 955,
+            "picks": 1440,
+            "rate": 0.663194
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 318,
+            "picks": 480,
+            "rate": 0.6625
+          }
+        },
+        {
+          "brier": 0.239281,
+          "fold": "2024_late",
+          "log_loss": 0.671295,
+          "n_test": 20988,
+          "n_train": 65502,
+          "roc_auc": 0.61857,
+          "test_end": "2024-09-30",
+          "test_start": "2024-07-01",
+          "top10": {
+            "game_dates": 88,
+            "hits": 604,
+            "picks": 880,
+            "rate": 0.686364
+          },
+          "top15": {
+            "game_dates": 88,
+            "hits": 894,
+            "picks": 1320,
+            "rate": 0.677273
+          },
+          "top5": {
+            "game_dates": 88,
+            "hits": 309,
+            "picks": 440,
+            "rate": 0.702273
+          }
+        },
+        {
+          "brier": 0.238264,
+          "fold": "2025_early",
+          "log_loss": 0.669305,
+          "n_test": 22374,
+          "n_train": 86490,
+          "roc_auc": 0.62345,
+          "test_end": "2025-06-30",
+          "test_start": "2025-03-18",
+          "top10": {
+            "game_dates": 96,
+            "hits": 637,
+            "picks": 960,
+            "rate": 0.663542
+          },
+          "top15": {
+            "game_dates": 96,
+            "hits": 951,
+            "picks": 1440,
+            "rate": 0.660417
+          },
+          "top5": {
+            "game_dates": 96,
+            "hits": 330,
+            "picks": 480,
+            "rate": 0.6875
+          }
+        },
+        {
+          "brier": 0.238203,
+          "fold": "2025_late",
+          "log_loss": 0.669196,
+          "n_test": 20844,
+          "n_train": 108864,
+          "roc_auc": 0.625192,
+          "test_end": "2025-09-28",
+          "test_start": "2025-07-01",
+          "top10": {
+            "game_dates": 86,
+            "hits": 603,
+            "picks": 860,
+            "rate": 0.701163
+          },
+          "top15": {
+            "game_dates": 86,
+            "hits": 880,
+            "picks": 1290,
+            "rate": 0.682171
+          },
+          "top5": {
+            "game_dates": 86,
+            "hits": 303,
+            "picks": 430,
+            "rate": 0.704651
+          }
+        },
+        {
+          "brier": 0.238828,
+          "fold": "2026_early",
+          "log_loss": 0.670439,
+          "n_test": 15615,
+          "n_train": 129708,
+          "roc_auc": 0.621858,
+          "test_end": "2026-05-31",
+          "test_start": "2026-03-25",
+          "top10": {
+            "game_dates": 66,
+            "hits": 438,
+            "picks": 660,
+            "rate": 0.663636
+          },
+          "top15": {
+            "game_dates": 66,
+            "hits": 644,
+            "picks": 990,
+            "rate": 0.650505
+          },
+          "top5": {
+            "game_dates": 66,
+            "hits": 221,
+            "picks": 330,
+            "rate": 0.669697
+          }
+        }
+      ],
+      "metrics": {
+        "probability": {
+          "brier": 0.238943,
+          "log_loss": 0.670682,
+          "roc_auc": 0.620999
+        },
+        "top_n": {
+          "top10": {
+            "ci_high": 0.690972,
+            "ci_low": 0.662731,
+            "clustered_standard_error": 0.007282,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 2923,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.0204,
+            "picks": 4320,
+            "rate": 0.67662,
+            "seed": 7302027
+          },
+          "top15": {
+            "ci_high": 0.679475,
+            "ci_low": 0.655247,
+            "clustered_standard_error": 0.006219,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 4324,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.017423,
+            "picks": 6480,
+            "rate": 0.667284,
+            "seed": 7302028
+          },
+          "top5": {
+            "ci_high": 0.705093,
+            "ci_low": 0.665278,
+            "clustered_standard_error": 0.009928,
+            "confidence_level": 0.95,
+            "game_dates": 432,
+            "hits": 1481,
+            "iterations": 10000,
+            "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+            "minimum_detectable_improvement_80pct_power": 0.027815,
+            "picks": 2160,
+            "rate": 0.685648,
+            "seed": 7302026
+          }
+        }
+      },
+      "oos_game_dates": 432,
+      "oos_rows": 102132,
+      "promotion_check": {
+        "brier_delta": 0.006681,
+        "checks": {
+          "maximum_brier_increase": false,
+          "maximum_log_loss_increase": false,
+          "minimum_nonnegative_development_folds": false,
+          "minimum_pooled_top10_delta": false
+        },
+        "fold_top10_deltas": {
+          "2024_early": -0.009375,
+          "2024_late": -0.006818,
+          "2025_early": -0.01875,
+          "2025_late": 0.027907,
+          "2026_early": 0.00303
+        },
+        "log_loss_delta": 0.015251,
+        "nonnegative_folds": 2,
+        "passes": false,
+        "top10_delta": -0.001621
+      },
+      "recipe_sha256": "543305c4d7d2aac1b990ca3f2cc3e54331790f26cbc9e29d1051e1cc1158d26f",
+      "runtime_seconds": 89.867,
+      "source_feature_set": "E4"
+    }
+  },
+  "final_test_status": "sealed_not_evaluated",
+  "generated_at": "2026-07-30T19:41:54+00:00",
+  "recommendation": {
+    "experiment_id": "E4",
+    "reason": "Highest pooled top-10 improvement among feature and architecture candidates passing every frozen entry gate.",
+    "status": "candidate_available"
+  },
+  "report_version": "hit_v3_development_ladder_v1",
+  "shadow_entry_gates": {
+    "maximum_brier_increase": 0.002,
+    "maximum_log_loss_increase": 0.005,
+    "maximum_runtime_multiple": 1.5,
+    "minimum_nonnegative_development_folds": 4,
+    "minimum_pooled_top10_delta": 0.01
+  },
+  "skipped": {
+    "E6_weather": "No versioned historical weather source has been approved."
+  }
+}
