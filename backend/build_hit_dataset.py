@@ -57,6 +57,12 @@ from hit_model.point_in_time import (
     PointInTimeParkFactors,
     project_lineup_point_in_time,
 )
+from hit_model.v3_features import (
+    V3FeatureHistory,
+    bullpen_workload_features,
+    starter_workload_features,
+    summarize_recent_team_games,
+)
 from park_factors import get_park_factor
 
 
@@ -160,6 +166,7 @@ def pitching_line_from_boxscore(pitching: Mapping[str, Any]) -> dict[str, Any]:
         "home_runs_allowed": safe_int(pitching.get("homeRuns")),
         "hit_by_pitch": safe_int(pitching.get("hitBatsmen")),
         "batters_faced": safe_int(pitching.get("battersFaced")),
+        "pitches_thrown": safe_int(pitching.get("pitchesThrown")),
         "started": safe_int(pitching.get("gamesStarted")) > 0,
     }
 
@@ -433,6 +440,10 @@ class HitDatasetBuilder:
         # Final starting lineups are added only after the whole date has been
         # featurized. Projected-mode rows can therefore use only prior dates.
         self.lineup_history: dict[str, list[dict[str, Any]]] = {}
+        # V3 additions use the same point-in-time lifecycle as the V2 form
+        # histories. No current-date pitch or team result enters a feature.
+        self.v3_history = V3FeatureHistory()
+        self.team_game_history: dict[str, list[dict[str, Any]]] = {}
 
     def park_factor(
         self,
@@ -519,6 +530,10 @@ class HitDatasetBuilder:
         bullpen: Mapping[str, Optional[float]],
         pitcher_feats: Mapping[str, Any],
         target: date,
+        team: Optional[str] = None,
+        opponent: Optional[str] = None,
+        lineup_source: Optional[str] = None,
+        projected_starter_probability: Optional[float] = None,
     ) -> dict[str, Any]:
         """
         The complete pre-game feature dict for one batter-game. Used by
@@ -527,9 +542,23 @@ class HitDatasetBuilder:
         """
         vs_hand = self.vs_hand.snapshot(hand_key(player_id, throws))
         vs_pitcher = self.vs_pitcher.snapshot((player_id, starter_id))
+        is_confirmed = int("official" in str(lineup_source or "").lower())
+        lineup_confidence = (
+            1.0
+            if is_confirmed
+            else safe_float(projected_starter_probability)
+        )
         return {
             "batting_order": slot,
             "is_home": is_home,
+            # -- V3 opportunity layer
+            "lineup_confirmed": is_confirmed,
+            "lineup_confidence": lineup_confidence,
+            "lineup_confidence_missing": int(lineup_confidence is None),
+            "top_order_indicator": int(slot <= 3),
+            **summarize_recent_team_games(
+                self.team_game_history.get(team or "", [])
+            ),
             # -- platoon + season BvP
             "platoon_advantage": platoon_advantage(bats, throws),
             "vs_hand_pa": vs_hand["pa"],
@@ -547,6 +576,20 @@ class HitDatasetBuilder:
             # -- batter form + pitcher blocks
             **self.batter_features(player_id, target),
             **pitcher_feats,
+            # -- V3 contact, arsenal, and workload layers
+            **self.v3_history.features(
+                batter_id=player_id,
+                pitcher_id=starter_id,
+                pitcher_hand=throws,
+            ),
+            **starter_workload_features(
+                self.pitcher_history.get(starter_id, []),
+                target_date=target.isoformat(),
+            ),
+            **bullpen_workload_features(
+                self.bullpen_history.get(opponent or "", []),
+                target_date=target.isoformat(),
+            ),
         }
 
     # -- per-day extraction ---------------------------------------------------
@@ -562,10 +605,13 @@ class HitDatasetBuilder:
         day_pitcher_lines: list[tuple[int, dict[str, Any]]] = []
         day_bullpen_lines: list[tuple[str, dict[str, Any]]] = []
         day_lineup_entries: list[tuple[str, dict[str, Any]]] = []
+        day_team_lines: list[tuple[str, dict[str, Any]]] = []
+        day_v3_games: list[Mapping[str, Any]] = []
 
         for slate_game in self.source.final_games(target):
             schedule = slate_game["schedule"]
             game = slate_game["game"]
+            day_v3_games.append(game)
             game_data = game.get("gameData", {})
             game_players = game_data.get("players", {})
             box_teams = game.get("liveData", {}).get("boxscore", {}).get("teams", {})
@@ -590,9 +636,46 @@ class HitDatasetBuilder:
                     if safe_int(pitching.get("battersFaced")) > 0:
                         line = pitching_line_from_boxscore(pitching)
                         line["game_date"] = target_iso
+                        line["pitcher_id"] = pid
                         day_pitcher_lines.append((pid, line))
                         if not line["started"] and side_team:
                             day_bullpen_lines.append((side_team, line))
+                team_batting = (
+                    box_teams.get(side, {})
+                    .get("teamStats", {})
+                    .get("batting", {})
+                )
+                if side_team:
+                    player_batting = [
+                        (player.get("stats") or {}).get("batting") or {}
+                        for player in (
+                            box_teams.get(side, {}).get("players") or {}
+                        ).values()
+                    ]
+                    day_team_lines.append((
+                        side_team,
+                        {
+                            "game_date": target_iso,
+                            "plate_appearances": (
+                                safe_int(team_batting.get("plateAppearances"))
+                                or sum(
+                                    safe_int(line.get("plateAppearances"))
+                                    for line in player_batting
+                                )
+                            ),
+                            "runs": (
+                                safe_int(team_batting.get("runs"))
+                                or safe_int(schedule.get(f"{side}_score"))
+                            ),
+                            "hits": (
+                                safe_int(team_batting.get("hits"))
+                                or sum(
+                                    safe_int(line.get("hits"))
+                                    for line in player_batting
+                                )
+                            ),
+                        },
+                    ))
 
             for offense_side in ("away", "home"):
                 defense_side = "home" if offense_side == "away" else "away"
@@ -763,6 +846,10 @@ class HitDatasetBuilder:
                             bullpen=bullpen,
                             pitcher_feats=pitcher_feats,
                             target=target,
+                            team=team_name,
+                            opponent=opponent_name,
+                            lineup_source=lineup_source,
+                            projected_starter_probability=projected_confidence,
                         ),
                     })
 
@@ -778,6 +865,10 @@ class HitDatasetBuilder:
             self.bullpen_history.setdefault(team, []).append(line)
         for team, entry in day_lineup_entries:
             self.lineup_history.setdefault(team, []).append(entry)
+        for team, line in day_team_lines:
+            self.team_game_history.setdefault(team, []).append(line)
+        for game in day_v3_games:
+            self.v3_history.add_game(game)
         return day_rows
 
     def build(self, start: date, end: date, *, verbose: bool = True) -> list[dict[str, Any]]:

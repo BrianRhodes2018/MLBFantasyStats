@@ -142,11 +142,11 @@ def collect_recent_lineups(
     return lineups, names
 
 
-def project_lineup(
+def project_lineup_snapshot(
     team_lineups: list[dict[str, Any]],
     opposing_hand: Optional[str],
     target: date,
-) -> tuple[Optional[list[int]], str]:
+) -> tuple[Optional[list[int]], str, dict[int, float]]:
     """
     Recency-weighted lineup projection (fallback for when officials
     haven't posted). Thin wrapper around
@@ -158,12 +158,26 @@ def project_lineup(
         team_lineups, opposing_hand, target.isoformat()
     )
     if not projection or not projection["order"]:
-        return None, "none"
+        return None, "none", {}
     source = (
         f"projected from {projection['pool_games']} lineups "
         f"({projection['split_label']}, recency-weighted)"
     )
-    return projection["order"], source
+    return projection["order"], source, projection["share"]
+
+
+def project_lineup(
+    team_lineups: list[dict[str, Any]],
+    opposing_hand: Optional[str],
+    target: date,
+) -> tuple[Optional[list[int]], str]:
+    """Backward-compatible display wrapper around the richer V3 snapshot."""
+    order, source, _ = project_lineup_snapshot(
+        team_lineups,
+        opposing_hand,
+        target,
+    )
+    return order, source
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +307,9 @@ def build_candidates(
             official = (confirmed or {}).get(safe_int(game.get("gamePk")), {}).get(offense_side)
             if official:
                 order, lineup_source = official, "official lineup"
+                starter_share = {player_id: 1.0 for player_id in official}
             else:
-                order, lineup_source = project_lineup(
+                order, lineup_source, starter_share = project_lineup_snapshot(
                     lineups.get(offense_team, []), throws, target
                 )
             if not order:
@@ -318,6 +333,7 @@ def build_candidates(
                     "pitcher_name": probable.get("fullName") or str(starter_id),
                     "pitcher_throws": throws,
                     "lineup_source": lineup_source,
+                    "projected_starter_probability": starter_share.get(player_id),
                     **builder.pregame_features(
                         player_id=player_id,
                         slot=slot,
@@ -329,6 +345,12 @@ def build_candidates(
                         bullpen=bullpen,
                         pitcher_feats=pitcher_feats,
                         target=target,
+                        team=offense_team,
+                        opponent=defense_team,
+                        lineup_source=lineup_source,
+                        projected_starter_probability=starter_share.get(
+                            player_id
+                        ),
                     ),
                 })
     return candidates
