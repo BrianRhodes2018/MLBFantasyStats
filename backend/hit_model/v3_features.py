@@ -496,7 +496,6 @@ def summarize_recent_team_games(
         "team_recent_games": count,
     }
 
-
 def starter_workload_features(
     rows: Iterable[Mapping[str, Any]],
     *,
@@ -574,4 +573,3 @@ def bullpen_workload_features(
         "bullpen_relievers_last3_days": len(unique_three),
         "bullpen_recent_appearances": len(recent),
     }
-

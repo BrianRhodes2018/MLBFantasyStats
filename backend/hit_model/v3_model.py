@@ -422,7 +422,6 @@ def feature_coverage(
         "missing_fraction": missing,
     }
 
-
 def coverage_fallback_counts(
     rows: Iterable[Mapping[str, Any]],
 ) -> dict[str, int]:
@@ -447,4 +446,3 @@ def coverage_fallback_counts(
             if not int(record.get("lineup_confirmed") or 0)
         ),
     }
-

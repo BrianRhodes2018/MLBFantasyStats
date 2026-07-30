@@ -28,7 +28,6 @@ def test_recipe_fingerprint_changes_with_architecture():
         architecture="decomposed",
     )
 
-
 def test_prepare_v3_frame_covers_zero_through_six_plus():
     frame = pl.DataFrame({
         "pa_game": [0, 1, 2, 3, 4, 5, 6, 8],
@@ -80,4 +79,3 @@ def test_pa_distribution_and_decomposed_math(monkeypatch):
     assert probabilities.tolist() == pytest.approx(
         [1 - 0.75**4, 1 - 0.75**4]
     )
-
