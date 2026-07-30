@@ -1,0 +1,751 @@
+{
+  "contract_version": "point_in_time_park_factors_v1",
+  "method": "Season N uses the completed Baseball Savant rolling park-factor table ending in season N-1.",
+  "neutral_fallback": {
+    "hr": 100,
+    "runs": 100,
+    "source": "neutral_unavailable"
+  },
+  "snapshots": [
+    {
+      "effective_date": "2023-01-01",
+      "factors": {
+        "American Family Field": {
+          "hr": 110,
+          "runs": 96,
+          "team": "Brewers",
+          "venue_id": 32
+        },
+        "Angel Stadium": {
+          "hr": 114,
+          "runs": 104,
+          "team": "Angels",
+          "venue_id": 1
+        },
+        "Busch Stadium": {
+          "hr": 84,
+          "runs": 92,
+          "team": "Cardinals",
+          "venue_id": 2889
+        },
+        "Chase Field": {
+          "hr": 86,
+          "runs": 104,
+          "team": "D-backs",
+          "venue_id": 15
+        },
+        "Citi Field": {
+          "hr": 95,
+          "runs": 94,
+          "team": "Mets",
+          "venue_id": 3289
+        },
+        "Citizens Bank Park": {
+          "hr": 113,
+          "runs": 106,
+          "team": "Phillies",
+          "venue_id": 2681
+        },
+        "Comerica Park": {
+          "hr": 76,
+          "runs": 94,
+          "team": "Tigers",
+          "venue_id": 2394
+        },
+        "Coors Field": {
+          "hr": 108,
+          "runs": 123,
+          "team": "Rockies",
+          "venue_id": 19
+        },
+        "Daikin Park": {
+          "hr": 100,
+          "runs": 96,
+          "team": "Astros",
+          "venue_id": 2392
+        },
+        "Fenway Park": {
+          "hr": 99,
+          "runs": 119,
+          "team": "Red Sox",
+          "venue_id": 3
+        },
+        "Globe Life Field": {
+          "hr": 101,
+          "runs": 100,
+          "team": "Rangers",
+          "venue_id": 5325
+        },
+        "Great American Ball Park": {
+          "hr": 139,
+          "runs": 117,
+          "team": "Reds",
+          "venue_id": 2602
+        },
+        "Kauffman Stadium": {
+          "hr": 80,
+          "runs": 106,
+          "team": "Royals",
+          "venue_id": 7
+        },
+        "Nationals Park": {
+          "hr": 108,
+          "runs": 104,
+          "team": "Nationals",
+          "venue_id": 3309
+        },
+        "Oakland Coliseum": {
+          "hr": 80,
+          "runs": 88,
+          "team": "Athletics",
+          "venue_id": 10
+        },
+        "Oracle Park": {
+          "hr": 83,
+          "runs": 100,
+          "team": "Giants",
+          "venue_id": 2395
+        },
+        "Oriole Park at Camden Yards": {
+          "hr": 108,
+          "runs": 104,
+          "team": "Orioles",
+          "venue_id": 2
+        },
+        "PNC Park": {
+          "hr": 84,
+          "runs": 102,
+          "team": "Pirates",
+          "venue_id": 31
+        },
+        "Petco Park": {
+          "hr": 100,
+          "runs": 92,
+          "team": "Padres",
+          "venue_id": 2680
+        },
+        "Progressive Field": {
+          "hr": 98,
+          "runs": 96,
+          "team": "Guardians",
+          "venue_id": 5
+        },
+        "Rate Field": {
+          "hr": 113,
+          "runs": 102,
+          "team": "White Sox",
+          "venue_id": 4
+        },
+        "Rogers Centre": {
+          "hr": 111,
+          "runs": 102,
+          "team": "Blue Jays",
+          "venue_id": 14
+        },
+        "T-Mobile Park": {
+          "hr": 100,
+          "runs": 85,
+          "team": "Mariners",
+          "venue_id": 680
+        },
+        "Target Field": {
+          "hr": 100,
+          "runs": 98,
+          "team": "Twins",
+          "venue_id": 3312
+        },
+        "Tropicana Field": {
+          "hr": 87,
+          "runs": 88,
+          "team": "Rays",
+          "venue_id": 12
+        },
+        "Truist Park": {
+          "hr": 104,
+          "runs": 100,
+          "team": "Braves",
+          "venue_id": 4705
+        },
+        "UNIQLO Field at Dodger Stadium": {
+          "hr": 126,
+          "runs": 100,
+          "team": "Dodgers",
+          "venue_id": 22
+        },
+        "Wrigley Field": {
+          "hr": 103,
+          "runs": 100,
+          "team": "Cubs",
+          "venue_id": 17
+        },
+        "Yankee Stadium": {
+          "hr": 115,
+          "runs": 96,
+          "team": "Yankees",
+          "venue_id": 3313
+        },
+        "loanDepot park": {
+          "hr": 84,
+          "runs": 94,
+          "team": "Marlins",
+          "venue_id": 4169
+        }
+      },
+      "source_season": 2022,
+      "source_url": "https://baseballsavant.mlb.com/leaderboard/statcast-park-factors?type=year&year=2022",
+      "source_year_range": "2020-2022"
+    },
+    {
+      "effective_date": "2024-01-01",
+      "factors": {
+        "American Family Field": {
+          "hr": 109,
+          "runs": 94,
+          "team": "Brewers",
+          "venue_id": 32
+        },
+        "Angel Stadium": {
+          "hr": 112,
+          "runs": 100,
+          "team": "Angels",
+          "venue_id": 1
+        },
+        "Busch Stadium": {
+          "hr": 90,
+          "runs": 98,
+          "team": "Cardinals",
+          "venue_id": 2889
+        },
+        "Chase Field": {
+          "hr": 84,
+          "runs": 100,
+          "team": "D-backs",
+          "venue_id": 15
+        },
+        "Citi Field": {
+          "hr": 95,
+          "runs": 92,
+          "team": "Mets",
+          "venue_id": 3289
+        },
+        "Citizens Bank Park": {
+          "hr": 113,
+          "runs": 102,
+          "team": "Phillies",
+          "venue_id": 2681
+        },
+        "Comerica Park": {
+          "hr": 79,
+          "runs": 94,
+          "team": "Tigers",
+          "venue_id": 2394
+        },
+        "Coors Field": {
+          "hr": 108,
+          "runs": 125,
+          "team": "Rockies",
+          "venue_id": 19
+        },
+        "Daikin Park": {
+          "hr": 101,
+          "runs": 100,
+          "team": "Astros",
+          "venue_id": 2392
+        },
+        "Fenway Park": {
+          "hr": 99,
+          "runs": 117,
+          "team": "Red Sox",
+          "venue_id": 3
+        },
+        "Globe Life Field": {
+          "hr": 111,
+          "runs": 104,
+          "team": "Rangers",
+          "venue_id": 5325
+        },
+        "Great American Ball Park": {
+          "hr": 131,
+          "runs": 114,
+          "team": "Reds",
+          "venue_id": 2602
+        },
+        "Kauffman Stadium": {
+          "hr": 84,
+          "runs": 108,
+          "team": "Royals",
+          "venue_id": 7
+        },
+        "Nationals Park": {
+          "hr": 107,
+          "runs": 106,
+          "team": "Nationals",
+          "venue_id": 3309
+        },
+        "Oakland Coliseum": {
+          "hr": 84,
+          "runs": 92,
+          "team": "Athletics",
+          "venue_id": 10
+        },
+        "Oracle Park": {
+          "hr": 84,
+          "runs": 94,
+          "team": "Giants",
+          "venue_id": 2395
+        },
+        "Oriole Park at Camden Yards": {
+          "hr": 104,
+          "runs": 102,
+          "team": "Orioles",
+          "venue_id": 2
+        },
+        "PNC Park": {
+          "hr": 80,
+          "runs": 102,
+          "team": "Pirates",
+          "venue_id": 31
+        },
+        "Petco Park": {
+          "hr": 93,
+          "runs": 90,
+          "team": "Padres",
+          "venue_id": 2680
+        },
+        "Progressive Field": {
+          "hr": 89,
+          "runs": 94,
+          "team": "Guardians",
+          "venue_id": 5
+        },
+        "Rate Field": {
+          "hr": 104,
+          "runs": 100,
+          "team": "White Sox",
+          "venue_id": 4
+        },
+        "Rogers Centre": {
+          "hr": 104,
+          "runs": 100,
+          "team": "Blue Jays",
+          "venue_id": 14
+        },
+        "T-Mobile Park": {
+          "hr": 98,
+          "runs": 85,
+          "team": "Mariners",
+          "venue_id": 680
+        },
+        "Target Field": {
+          "hr": 104,
+          "runs": 100,
+          "team": "Twins",
+          "venue_id": 3312
+        },
+        "Tropicana Field": {
+          "hr": 94,
+          "runs": 92,
+          "team": "Rays",
+          "venue_id": 12
+        },
+        "Truist Park": {
+          "hr": 111,
+          "runs": 102,
+          "team": "Braves",
+          "venue_id": 4705
+        },
+        "UNIQLO Field at Dodger Stadium": {
+          "hr": 122,
+          "runs": 98,
+          "team": "Dodgers",
+          "venue_id": 22
+        },
+        "Wrigley Field": {
+          "hr": 106,
+          "runs": 102,
+          "team": "Cubs",
+          "venue_id": 17
+        },
+        "Yankee Stadium": {
+          "hr": 116,
+          "runs": 96,
+          "team": "Yankees",
+          "venue_id": 3313
+        },
+        "loanDepot park": {
+          "hr": 86,
+          "runs": 96,
+          "team": "Marlins",
+          "venue_id": 4169
+        }
+      },
+      "source_season": 2023,
+      "source_url": "https://baseballsavant.mlb.com/leaderboard/statcast-park-factors?type=year&year=2023",
+      "source_year_range": "2021-2023"
+    },
+    {
+      "effective_date": "2025-01-01",
+      "factors": {
+        "American Family Field": {
+          "hr": 114,
+          "runs": 94,
+          "team": "Brewers",
+          "venue_id": 32
+        },
+        "Angel Stadium": {
+          "hr": 112,
+          "runs": 100,
+          "team": "Angels",
+          "venue_id": 1
+        },
+        "Busch Stadium": {
+          "hr": 91,
+          "runs": 100,
+          "team": "Cardinals",
+          "venue_id": 2889
+        },
+        "Chase Field": {
+          "hr": 86,
+          "runs": 102,
+          "team": "D-backs",
+          "venue_id": 15
+        },
+        "Citi Field": {
+          "hr": 99,
+          "runs": 94,
+          "team": "Mets",
+          "venue_id": 3289
+        },
+        "Citizens Bank Park": {
+          "hr": 115,
+          "runs": 102,
+          "team": "Phillies",
+          "venue_id": 2681
+        },
+        "Comerica Park": {
+          "hr": 86,
+          "runs": 96,
+          "team": "Tigers",
+          "venue_id": 2394
+        },
+        "Coors Field": {
+          "hr": 109,
+          "runs": 125,
+          "team": "Rockies",
+          "venue_id": 19
+        },
+        "Daikin Park": {
+          "hr": 107,
+          "runs": 100,
+          "team": "Astros",
+          "venue_id": 2392
+        },
+        "Fenway Park": {
+          "hr": 98,
+          "runs": 114,
+          "team": "Red Sox",
+          "venue_id": 3
+        },
+        "Globe Life Field": {
+          "hr": 115,
+          "runs": 102,
+          "team": "Rangers",
+          "venue_id": 5325
+        },
+        "Great American Ball Park": {
+          "hr": 128,
+          "runs": 110,
+          "team": "Reds",
+          "venue_id": 2602
+        },
+        "Kauffman Stadium": {
+          "hr": 85,
+          "runs": 108,
+          "team": "Royals",
+          "venue_id": 7
+        },
+        "Nationals Park": {
+          "hr": 101,
+          "runs": 102,
+          "team": "Nationals",
+          "venue_id": 3309
+        },
+        "Oakland Coliseum": {
+          "hr": 81,
+          "runs": 94,
+          "team": "Athletics",
+          "venue_id": 10
+        },
+        "Oracle Park": {
+          "hr": 78,
+          "runs": 94,
+          "team": "Giants",
+          "venue_id": 2395
+        },
+        "Oriole Park at Camden Yards": {
+          "hr": 93,
+          "runs": 98,
+          "team": "Orioles",
+          "venue_id": 2
+        },
+        "PNC Park": {
+          "hr": 84,
+          "runs": 102,
+          "team": "Pirates",
+          "venue_id": 31
+        },
+        "Petco Park": {
+          "hr": 104,
+          "runs": 92,
+          "team": "Padres",
+          "venue_id": 2680
+        },
+        "Progressive Field": {
+          "hr": 86,
+          "runs": 94,
+          "team": "Guardians",
+          "venue_id": 5
+        },
+        "Rate Field": {
+          "hr": 98,
+          "runs": 98,
+          "team": "White Sox",
+          "venue_id": 4
+        },
+        "Rogers Centre": {
+          "hr": 103,
+          "runs": 100,
+          "team": "Blue Jays",
+          "venue_id": 14
+        },
+        "T-Mobile Park": {
+          "hr": 96,
+          "runs": 83,
+          "team": "Mariners",
+          "venue_id": 680
+        },
+        "Target Field": {
+          "hr": 105,
+          "runs": 104,
+          "team": "Twins",
+          "venue_id": 3312
+        },
+        "Tropicana Field": {
+          "hr": 98,
+          "runs": 92,
+          "team": "Rays",
+          "venue_id": 12
+        },
+        "Truist Park": {
+          "hr": 105,
+          "runs": 100,
+          "team": "Braves",
+          "venue_id": 4705
+        },
+        "UNIQLO Field at Dodger Stadium": {
+          "hr": 122,
+          "runs": 100,
+          "team": "Dodgers",
+          "venue_id": 22
+        },
+        "Wrigley Field": {
+          "hr": 93,
+          "runs": 94,
+          "team": "Cubs",
+          "venue_id": 17
+        },
+        "Yankee Stadium": {
+          "hr": 119,
+          "runs": 100,
+          "team": "Yankees",
+          "venue_id": 3313
+        },
+        "loanDepot park": {
+          "hr": 92,
+          "runs": 102,
+          "team": "Marlins",
+          "venue_id": 4169
+        }
+      },
+      "source_season": 2024,
+      "source_url": "https://baseballsavant.mlb.com/leaderboard/statcast-park-factors?type=year&year=2024",
+      "source_year_range": "2022-2024"
+    },
+    {
+      "effective_date": "2026-01-01",
+      "factors": {
+        "American Family Field": {
+          "hr": 106,
+          "runs": 94,
+          "team": "Brewers",
+          "venue_id": 32
+        },
+        "Angel Stadium": {
+          "hr": 113,
+          "runs": 102,
+          "team": "Angels",
+          "venue_id": 1
+        },
+        "Busch Stadium": {
+          "hr": 87,
+          "runs": 100,
+          "team": "Cardinals",
+          "venue_id": 2889
+        },
+        "Chase Field": {
+          "hr": 88,
+          "runs": 106,
+          "team": "D-backs",
+          "venue_id": 15
+        },
+        "Citi Field": {
+          "hr": 104,
+          "runs": 96,
+          "team": "Mets",
+          "venue_id": 3289
+        },
+        "Citizens Bank Park": {
+          "hr": 115,
+          "runs": 102,
+          "team": "Phillies",
+          "venue_id": 2681
+        },
+        "Comerica Park": {
+          "hr": 99,
+          "runs": 102,
+          "team": "Tigers",
+          "venue_id": 2394
+        },
+        "Coors Field": {
+          "hr": 105,
+          "runs": 125,
+          "team": "Rockies",
+          "venue_id": 19
+        },
+        "Daikin Park": {
+          "hr": 105,
+          "runs": 100,
+          "team": "Astros",
+          "venue_id": 2392
+        },
+        "Fenway Park": {
+          "hr": 89,
+          "runs": 110,
+          "team": "Red Sox",
+          "venue_id": 3
+        },
+        "Globe Life Field": {
+          "hr": 104,
+          "runs": 94,
+          "team": "Rangers",
+          "venue_id": 5325
+        },
+        "Great American Ball Park": {
+          "hr": 123,
+          "runs": 106,
+          "team": "Reds",
+          "venue_id": 2602
+        },
+        "Kauffman Stadium": {
+          "hr": 85,
+          "runs": 102,
+          "team": "Royals",
+          "venue_id": 7
+        },
+        "Nationals Park": {
+          "hr": 94,
+          "runs": 102,
+          "team": "Nationals",
+          "venue_id": 3309
+        },
+        "Oracle Park": {
+          "hr": 81,
+          "runs": 94,
+          "team": "Giants",
+          "venue_id": 2395
+        },
+        "Oriole Park at Camden Yards": {
+          "hr": 106,
+          "runs": 100,
+          "team": "Orioles",
+          "venue_id": 2
+        },
+        "PNC Park": {
+          "hr": 76,
+          "runs": 98,
+          "team": "Pirates",
+          "venue_id": 31
+        },
+        "Petco Park": {
+          "hr": 102,
+          "runs": 94,
+          "team": "Padres",
+          "venue_id": 2680
+        },
+        "Progressive Field": {
+          "hr": 85,
+          "runs": 94,
+          "team": "Guardians",
+          "venue_id": 5
+        },
+        "Rate Field": {
+          "hr": 96,
+          "runs": 98,
+          "team": "White Sox",
+          "venue_id": 4
+        },
+        "Rogers Centre": {
+          "hr": 104,
+          "runs": 100,
+          "team": "Blue Jays",
+          "venue_id": 14
+        },
+        "T-Mobile Park": {
+          "hr": 93,
+          "runs": 83,
+          "team": "Mariners",
+          "venue_id": 680
+        },
+        "Target Field": {
+          "hr": 102,
+          "runs": 106,
+          "team": "Twins",
+          "venue_id": 3312
+        },
+        "Truist Park": {
+          "hr": 105,
+          "runs": 102,
+          "team": "Braves",
+          "venue_id": 4705
+        },
+        "UNIQLO Field at Dodger Stadium": {
+          "hr": 127,
+          "runs": 102,
+          "team": "Dodgers",
+          "venue_id": 22
+        },
+        "Wrigley Field": {
+          "hr": 99,
+          "runs": 94,
+          "team": "Cubs",
+          "venue_id": 17
+        },
+        "Yankee Stadium": {
+          "hr": 119,
+          "runs": 100,
+          "team": "Yankees",
+          "venue_id": 3313
+        },
+        "loanDepot park": {
+          "hr": 90,
+          "runs": 102,
+          "team": "Marlins",
+          "venue_id": 4169
+        }
+      },
+      "source_season": 2025,
+      "source_url": "https://baseballsavant.mlb.com/leaderboard/statcast-park-factors?type=year&year=2025",
+      "source_year_range": "2023-2025"
+    }
+  ]
+}
