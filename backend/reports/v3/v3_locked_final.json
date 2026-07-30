@@ -1,0 +1,437 @@
+{
+  "artifacts": {
+    "e1_daily_topn": {
+      "filename": "e1_locked_final_daily_topn.parquet",
+      "rows": 990,
+      "sha256": "e16f4bc09a734c96a40a8b10f1aa55058a86482cb528e788a2239f33d1ff2c9b"
+    },
+    "e1_predictions": {
+      "filename": "e1_locked_final_predictions.parquet",
+      "rows": 7704,
+      "sha256": "4aeb621cfa790fbd50abaeaa9dd86d2900c4ce02755161954c6397d42b993e0e"
+    },
+    "v3_daily_topn": {
+      "filename": "v3_e4_locked_final_daily_topn.parquet",
+      "rows": 990,
+      "sha256": "c129a78a6dfe14c11c6887384ffe01a1f14f6f8c3556cf25f481f791c19ffc07"
+    },
+    "v3_predictions": {
+      "filename": "v3_e4_locked_final_predictions.parquet",
+      "rows": 7704,
+      "sha256": "ab5a9655fd5a1a76c6d762e46929eb2308f9053dc0bc624bdeb5359898ed6b6d"
+    }
+  },
+  "baseline_e1": {
+    "metrics": {
+      "probability": {
+        "brier": 0.228215,
+        "log_loss": 0.647232,
+        "roc_auc": 0.660799
+      },
+      "top_n": {
+        "top10": {
+          "ci_high": 0.772727,
+          "ci_low": 0.675758,
+          "clustered_standard_error": 0.024087,
+          "confidence_level": 0.95,
+          "game_dates": 33,
+          "hits": 239,
+          "iterations": 10000,
+          "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+          "minimum_detectable_improvement_80pct_power": 0.067481,
+          "picks": 330,
+          "rate": 0.724242,
+          "seed": 7302027
+        },
+        "top15": {
+          "ci_high": 0.727273,
+          "ci_low": 0.642424,
+          "clustered_standard_error": 0.02129,
+          "confidence_level": 0.95,
+          "game_dates": 33,
+          "hits": 339,
+          "iterations": 10000,
+          "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+          "minimum_detectable_improvement_80pct_power": 0.059645,
+          "picks": 495,
+          "rate": 0.684848,
+          "seed": 7302028
+        },
+        "top5": {
+          "ci_high": 0.836364,
+          "ci_low": 0.715152,
+          "clustered_standard_error": 0.031961,
+          "confidence_level": 0.95,
+          "game_dates": 33,
+          "hits": 128,
+          "iterations": 10000,
+          "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+          "minimum_detectable_improvement_80pct_power": 0.089542,
+          "picks": 165,
+          "rate": 0.775758,
+          "seed": 7302026
+        }
+      }
+    },
+    "runtime_seconds": 1.11
+  },
+  "calibration": {
+    "artifact": {
+      "filename": "hit_gbm_v3_e4.json",
+      "sha256": "2b353b396699e6b972e3458e2d25f5380af5617e3e159caba2bea906e79c55d1"
+    },
+    "fit_rows": 36459,
+    "method_selection_results": {
+      "isotonic": {
+        "brier": 0.23137,
+        "brier_delta_vs_raw": 1.2e-05,
+        "eligible": false,
+        "log_loss": 0.656146
+      },
+      "sigmoid_platt": {
+        "brier": 0.231342,
+        "brier_delta_vs_raw": -1.6e-05,
+        "eligible": true,
+        "log_loss": 0.654014
+      },
+      "uncalibrated": {
+        "brier": 0.231358,
+        "brier_delta_vs_raw": 0.0,
+        "eligible": true,
+        "log_loss": 0.654131
+      }
+    },
+    "selected_method": "sigmoid_platt"
+  },
+  "candidate_config_sha256": "30a701237605b464691f89469be625b0c61d7694df0edcd5d8a813c03e5b9095",
+  "candidate_e4": {
+    "calibration_table": [
+      {
+        "actual_hit_rate": 0.043478,
+        "bucket": "0.0-0.1",
+        "mean_probability": 0.088485,
+        "rows": 23
+      },
+      {
+        "actual_hit_rate": 0.148248,
+        "bucket": "0.1-0.2",
+        "mean_probability": 0.161079,
+        "rows": 371
+      },
+      {
+        "actual_hit_rate": 0.252613,
+        "bucket": "0.2-0.3",
+        "mean_probability": 0.251952,
+        "rows": 574
+      },
+      {
+        "actual_hit_rate": 0.382675,
+        "bucket": "0.3-0.4",
+        "mean_probability": 0.35136,
+        "rows": 912
+      },
+      {
+        "actual_hit_rate": 0.474234,
+        "bucket": "0.4-0.5",
+        "mean_probability": 0.454647,
+        "rows": 1533
+      },
+      {
+        "actual_hit_rate": 0.571563,
+        "bucket": "0.5-0.6",
+        "mean_probability": 0.552768,
+        "rows": 2131
+      },
+      {
+        "actual_hit_rate": 0.645404,
+        "bucket": "0.6-0.7",
+        "mean_probability": 0.641198,
+        "rows": 1991
+      },
+      {
+        "actual_hit_rate": 0.763314,
+        "bucket": "0.7-0.8",
+        "mean_probability": 0.720013,
+        "rows": 169
+      }
+    ],
+    "metrics": {
+      "calibrated_probability": {
+        "brier": 0.228004,
+        "log_loss": 0.646657,
+        "roc_auc": 0.662899
+      },
+      "raw_probability": {
+        "brier": 0.227894,
+        "log_loss": 0.646522,
+        "roc_auc": 0.662899
+      },
+      "top_n": {
+        "top10": {
+          "ci_high": 0.754545,
+          "ci_low": 0.648485,
+          "clustered_standard_error": 0.026832,
+          "confidence_level": 0.95,
+          "game_dates": 33,
+          "hits": 232,
+          "iterations": 10000,
+          "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+          "minimum_detectable_improvement_80pct_power": 0.075173,
+          "picks": 330,
+          "rate": 0.70303,
+          "seed": 7302027
+        },
+        "top15": {
+          "ci_high": 0.727273,
+          "ci_low": 0.632323,
+          "clustered_standard_error": 0.024435,
+          "confidence_level": 0.95,
+          "game_dates": 33,
+          "hits": 337,
+          "iterations": 10000,
+          "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+          "minimum_detectable_improvement_80pct_power": 0.068457,
+          "picks": 495,
+          "rate": 0.680808,
+          "seed": 7302028
+        },
+        "top5": {
+          "ci_high": 0.806061,
+          "ci_low": 0.660606,
+          "clustered_standard_error": 0.035956,
+          "confidence_level": 0.95,
+          "game_dates": 33,
+          "hits": 121,
+          "iterations": 10000,
+          "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+          "minimum_detectable_improvement_80pct_power": 0.100734,
+          "picks": 165,
+          "rate": 0.733333,
+          "seed": 7302026
+        }
+      }
+    },
+    "paired_top10_delta": {
+      "ci_high": 0.027273,
+      "ci_low": -0.069697,
+      "cluster": "game_date",
+      "delta": -0.021212,
+      "iterations": 10000,
+      "paired_game_dates": 33,
+      "seed": 7302076
+    },
+    "runtime_multiple_vs_e1": 1.696,
+    "runtime_seconds": 1.883,
+    "slices": {
+      "batting_order": [
+        {
+          "actual_hit_rate": 0.640187,
+          "batting_order": 1,
+          "brier": 0.224219,
+          "log_loss": 0.640374,
+          "mean_probability": 0.610891,
+          "roc_auc": 0.575493,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.626168,
+          "batting_order": 2,
+          "brier": 0.227975,
+          "log_loss": 0.648589,
+          "mean_probability": 0.604956,
+          "roc_auc": 0.577857,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.609813,
+          "batting_order": 3,
+          "brier": 0.229327,
+          "log_loss": 0.650362,
+          "mean_probability": 0.591211,
+          "roc_auc": 0.577483,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.51285,
+          "batting_order": 4,
+          "brier": 0.231354,
+          "log_loss": 0.653834,
+          "mean_probability": 0.53694,
+          "roc_auc": 0.643729,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.492991,
+          "batting_order": 5,
+          "brier": 0.23477,
+          "log_loss": 0.659649,
+          "mean_probability": 0.491608,
+          "roc_auc": 0.620001,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.464953,
+          "batting_order": 6,
+          "brier": 0.231311,
+          "log_loss": 0.654131,
+          "mean_probability": 0.446981,
+          "roc_auc": 0.655269,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.404206,
+          "batting_order": 7,
+          "brier": 0.214731,
+          "log_loss": 0.614782,
+          "mean_probability": 0.396018,
+          "roc_auc": 0.689578,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.413551,
+          "batting_order": 8,
+          "brier": 0.228454,
+          "log_loss": 0.648918,
+          "mean_probability": 0.380712,
+          "roc_auc": 0.6427,
+          "rows": 856
+        },
+        {
+          "actual_hit_rate": 0.401869,
+          "batting_order": 9,
+          "brier": 0.229899,
+          "log_loss": 0.649278,
+          "mean_probability": 0.380038,
+          "roc_auc": 0.615904,
+          "rows": 856
+        }
+      ],
+      "feature_coverage_tier": [
+        {
+          "actual_hit_rate": 0.507478,
+          "brier": 0.22816,
+          "feature_coverage_tier": "complete",
+          "log_loss": 0.647003,
+          "mean_probability": 0.493146,
+          "roc_auc": 0.662314,
+          "rows": 7622
+        },
+        {
+          "actual_hit_rate": 0.506173,
+          "brier": 0.216143,
+          "feature_coverage_tier": "fallback",
+          "log_loss": 0.621133,
+          "mean_probability": 0.509368,
+          "roc_auc": 0.715854,
+          "rows": 81
+        },
+        {
+          "actual_hit_rate": 0.0,
+          "brier": 0.005465,
+          "feature_coverage_tier": "partial",
+          "log_loss": 0.076799,
+          "mean_probability": 0.073924,
+          "rows": 1
+        }
+      ],
+      "lineup_source": [
+        {
+          "actual_hit_rate": 0.507399,
+          "brier": 0.228004,
+          "lineup_source": "projected",
+          "log_loss": 0.646657,
+          "mean_probability": 0.493262,
+          "roc_auc": 0.662899,
+          "rows": 7704
+        }
+      ],
+      "month": [
+        {
+          "actual_hit_rate": 0.506944,
+          "brier": 0.228171,
+          "log_loss": 0.647041,
+          "mean_probability": 0.492654,
+          "month": "2026-06",
+          "roc_auc": 0.662197,
+          "rows": 7056
+        },
+        {
+          "actual_hit_rate": 0.512346,
+          "brier": 0.226192,
+          "log_loss": 0.642477,
+          "mean_probability": 0.499878,
+          "month": "2026-07",
+          "roc_auc": 0.670057,
+          "rows": 648
+        }
+      ],
+      "pitcher_throws": [
+        {
+          "actual_hit_rate": 0.502187,
+          "brier": 0.226002,
+          "log_loss": 0.642498,
+          "mean_probability": 0.476419,
+          "pitcher_throws": "L",
+          "roc_auc": 0.673637,
+          "rows": 2286
+        },
+        {
+          "actual_hit_rate": 0.509598,
+          "brier": 0.228849,
+          "log_loss": 0.648412,
+          "mean_probability": 0.500368,
+          "pitcher_throws": "R",
+          "roc_auc": 0.658631,
+          "rows": 5418
+        }
+      ]
+    }
+  },
+  "candidate_freeze_commit": "4233f933d871dc8ef06d3913a7a11e9e5cecb4f7",
+  "contract_sha256": "d85af642692fbaaa11fef3dc8aeec3d73d9e2590217749518677bceaae0cdfe8",
+  "dataset": {
+    "files": [
+      {
+        "bytes": 6794390,
+        "name": "hit_v3_projected_2023.parquet",
+        "sha256": "ae51d3617e0209442deed360d986a4811724162d9d41185f5c3d3a63d4538054"
+      },
+      {
+        "bytes": 6805613,
+        "name": "hit_v3_projected_2024.parquet",
+        "sha256": "658210ce111d1e417a6b5acca3adc43dff1b1331bea72fa34a90e8d23d5317fa"
+      },
+      {
+        "bytes": 6813049,
+        "name": "hit_v3_projected_2025.parquet",
+        "sha256": "6467fe10df87248978703c0cf3947b18397e2f6e449ce392841eec9ed6b49c9e"
+      },
+      {
+        "bytes": 3569673,
+        "name": "hit_v3_projected_2026.parquet",
+        "sha256": "f687c9626df36b8ea21a18243cc2606c9635a789b7f22a116371ccf53cb93d7f"
+      }
+    ],
+    "frame_sha256": "7344d5ed4165f0938c74212f64d00a4bb9f460920a1f2a8a76deceec48a7b62a",
+    "locked_window": {
+      "name": "2026_locked_final",
+      "test_end": "2026-07-03",
+      "test_start": "2026-06-01",
+      "v3_results_must_remain_hidden_until_candidate_is_frozen": true
+    },
+    "rows": 153027,
+    "test_game_dates": 33,
+    "test_rows": 7704,
+    "train_rows": 145323
+  },
+  "decision": {
+    "primary_promotion": "not_eligible_until_live_shadow_minimums",
+    "shadow_entry": "rejected"
+  },
+  "dependency_fingerprint": "567665c6a0b0c388958243f93da535119b69c3a580b2a4b25ef517a9b5e44425",
+  "dependency_lock_sha256": "2d94fa612d134ead986ebce427cc5eadf77003e42358d201a64941092ef898f2",
+  "final_test_status": "opened_once_after_candidate_freeze",
+  "generated_at": "2026-07-30T19:47:33+00:00",
+  "locked_evaluation_code_commit": "a7b3420bd4ad53d010715238d379f29d9f068e44",
+  "report_version": "hit_v3_locked_final_v1"
+}

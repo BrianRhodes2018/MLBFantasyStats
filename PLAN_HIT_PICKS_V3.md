@@ -1,6 +1,6 @@
 # Plan: Hit Picks V3 Matchup and Opportunity Model
 
-**Status:** Ready for Phase 2 feature development (Phase 0 and E1 complete)
+**Status:** V3 E4 built and evaluated; locked final rejected shadow entry
 **Created:** 2026-07-28
 **Depends on:** [PLAN_ML_ENGINEERING_REMEDIATION.md](PLAN_ML_ENGINEERING_REMEDIATION.md)
 
@@ -18,6 +18,29 @@ The final product remains a reader-friendly game probability:
 ```text
 Probability that the player records at least one hit
 ```
+
+## V3 outcome (2026-07-30)
+
+The complete development ladder selected E4: the corrected E1 baseline plus
+opportunity, batter-contact, and pitcher/arsenal-matchup features.
+
+- Development top-10: 68.94% over 4,320 picks, versus 67.82% for E1.
+- Four of five development folds were nonnegative.
+- Development Brier and log loss both improved.
+- E5 workload/bullpen features and the decomposed E7 architecture did not
+  pass the frozen development gates.
+- The E4 definition and its calibration-selection protocol were committed
+  before the locked final block was opened.
+- Locked-final top-10: 70.30% over 330 picks, versus 72.42% for E1.
+- Paired top-10 delta: -2.12 percentage points, with a date-clustered 95%
+  interval from -6.97 to +2.73 points.
+- Calibrated Brier improved slightly versus E1 (0.22800 versus 0.22822), but
+  top-10 ranking and the frozen runtime-multiple gate failed.
+
+Therefore E4 is retained as a reproducible research candidate but is not
+published to the live challenger ledger. V2 remains the production primary.
+The final block must not be used to tune a replacement; the next candidate
+requires a new predeclared test period.
 
 ## Decision summary
 
@@ -783,10 +806,11 @@ Large datasets, trained models, and prediction outputs remain outside Git. Small
 1. [x] Complete the engineering-remediation plan.
 2. [x] Freeze and reproduce V2.
 3. [x] Correct point-in-time evaluation.
-4. Build feature groups.
-5. Run the experiment ladder.
-6. Fit and test candidate-specific calibration.
-7. Run V3 as a visible experimental challenger.
+4. [x] Build feature groups.
+5. [x] Run the experiment ladder.
+6. [x] Fit and test candidate-specific calibration.
+7. [ ] Run V3 as a visible experimental challenger (blocked by the frozen
+   locked-final and runtime entry gates).
 8. Review the promotion report.
 9. Promote through a configuration switch.
 

@@ -85,6 +85,27 @@ MODEL_KIND = "gbm"
 HISTORICAL_GLOB = "hit_dataset_2*.parquet"
 
 
+def combine_v2_training_frames(
+    frames: list[tuple[str, pl.DataFrame]],
+) -> pl.DataFrame:
+    """Combine old V2 and augmented V3 rows without changing V2's schema."""
+    for source_name, frame in frames:
+        missing_v2 = [
+            feature for feature in FEATURES if feature not in frame.columns
+        ]
+        if missing_v2:
+            raise ValueError(
+                f"{source_name} is missing V2 training features: "
+                + ", ".join(missing_v2)
+            )
+    return prepare_frame(
+        pl.concat(
+            [frame for _, frame in frames],
+            how="diagonal_relaxed",
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Projected lineups from recent boxscores
 # ---------------------------------------------------------------------------
@@ -385,16 +406,18 @@ async def run(args: argparse.Namespace) -> int:
             raise RuntimeError("No training rows produced — check cache/API access.")
         current = pl.DataFrame(train_rows, infer_schema_length=None).filter(pl.col("pa_game") > 0)
 
-        frames = [current]
+        frames = [("replayed current season", current)]
         historical = sorted((BACKEND_DIR / "data").glob(HISTORICAL_GLOB))
         for path in historical:
-            frames.append(
-                pl.read_parquet(path)
-                .filter(pl.col("pa_game") > 0)
-                .select(current.columns)
+            historical_frame = pl.read_parquet(path).filter(
+                pl.col("pa_game") > 0
             )
+            frames.append((path.name, historical_frame))
             print(f"Adding historical training data: {path.name}")
-        train_df = prepare_frame(pl.concat(frames, how="vertical_relaxed"))
+        # Current-season rows also contain the new V3 feature columns. Older
+        # V2 parquets intentionally do not. A diagonal concat preserves V2's
+        # complete columns without requiring those files to impersonate V3.
+        train_df = combine_v2_training_frames(frames)
 
         print(f"Training {MODEL_VERSION} on {train_df.height} batter-games...")
         model = make_models()[MODEL_KIND]
