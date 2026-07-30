@@ -1,0 +1,391 @@
+{
+  "audit_version": "v3_feature_coverage_v1",
+  "code_commit": "66a501f4abb636265c2ab0cb55736e0fd0bd296a",
+  "datasets": {
+    "date_max": "2026-07-03",
+    "date_min": "2023-03-30",
+    "rows": 155160,
+    "seasons": {
+      "2023": {
+        "groups": {
+          "batter_contact": {
+            "all_fields_present_rate": 0.984469,
+            "columns": {
+              "last10_contact_rate": 0.984469,
+              "last20_contact_rate": 0.984469,
+              "last5_contact_rate": 0.984469,
+              "season_contact_rate": 0.984469
+            }
+          },
+          "bullpen_quality": {
+            "all_fields_present_rate": 0.993842,
+            "columns": {
+              "opp_bullpen_h_per_9": 0.993842,
+              "opp_bullpen_ip": 1.0,
+              "opp_bullpen_whip": 0.993842
+            }
+          },
+          "park": {
+            "all_fields_present_rate": 0.964696,
+            "columns": {
+              "park_hr_factor": 0.964696,
+              "park_runs_factor": 0.964696
+            }
+          },
+          "starter_workload_quality": {
+            "all_fields_present_rate": 1.0,
+            "columns": {
+              "p_last3_ip": 1.0,
+              "p_season_ip": 1.0,
+              "p_season_starts": 1.0
+            }
+          }
+        },
+        "rows": 43848
+      },
+      "2024": {
+        "groups": {
+          "batter_contact": {
+            "all_fields_present_rate": 0.98506,
+            "columns": {
+              "last10_contact_rate": 0.98506,
+              "last20_contact_rate": 0.98506,
+              "last5_contact_rate": 0.98506,
+              "season_contact_rate": 0.98506
+            }
+          },
+          "bullpen_quality": {
+            "all_fields_present_rate": 0.993832,
+            "columns": {
+              "opp_bullpen_h_per_9": 0.993832,
+              "opp_bullpen_ip": 1.0,
+              "opp_bullpen_whip": 0.993832
+            }
+          },
+          "park": {
+            "all_fields_present_rate": 0.963405,
+            "columns": {
+              "park_hr_factor": 0.963405,
+              "park_runs_factor": 0.963405
+            }
+          },
+          "starter_workload_quality": {
+            "all_fields_present_rate": 1.0,
+            "columns": {
+              "p_last3_ip": 1.0,
+              "p_season_ip": 1.0,
+              "p_season_starts": 1.0
+            }
+          }
+        },
+        "rows": 43776
+      },
+      "2025": {
+        "groups": {
+          "batter_contact": {
+            "all_fields_present_rate": 0.984525,
+            "columns": {
+              "last10_contact_rate": 0.984525,
+              "last20_contact_rate": 0.984525,
+              "last5_contact_rate": 0.984525,
+              "season_contact_rate": 0.984525
+            }
+          },
+          "bullpen_quality": {
+            "all_fields_present_rate": 0.993837,
+            "columns": {
+              "opp_bullpen_h_per_9": 0.993837,
+              "opp_bullpen_ip": 1.0,
+              "opp_bullpen_whip": 0.993837
+            }
+          },
+          "park": {
+            "all_fields_present_rate": 0.964667,
+            "columns": {
+              "park_hr_factor": 0.964667,
+              "park_runs_factor": 0.964667
+            }
+          },
+          "starter_workload_quality": {
+            "all_fields_present_rate": 1.0,
+            "columns": {
+              "p_last3_ip": 1.0,
+              "p_season_ip": 1.0,
+              "p_season_starts": 1.0
+            }
+          }
+        },
+        "rows": 43812
+      },
+      "2026": {
+        "groups": {
+          "batter_contact": {
+            "all_fields_present_rate": 0.976564,
+            "columns": {
+              "last10_contact_rate": 0.976564,
+              "last20_contact_rate": 0.976564,
+              "last5_contact_rate": 0.976564,
+              "season_contact_rate": 0.976564
+            }
+          },
+          "bullpen_quality": {
+            "all_fields_present_rate": 0.988619,
+            "columns": {
+              "opp_bullpen_h_per_9": 0.988619,
+              "opp_bullpen_ip": 1.0,
+              "opp_bullpen_whip": 0.988619
+            }
+          },
+          "park": {
+            "all_fields_present_rate": 0.962064,
+            "columns": {
+              "park_hr_factor": 0.962064,
+              "park_runs_factor": 0.962064
+            }
+          },
+          "starter_workload_quality": {
+            "all_fields_present_rate": 1.0,
+            "columns": {
+              "p_last3_ip": 1.0,
+              "p_season_ip": 1.0,
+              "p_season_starts": 1.0
+            }
+          }
+        },
+        "rows": 23724
+      }
+    }
+  },
+  "game_feeds": {
+    "scanned_game_files": 8916,
+    "seasons": {
+      "2023": {
+        "counts": {
+          "balls_in_play": 124246,
+          "contacts": 260459,
+          "exit_velocity": 123876,
+          "extension": 716643,
+          "games": 2430,
+          "launch_angle": 123965,
+          "movement": 717673,
+          "pitch_events": 717945,
+          "pitch_type": 717673,
+          "probable_pitcher_available": 4859,
+          "probable_pitcher_mismatch": 5,
+          "reliever_appearances": 15765,
+          "reliever_batters_faced": 15765,
+          "reliever_innings": 15765,
+          "reliever_pitches_thrown": 15765,
+          "spin_rate": 713632,
+          "starter_appearances": 4860,
+          "starter_batters_faced": 4860,
+          "starter_innings": 4860,
+          "starter_pitches_thrown": 4860,
+          "swings": 341264,
+          "team_sides": 4860,
+          "velocity": 717672
+        },
+        "coverage": {
+          "bat_speed": 0.0,
+          "bullpen_innings": 1.0,
+          "bullpen_pitches_thrown": 1.0,
+          "contact_outcome": 1.0,
+          "exit_velocity": 0.997022,
+          "extension": 0.998186,
+          "launch_angle": 0.997738,
+          "movement": 0.999621,
+          "pitch_type": 0.999621,
+          "probable_pitcher": 0.999794,
+          "probable_to_actual_mismatch": 0.001029,
+          "spin_rate": 0.993993,
+          "squared_up": 0.0,
+          "starter_innings": 1.0,
+          "starter_pitches_thrown": 1.0,
+          "velocity": 0.99962,
+          "xba": 0.0
+        }
+      },
+      "2024": {
+        "counts": {
+          "balls_in_play": 124207,
+          "contacts": 261515,
+          "exit_velocity": 123792,
+          "extension": 708413,
+          "games": 2429,
+          "launch_angle": 123855,
+          "movement": 709224,
+          "pitch_events": 709511,
+          "pitch_type": 709224,
+          "probable_pitcher_available": 4856,
+          "probable_pitcher_mismatch": 3,
+          "reliever_appearances": 15830,
+          "reliever_batters_faced": 15830,
+          "reliever_innings": 15830,
+          "reliever_pitches_thrown": 15830,
+          "spin_rate": 705842,
+          "starter_appearances": 4855,
+          "starter_batters_faced": 4855,
+          "starter_innings": 4855,
+          "starter_pitches_thrown": 4855,
+          "swings": 340421,
+          "team_sides": 4858,
+          "velocity": 709224
+        },
+        "coverage": {
+          "bat_speed": 0.0,
+          "bullpen_innings": 1.0,
+          "bullpen_pitches_thrown": 1.0,
+          "contact_outcome": 1.0,
+          "exit_velocity": 0.996659,
+          "extension": 0.998452,
+          "launch_angle": 0.997166,
+          "movement": 0.999595,
+          "pitch_type": 0.999595,
+          "probable_pitcher": 0.999588,
+          "probable_to_actual_mismatch": 0.000618,
+          "spin_rate": 0.994829,
+          "squared_up": 0.0,
+          "starter_innings": 1.0,
+          "starter_pitches_thrown": 1.0,
+          "velocity": 0.999595,
+          "xba": 0.0
+        }
+      },
+      "2025": {
+        "counts": {
+          "balls_in_play": 124899,
+          "contacts": 260853,
+          "exit_velocity": 124348,
+          "extension": 709288,
+          "games": 2430,
+          "launch_angle": 124428,
+          "movement": 709234,
+          "pitch_events": 710084,
+          "pitch_type": 709367,
+          "probable_pitcher_available": 4855,
+          "probable_pitcher_mismatch": 4,
+          "reliever_appearances": 15999,
+          "reliever_batters_faced": 15999,
+          "reliever_innings": 15999,
+          "reliever_pitches_thrown": 15999,
+          "spin_rate": 707608,
+          "starter_appearances": 4859,
+          "starter_batters_faced": 4859,
+          "starter_innings": 4859,
+          "starter_pitches_thrown": 4859,
+          "swings": 339177,
+          "team_sides": 4860,
+          "velocity": 709364
+        },
+        "coverage": {
+          "bat_speed": 0.0,
+          "bullpen_innings": 1.0,
+          "bullpen_pitches_thrown": 1.0,
+          "contact_outcome": 1.0,
+          "exit_velocity": 0.995588,
+          "extension": 0.998879,
+          "launch_angle": 0.996229,
+          "movement": 0.998803,
+          "pitch_type": 0.99899,
+          "probable_pitcher": 0.998971,
+          "probable_to_actual_mismatch": 0.000824,
+          "spin_rate": 0.996513,
+          "squared_up": 0.0,
+          "starter_innings": 1.0,
+          "starter_pitches_thrown": 1.0,
+          "velocity": 0.998986,
+          "xba": 0.0
+        }
+      },
+      "2026": {
+        "counts": {
+          "balls_in_play": 83465,
+          "contacts": 175536,
+          "exit_velocity": 82955,
+          "extension": 477531,
+          "games": 1627,
+          "launch_angle": 83002,
+          "movement": 477726,
+          "pitch_events": 478412,
+          "pitch_type": 477726,
+          "probable_pitcher_available": 3252,
+          "probable_pitcher_mismatch": 7,
+          "reliever_appearances": 10559,
+          "reliever_batters_faced": 10559,
+          "reliever_innings": 10559,
+          "reliever_pitches_thrown": 10559,
+          "spin_rate": 476652,
+          "starter_appearances": 3253,
+          "starter_batters_faced": 3253,
+          "starter_innings": 3253,
+          "starter_pitches_thrown": 3253,
+          "swings": 227832,
+          "team_sides": 3254,
+          "velocity": 477726
+        },
+        "coverage": {
+          "bat_speed": 0.0,
+          "bullpen_innings": 1.0,
+          "bullpen_pitches_thrown": 1.0,
+          "contact_outcome": 1.0,
+          "exit_velocity": 0.99389,
+          "extension": 0.998158,
+          "launch_angle": 0.994453,
+          "movement": 0.998566,
+          "pitch_type": 0.998566,
+          "probable_pitcher": 0.999385,
+          "probable_to_actual_mismatch": 0.002153,
+          "spin_rate": 0.996321,
+          "squared_up": 0.0,
+          "starter_innings": 1.0,
+          "starter_pitches_thrown": 1.0,
+          "velocity": 0.998566,
+          "xba": 0.0
+        }
+      }
+    },
+    "skipped_game_files": 0
+  },
+  "readiness": {
+    "bat_tracking": {
+      "earliest_expected_coverage": "2023 second half",
+      "minimum_bat_speed_coverage": 0.0,
+      "minimum_squared_up_coverage": 0.0,
+      "source": "Baseball Savant bat-tracking leaderboard/export",
+      "status": "new_source_required"
+    },
+    "bullpen_availability": {
+      "minimum_pitch_count_coverage": 1.0,
+      "source": "cached MLB StatsAPI boxscores",
+      "status": "ready"
+    },
+    "contact": {
+      "minimum_contact_outcome_coverage": 1.0,
+      "minimum_exit_velocity_coverage": 0.99389,
+      "source": "cached MLB StatsAPI pitch and batted-ball events",
+      "status": "ready"
+    },
+    "pitch_mix": {
+      "minimum_movement_coverage": 0.998566,
+      "minimum_pitch_type_coverage": 0.998566,
+      "minimum_velocity_coverage": 0.998566,
+      "source": "cached MLB StatsAPI pitch events",
+      "status": "ready"
+    },
+    "starter_workload": {
+      "minimum_pitch_count_coverage": 1.0,
+      "minimum_probable_pitcher_coverage": 0.998971,
+      "source": "cached MLB StatsAPI boxscores",
+      "status": "ready"
+    },
+    "xba": {
+      "minimum_cached_feed_coverage": 0.0,
+      "source": "Baseball Savant Statcast search export",
+      "status": "new_source_required"
+    }
+  },
+  "sources": {
+    "baseball_savant": "https://baseballsavant.mlb.com/",
+    "mlb_statsapi": "https://statsapi.mlb.com/"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "contract_version": "hit_model_v3_experiment_v1",
+  "status": "frozen_before_v3_results",
+  "locked": true,
+  "locked_at": "2026-07-30T12:50:00Z",
+  "objective": "Improve the probability that a pregame eligible hitter records at least one hit without materially degrading probability quality.",
+  "baseline": {
+    "experiment_id": "E1",
+    "model_version": "hit_gbm_v2_corrected_e1",
+    "estimator": "sklearn.ensemble.HistGradientBoostingClassifier",
+    "recipe_source": "train_hit_model.GBM_RECIPE",
+    "feature_source": "train_hit_model.FEATURES",
+    "prediction_modes": [
+      "official",
+      "projected"
+    ]
+  },
+  "evaluation": {
+    "development_folds": [
+      {
+        "name": "2024_early",
+        "test_start": "2024-03-20",
+        "test_end": "2024-06-30"
+      },
+      {
+        "name": "2024_late",
+        "test_start": "2024-07-01",
+        "test_end": "2024-09-30"
+      },
+      {
+        "name": "2025_early",
+        "test_start": "2025-03-18",
+        "test_end": "2025-06-30"
+      },
+      {
+        "name": "2025_late",
+        "test_start": "2025-07-01",
+        "test_end": "2025-09-28"
+      },
+      {
+        "name": "2026_early",
+        "test_start": "2026-03-25",
+        "test_end": "2026-05-31"
+      }
+    ],
+    "calibration_fit_oos_window": {
+      "start": "2025-07-01",
+      "end": "2026-05-31"
+    },
+    "locked_final_backtest": {
+      "name": "2026_locked_final",
+      "test_start": "2026-06-01",
+      "test_end": "2026-07-03",
+      "v3_results_must_remain_hidden_until_candidate_is_frozen": true
+    },
+    "live_shadow": {
+      "start": "2026-07-31",
+      "minimum_completed_game_dates": 30,
+      "minimum_top10_picks": 300
+    },
+    "bootstrap": {
+      "cluster": "game_date",
+      "confidence_level": 0.95,
+      "iterations": 10000,
+      "random_seed": 7302026
+    }
+  },
+  "metrics": {
+    "primary": "top10_hit_rate",
+    "secondary": [
+      "top5_hit_rate",
+      "top15_hit_rate",
+      "brier",
+      "log_loss",
+      "roc_auc"
+    ],
+    "required_slices": [
+      "fold",
+      "season",
+      "prediction_mode",
+      "lineup_source",
+      "batting_order",
+      "pitcher_hand",
+      "feature_coverage_tier"
+    ]
+  },
+  "promotion_gates": {
+    "shadow_entry": {
+      "minimum_pooled_top10_delta": 0.01,
+      "minimum_nonnegative_development_folds": 4,
+      "maximum_brier_increase": 0.002,
+      "maximum_log_loss_increase": 0.005,
+      "maximum_runtime_multiple": 1.5
+    },
+    "primary_promotion": {
+      "paired_top10_delta_ci_lower_bound_minimum": 0.0,
+      "maximum_brier_increase": 0.002,
+      "maximum_log_loss_increase": 0.005,
+      "requires_live_shadow_minimums": true,
+      "requires_no_unresolved_leakage_failures": true
+    }
+  },
+  "modeling": {
+    "random_seed": 7,
+    "candidate_population_must_match_baseline": true,
+    "missing_optional_features_must_use_explicit_fallbacks": true,
+    "feature_group_order": [
+      "point_in_time_corrections",
+      "opportunity",
+      "batter_contact_xba",
+      "pitch_arsenal_matchup",
+      "starter_workload_bullpen",
+      "weather",
+      "decomposed_per_pa"
+    ]
+  }
+}

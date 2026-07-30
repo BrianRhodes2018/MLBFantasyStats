@@ -1,6 +1,6 @@
 # Plan: Hit Picks V3 Matchup and Opportunity Model
 
-**Status:** Proposed
+**Status:** Ready for Phase 2 feature development (Phase 0 and E1 complete)
 **Created:** 2026-07-28
 **Depends on:** [PLAN_ML_ENGINEERING_REMEDIATION.md](PLAN_ML_ENGINEERING_REMEDIATION.md)
 
@@ -61,7 +61,10 @@ Recorded evaluation evidence to retain as the comparison baseline:
 - 67.5% top-10 hit rate for the naive season-rate benchmark in that holdout.
 - Live results must remain separate from backtest results and be reported with sample sizes.
 
-Before beginning V3 experiments, reproduce and save the V2 metrics in the clean environment established by the engineering-remediation plan.
+This reproduction is complete. The reviewable summary is
+`backend/reports/v3/v2_benchmark_summary.json`; its row-level predictions and
+daily top-N selections are retained locally with hashes recorded in that
+summary.
 
 ---
 
@@ -195,6 +198,20 @@ The final dates must be written into the experiment configuration before V3 resu
 - The fold definitions and untouched final test are committed.
 - The benchmark report includes predictions, metrics, confidence intervals, and provenance.
 
+**Completed 2026-07-30:**
+
+- [x] Frozen folds, the hidden V3 final block, metrics, bootstrap seed, and
+  promotion gates in
+  `backend/config/hit_model_v3_experiment.json` before any V3 result existed.
+- [x] Produced 106,867 out-of-sample V2 predictions over 470 game dates and
+  retained every daily top-5/10/15 selection.
+- [x] Repeated the full package twice with identical artifact hashes and
+  determinism key.
+- [x] Measured V2 top-10 at 71.62% (3,366/4,700), with a date-clustered 95%
+  interval of 70.26%-72.94%.
+- [x] Predeclared an approximate 1.92 percentage-point minimum detectable
+  top-10 improvement at 80% power for the current baseline sample.
+
 ---
 
 ## Phase 1 - Repair point-in-time and train/serve fidelity
@@ -264,11 +281,44 @@ Add tests proving:
 - V2-corrected is evaluated separately from the original V2.
 - Any change in reported V2 performance caused by more honest data timing is documented before V3 features are judged.
 
+**Completed E1 evidence, 2026-07-30:**
+
+- [x] Added separate historical `official` and `projected` builders. Projected
+  lineups use only the previous 14 days and the same production formula;
+  same-day final slots cannot enter the projection.
+- [x] Retained lineup source, projected starter probability/slot, final
+  starter/slot, probable-pitcher source, and zero-PA outcomes.
+- [x] Added prior-season Baseball Savant park snapshots with effective dates,
+  a neutral unavailable-venue fallback, and source metadata.
+- [x] Used the archived probable pitcher for E1 features, with an explicit
+  final-starter fallback.
+- [x] Evaluated point-in-time official E1 separately: top-10 71.02%
+  (95% CI 69.72%-72.32%).
+- [x] Evaluated point-in-time projected E1 separately: top-10 68.15%
+  (95% CI 66.71%-69.51%). Only 76.75% of projected candidates started and
+  15.83% received zero plate appearances.
+- [x] Documented hybrid evaluation as prospective-only: final game feeds do
+  not retain the historical timestamp when a lineup was posted. Immutable
+  live morning/afternoon snapshots will measure hybrid behavior honestly.
+
+The corrected projected E1, not the original final-lineup-conditioned V2
+number, is the baseline for morning V3 feature experiments.
+
 ---
 
 ## Phase 2 - Build new feature groups
 
 Each feature group must be independently switchable for ablation testing.
+
+Historical coverage was measured across 8,916 cached regular-season games in
+`backend/reports/v3/feature_coverage.md`:
+
+- Pitch type, velocity, movement, contact/batted-ball outcomes, starter
+  workload, and bullpen workload are available from the existing MLB StatsAPI
+  cache at approximately 99.4%-100% field coverage.
+- xBA and bat-tracking fields are not present in that cache. They require a
+  separately versioned Baseball Savant ingestion path and must retain missing
+  indicators, sample counts, and cohort-preserving fallbacks.
 
 ### 2.1 Opportunity and expected plate appearances
 
@@ -730,9 +780,9 @@ Large datasets, trained models, and prediction outputs remain outside Git. Small
 
 ### Rollout
 
-1. Complete the engineering-remediation plan.
-2. Freeze and reproduce V2.
-3. Correct point-in-time evaluation.
+1. [x] Complete the engineering-remediation plan.
+2. [x] Freeze and reproduce V2.
+3. [x] Correct point-in-time evaluation.
 4. Build feature groups.
 5. Run the experiment ladder.
 6. Fit and test candidate-specific calibration.
@@ -752,7 +802,9 @@ Large datasets, trained models, and prediction outputs remain outside Git. Small
 
 ## Open decisions to resolve before implementation
 
-- Historical Statcast acquisition method and caching policy.
+- Historical xBA and bat-tracking acquisition/caching policy. Existing cached
+  MLB pitch events are sufficient for the initial pitch-mix, contact, starter,
+  and bullpen experiments.
 - Weather provider and historical coverage.
 - Whether market-implied team totals are allowed as features or reserved for later betting-edge analysis.
 - Definition of a likely available reliever.

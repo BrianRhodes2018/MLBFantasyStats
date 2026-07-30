@@ -53,6 +53,10 @@ from databases import Database
 from dotenv import load_dotenv
 
 from database import normalize_database_url
+from hit_model.point_in_time import (
+    PointInTimeParkFactors,
+    project_lineup_point_in_time,
+)
 from park_factors import get_park_factor
 
 
@@ -400,9 +404,20 @@ class BoxscoreSource:
 # ---------------------------------------------------------------------------
 
 class HitDatasetBuilder:
-    def __init__(self, *, db: Database, source: BoxscoreSource) -> None:
+    def __init__(
+        self,
+        *,
+        db: Database,
+        source: BoxscoreSource,
+        prediction_mode: str = "official",
+        point_in_time_park_factors: Optional[PointInTimeParkFactors] = None,
+    ) -> None:
+        if prediction_mode not in {"official", "projected"}:
+            raise ValueError("prediction_mode must be official or projected.")
         self.db = db
         self.source = source
+        self.prediction_mode = prediction_mode
+        self.point_in_time_park_factors = point_in_time_park_factors
         # Per-player game lines accumulated from boxscores as days are
         # processed in order. Only PRIOR days' lines are ever present when
         # a day's features are computed (updated at the end of each day).
@@ -415,6 +430,26 @@ class HitDatasetBuilder:
         self.throws_by_pitcher: dict[int, Optional[str]] = {}
         self.vs_hand = RateHistory()
         self.vs_pitcher = RateHistory()
+        # Final starting lineups are added only after the whole date has been
+        # featurized. Projected-mode rows can therefore use only prior dates.
+        self.lineup_history: dict[str, list[dict[str, Any]]] = {}
+
+    def park_factor(
+        self,
+        venue: Optional[str],
+        target: date,
+    ) -> Optional[dict[str, Any]]:
+        if self.point_in_time_park_factors is not None:
+            return self.point_in_time_park_factors.lookup(venue, target)
+        factor = get_park_factor(venue)
+        if factor is None:
+            return None
+        return {
+            **factor,
+            "source": "current_runtime_cache",
+            "effective_date": None,
+            "source_season": None,
+        }
 
     async def load_db_context(self) -> dict[str, Any]:
         player_rows = await self.db.fetch_all(
@@ -526,6 +561,7 @@ class HitDatasetBuilder:
         day_batter_lines: list[tuple[int, dict[str, Any]]] = []
         day_pitcher_lines: list[tuple[int, dict[str, Any]]] = []
         day_bullpen_lines: list[tuple[str, dict[str, Any]]] = []
+        day_lineup_entries: list[tuple[str, dict[str, Any]]] = []
 
         for slate_game in self.source.final_games(target):
             schedule = slate_game["schedule"]
@@ -534,7 +570,7 @@ class HitDatasetBuilder:
             game_players = game_data.get("players", {})
             box_teams = game.get("liveData", {}).get("boxscore", {}).get("teams", {})
             venue = schedule.get("venue_name") or game_data.get("venue", {}).get("name")
-            park = get_park_factor(venue)
+            park = self.park_factor(venue, target)
 
             # Collect every batting and pitching line in the game (both
             # teams, starters AND subs/relievers) for the form histories.
@@ -562,15 +598,35 @@ class HitDatasetBuilder:
                 defense_side = "home" if offense_side == "away" else "away"
                 offense = box_teams.get(offense_side, {})
                 defense = box_teams.get(defense_side, {})
-                batting_order = (offense.get("battingOrder") or [])[:9]
-                if not batting_order:
+                final_batting_order = [
+                    safe_int(player_id)
+                    for player_id in (offense.get("battingOrder") or [])[:9]
+                    if safe_int(player_id)
+                ]
+                if not final_batting_order:
                     continue
 
                 pitcher_ids = defense.get("pitchers") or []
-                starter_id = safe_int(pitcher_ids[0]) if pitcher_ids else 0
-                if not starter_id:
-                    probable = game_data.get("probablePitchers", {}).get(defense_side, {})
-                    starter_id = safe_int(probable.get("id"))
+                actual_starter_id = safe_int(pitcher_ids[0]) if pitcher_ids else 0
+                probable = game_data.get("probablePitchers", {}).get(defense_side, {})
+                probable_starter_id = safe_int(probable.get("id"))
+                # The corrected point-in-time build uses the pitcher named in
+                # the pregame probable-pitcher field. Default V2 behavior stays
+                # unchanged for backward reproducibility.
+                if self.point_in_time_park_factors is not None:
+                    starter_id = probable_starter_id or actual_starter_id
+                    pitcher_source = (
+                        "historical_probable_pitcher"
+                        if probable_starter_id
+                        else "final_starter_fallback"
+                    )
+                else:
+                    starter_id = actual_starter_id or probable_starter_id
+                    pitcher_source = (
+                        "final_starter"
+                        if actual_starter_id
+                        else "probable_pitcher_fallback"
+                    )
                 if not starter_id:
                     continue
 
@@ -580,27 +636,84 @@ class HitDatasetBuilder:
                     or (pitcher_person.get("pitchHand") or {}).get("code")
                 )
                 pitcher_feats = self.pitcher_features(starter_id)
+                actual_pitcher_person = game_players.get(
+                    f"ID{actual_starter_id}",
+                    {},
+                )
+                actual_throws = (
+                    self.throws_by_pitcher.get(actual_starter_id)
+                    or (actual_pitcher_person.get("pitchHand") or {}).get("code")
+                    or throws
+                )
 
                 team_name = offense.get("team", {}).get("name") or schedule.get(f"{offense_side}_name")
                 opponent_name = defense.get("team", {}).get("name") or schedule.get(f"{defense_side}_name")
+                day_lineup_entries.append((
+                    team_name,
+                    {
+                        "date": target_iso,
+                        "opp_hand": (
+                            actual_throws.upper() if actual_throws else None
+                        ),
+                        "order": final_batting_order,
+                    },
+                ))
+
+                projection = project_lineup_point_in_time(
+                    self.lineup_history.get(team_name, []),
+                    throws,
+                    target,
+                )
+                if self.prediction_mode == "official":
+                    candidate_order = final_batting_order
+                    lineup_source = "official"
+                else:
+                    candidate_order = list((projection or {}).get("order") or [])
+                    lineup_source = "projected"
+                    if not candidate_order:
+                        continue
+                final_slot_by_player = {
+                    player_id: slot
+                    for slot, player_id in enumerate(final_batting_order, start=1)
+                }
 
                 # Opposing bullpen quality: ~40% of a batter's PAs come
                 # against relievers, who are absent from starter metrics.
                 bullpen = pitcher_agg(self.bullpen_history.get(opponent_name, []))
 
-                for slot, raw_player_id in enumerate(batting_order, start=1):
-                    player_id = safe_int(raw_player_id)
+                # Outcomes update batter/pitcher matchup histories from the
+                # actual starting lineup, never from the projected cohort.
+                for player_id in final_batting_order:
+                    box_player = offense.get("players", {}).get(f"ID{player_id}", {})
+                    batting = box_player.get("stats", {}).get("batting", {})
+                    hits_game = safe_int(batting.get("hits"))
+                    pa_game = safe_int(batting.get("plateAppearances"))
+                    day_outcomes.append(
+                        (
+                            player_id,
+                            actual_starter_id or starter_id,
+                            actual_throws,
+                            hits_game,
+                            pa_game,
+                        )
+                    )
+
+                for slot, player_id in enumerate(candidate_order, start=1):
                     box_player = offense.get("players", {}).get(f"ID{player_id}", {})
                     game_player = game_players.get(f"ID{player_id}", {})
                     batting = box_player.get("stats", {}).get("batting", {})
-
                     hits_game = safe_int(batting.get("hits"))
                     pa_game = safe_int(batting.get("plateAppearances"))
                     bats = (
                         self.bats_by_player.get(player_id)
                         or (game_player.get("batSide") or {}).get("code")
                     )
-                    day_outcomes.append((player_id, starter_id, throws, hits_game, pa_game))
+                    final_slot = final_slot_by_player.get(player_id)
+                    projected_confidence = (
+                        (projection or {}).get("share", {}).get(player_id)
+                        if self.prediction_mode == "projected"
+                        else 1.0
+                    )
 
                     day_rows.append({
                         # -- identifiers / context
@@ -619,6 +732,19 @@ class HitDatasetBuilder:
                         "pitcher_id": starter_id,
                         "pitcher_name": pitcher_person.get("fullName") or str(starter_id),
                         "pitcher_throws": throws,
+                        "pitcher_source": pitcher_source,
+                        "actual_starter_id": actual_starter_id or None,
+                        "prediction_mode": self.prediction_mode,
+                        "lineup_source": lineup_source,
+                        "projected_starter_probability": projected_confidence,
+                        "projected_batting_order": (
+                            slot if self.prediction_mode == "projected" else None
+                        ),
+                        "final_starter": final_slot is not None,
+                        "final_batting_order": final_slot,
+                        "park_factor_source": (park or {}).get("source"),
+                        "park_factor_effective_date": (park or {}).get("effective_date"),
+                        "park_factor_source_season": (park or {}).get("source_season"),
                         # -- label + same-game outcome detail
                         "got_hit": hits_game >= 1,
                         "hits_game": hits_game,
@@ -650,6 +776,8 @@ class HitDatasetBuilder:
             self.pitcher_history.setdefault(pitcher_id, []).append(line)
         for team, line in day_bullpen_lines:
             self.bullpen_history.setdefault(team, []).append(line)
+        for team, entry in day_lineup_entries:
+            self.lineup_history.setdefault(team, []).append(entry)
         return day_rows
 
     def build(self, start: date, end: date, *, verbose: bool = True) -> list[dict[str, Any]]:
@@ -718,16 +846,31 @@ async def run(args: argparse.Namespace) -> int:
             Path(args.cache_dir),
             request_delay_seconds=args.request_delay_seconds,
         )
-        builder = HitDatasetBuilder(db=db, source=source)
+        park_snapshots = (
+            PointInTimeParkFactors.from_path(args.park_snapshots)
+            if args.park_snapshots
+            else None
+        )
+        builder = HitDatasetBuilder(
+            db=db,
+            source=source,
+            prediction_mode=args.prediction_mode,
+            point_in_time_park_factors=park_snapshots,
+        )
         db_meta = await builder.load_db_context()
 
         print("HIT DATASET BUILD")
         print(f"Dates: {start.isoformat()} through {end.isoformat()}")
         print(f"DB context: {db_meta}")
         print(f"Cache dir: {args.cache_dir}")
+        print(f"Prediction mode: {args.prediction_mode}")
+        print(
+            "Park factors: "
+            + ("point-in-time prior-season snapshots" if park_snapshots else "runtime cache")
+        )
         print()
 
-        rows = builder.build(start, end)
+        rows = builder.build(start, end, verbose=not args.quiet)
         if not rows:
             raise RuntimeError("No rows produced — check date range and cache/API access.")
 
@@ -751,6 +894,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR), help="Shared MLB StatsAPI JSON cache directory.")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Output Parquet path.")
     parser.add_argument("--request-delay-seconds", type=float, default=0.08, help="Delay between uncached StatsAPI calls.")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress per-date progress output.",
+    )
+    parser.add_argument(
+        "--prediction-mode",
+        choices=("official", "projected"),
+        default="official",
+        help="Official lineup rows or point-in-time projected lineup rows.",
+    )
+    parser.add_argument(
+        "--park-snapshots",
+        help="Optional point-in-time park-factor snapshot JSON.",
+    )
     return parser
 
 

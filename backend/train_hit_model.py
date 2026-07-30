@@ -187,16 +187,23 @@ def prepare_frame(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(exprs)
 
 
-def load_dataset(paths: list[Path]) -> pl.DataFrame:
+def load_dataset(
+    paths: list[Path],
+    *,
+    include_zero_pa: bool = False,
+) -> pl.DataFrame:
     """Load one or more season parquets (they share a schema) into a single
     date-sorted frame. Multiple seasons concatenate cleanly because the
     walk-forward splits on game_date strings and every historical date
     sorts before every 2026 date."""
     frames = [pl.read_parquet(path) for path in paths]
     df = pl.concat(frames, how="vertical_relaxed")
-    # Rows where the batter never actually batted (announced but replaced,
-    # rain shortening, etc.) carry no usable label.
-    df = df.filter(pl.col("pa_game") > 0).sort("game_date")
+    # Original V2 is conditioned on receiving a plate appearance. The
+    # projected-lineup E1 baseline keeps PA=0 rows because lineup misses and
+    # scratches are real product outcomes that must reduce the game hit rate.
+    if not include_zero_pa:
+        df = df.filter(pl.col("pa_game") > 0)
+    df = df.sort("game_date")
     return prepare_frame(df)
 
 
@@ -291,6 +298,7 @@ def run_walk_forward(
     pooled_probs: dict[str, list[np.ndarray]] = {}
     pooled_truth: list[np.ndarray] = []
     pooled_dates: list[np.ndarray] = []
+    pooled_rows: list[pl.DataFrame] = []
 
     for test_start, test_end in folds:
         train_df = df.filter(pl.col("game_date") < test_start)
@@ -305,6 +313,31 @@ def run_walk_forward(
         if collect_probs:
             pooled_truth.append(y_test)
             pooled_dates.append(test_df["game_date"].to_numpy())
+            identity_columns = [
+                column
+                for column in (
+                    "game_date",
+                    "game_id",
+                    "player_id",
+                    "player_name",
+                    "team",
+                    "opponent",
+                    "batting_order",
+                    "lineup_source",
+                    "prediction_mode",
+                    "final_starter",
+                    "final_batting_order",
+                    "pa_game",
+                    "got_hit",
+                )
+                if column in test_df.columns
+            ]
+            pooled_rows.append(
+                test_df.select(identity_columns).with_columns(
+                    pl.lit(test_start).alias("fold_test_start"),
+                    pl.lit(test_end).alias("fold_test_end"),
+                )
+            )
 
         if include_naive:
             # Naive benchmark needs no training.
@@ -332,6 +365,7 @@ def run_walk_forward(
         pooled["probs"] = {
             name: np.concatenate(chunks) for name, chunks in pooled_probs.items()
         }
+        pooled["rows"] = pl.concat(pooled_rows, how="vertical_relaxed")
     return results, pooled
 
 
