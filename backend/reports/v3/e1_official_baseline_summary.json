@@ -1,0 +1,223 @@
+{
+  "artifacts": {
+    "daily_topn": {
+      "filename": "e1_official_daily_topn.parquet",
+      "rows": 14100,
+      "sha256": "d2e822ede0484f64562e6b4cf69b47d3072c4610a4efbcd9ebd96a8695d50d8a"
+    },
+    "predictions": {
+      "filename": "e1_official_oos_predictions.parquet",
+      "rows": 111312,
+      "sha256": "ad7d9989816a8b86f6550df65cecf8433a7398d540bd233e143ce212e278e82d"
+    }
+  },
+  "base_model_recipe_sha256": "62085cbb712d030aad828ad1f1a337fccce9997155539ae2931dea70fd8be490",
+  "benchmark_version": "v2_corrected_e1_v1",
+  "code_commit": "66a501f4abb636265c2ab0cb55736e0fd0bd296a",
+  "contract_sha256": "d85af642692fbaaa11fef3dc8aeec3d73d9e2590217749518677bceaae0cdfe8",
+  "dataset": {
+    "bytes": 10287579,
+    "frame_sha256": "d3e9d1f6e476b4816538487e42d5528fbcd2338094cb0c283c9016be5e7243e1",
+    "name": "e1_official.parquet",
+    "rows": 155160,
+    "sha256": "42bf792431137383092b4be1f74a372546666c4715dd1aa906457b02385c37c3"
+  },
+  "dependency_fingerprint": "567665c6a0b0c388958243f93da535119b69c3a580b2a4b25ef517a9b5e44425",
+  "dependency_lock_sha256": "2d94fa612d134ead986ebce427cc5eadf77003e42358d201a64941092ef898f2",
+  "feature_schema_sha256": "0c6c415c261bdc31ee36437a046b3f916d1603461d6162c3bdf8ec36fe1b6236",
+  "fold_metrics": [
+    {
+      "auc": 0.6077,
+      "brier": 0.2359,
+      "log_loss": 0.6644,
+      "n_test": 22734,
+      "n_train": 43848,
+      "test_end": "2024-06-30",
+      "test_start": "2024-03-20",
+      "top10_hit_rate": 0.7103,
+      "top10_picks": 970,
+      "top15_hit_rate": 0.6976,
+      "top15_picks": 1455,
+      "top5_hit_rate": 0.7505,
+      "top5_picks": 485
+    },
+    {
+      "auc": 0.6165,
+      "brier": 0.2344,
+      "log_loss": 0.6614,
+      "n_test": 21042,
+      "n_train": 66582,
+      "test_end": "2024-09-30",
+      "test_start": "2024-07-01",
+      "top10_hit_rate": 0.7034,
+      "top10_picks": 880,
+      "top15_hit_rate": 0.7,
+      "top15_picks": 1320,
+      "top5_hit_rate": 0.7,
+      "top5_picks": 440
+    },
+    {
+      "auc": 0.6134,
+      "brier": 0.2344,
+      "log_loss": 0.6613,
+      "n_test": 22824,
+      "n_train": 87624,
+      "test_end": "2025-06-30",
+      "test_start": "2025-03-18",
+      "top10_hit_rate": 0.7224,
+      "top10_picks": 980,
+      "top15_hit_rate": 0.7109,
+      "top15_picks": 1470,
+      "top5_hit_rate": 0.7408,
+      "top5_picks": 490
+    },
+    {
+      "auc": 0.6264,
+      "brier": 0.2326,
+      "log_loss": 0.6576,
+      "n_test": 20988,
+      "n_train": 110448,
+      "test_end": "2025-09-28",
+      "test_start": "2025-07-01",
+      "top10_hit_rate": 0.7151,
+      "top10_picks": 860,
+      "top15_hit_rate": 0.7078,
+      "top15_picks": 1290,
+      "top5_hit_rate": 0.7186,
+      "top5_picks": 430
+    },
+    {
+      "auc": 0.6055,
+      "brier": 0.237,
+      "log_loss": 0.6668,
+      "n_test": 15966,
+      "n_train": 131436,
+      "test_end": "2026-05-31",
+      "test_start": "2026-03-25",
+      "top10_hit_rate": 0.6853,
+      "top10_picks": 680,
+      "top15_hit_rate": 0.6804,
+      "top15_picks": 1020,
+      "top5_hit_rate": 0.7147,
+      "top5_picks": 340
+    },
+    {
+      "auc": 0.6332,
+      "brier": 0.2302,
+      "log_loss": 0.6525,
+      "n_test": 7758,
+      "n_train": 147402,
+      "test_end": "2026-07-03",
+      "test_start": "2026-06-01",
+      "top10_hit_rate": 0.7303,
+      "top10_picks": 330,
+      "top15_hit_rate": 0.7111,
+      "top15_picks": 495,
+      "top5_hit_rate": 0.7515,
+      "top5_picks": 165
+    }
+  ],
+  "folds": [
+    {
+      "test_end": "2024-06-30",
+      "test_start": "2024-03-20"
+    },
+    {
+      "test_end": "2024-09-30",
+      "test_start": "2024-07-01"
+    },
+    {
+      "test_end": "2025-06-30",
+      "test_start": "2025-03-18"
+    },
+    {
+      "test_end": "2025-09-28",
+      "test_start": "2025-07-01"
+    },
+    {
+      "test_end": "2026-05-31",
+      "test_start": "2026-03-25"
+    },
+    {
+      "test_end": "2026-07-03",
+      "test_start": "2026-06-01"
+    }
+  ],
+  "hybrid_reconstruction": {
+    "reason": "Final MLB game feeds do not retain the timestamp when each official lineup became available. Live immutable morning and afternoon snapshots will provide honest hybrid evaluation.",
+    "status": "prospective_only"
+  },
+  "lineup_accuracy": {},
+  "locked_final_baseline": {
+    "game_dates": 33,
+    "rows": 7758,
+    "window": {
+      "name": "2026_locked_final",
+      "test_end": "2026-07-03",
+      "test_start": "2026-06-01",
+      "v3_results_must_remain_hidden_until_candidate_is_frozen": true
+    }
+  },
+  "metrics": {
+    "raw": {
+      "brier": 0.234476,
+      "log_loss": 0.661439,
+      "roc_auc": 0.615699
+    },
+    "top_n": {
+      "top10": {
+        "ci_high": 0.723191,
+        "ci_low": 0.697234,
+        "clustered_standard_error": 0.006659,
+        "confidence_level": 0.95,
+        "game_dates": 470,
+        "hits": 3338,
+        "iterations": 10000,
+        "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+        "minimum_detectable_improvement_80pct_power": 0.018655,
+        "picks": 4700,
+        "rate": 0.710213,
+        "seed": 7302027
+      },
+      "top15": {
+        "ci_high": 0.712199,
+        "ci_low": 0.690209,
+        "clustered_standard_error": 0.005608,
+        "confidence_level": 0.95,
+        "game_dates": 470,
+        "hits": 4944,
+        "iterations": 10000,
+        "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+        "minimum_detectable_improvement_80pct_power": 0.015711,
+        "picks": 7050,
+        "rate": 0.701277,
+        "seed": 7302028
+      },
+      "top5": {
+        "ci_high": 0.746383,
+        "ci_low": 0.709362,
+        "clustered_standard_error": 0.009288,
+        "confidence_level": 0.95,
+        "game_dates": 470,
+        "hits": 1711,
+        "iterations": 10000,
+        "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+        "minimum_detectable_improvement_80pct_power": 0.026022,
+        "picks": 2350,
+        "rate": 0.728085,
+        "seed": 7302026
+      }
+    }
+  },
+  "model_version": "hit_gbm_v2_corrected_e1",
+  "notes": [
+    "Projected lineups use only prior dates in the production 14-day formula.",
+    "Park factors use the completed prior-season Savant snapshot.",
+    "PA=0 projected players remain negative product outcomes.",
+    "Probabilities are intentionally uncalibrated until an E1-specific calibrator is fit."
+  ],
+  "oos_game_dates": 470,
+  "oos_rows": 111312,
+  "prediction_mode": "official",
+  "probability_status": "uncalibrated_experimental"
+}

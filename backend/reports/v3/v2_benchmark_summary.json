@@ -1,0 +1,410 @@
+{
+  "artifacts": {
+    "daily_topn": {
+      "bytes": 174728,
+      "filename": "v2_daily_topn.parquet",
+      "rows": 14100,
+      "sha256": "6d441709ae1d620b36411cff0b861cd0edaccc7bec706156053ceae06038493b"
+    },
+    "predictions": {
+      "bytes": 1560216,
+      "filename": "v2_oos_predictions.parquet",
+      "rows": 106867,
+      "sha256": "c922436ecdecba187fb98798acf1debbb691e5aeda8b02b92929d1216eb0919c"
+    }
+  },
+  "base_model_recipe_sha256": "62085cbb712d030aad828ad1f1a337fccce9997155539ae2931dea70fd8be490",
+  "benchmark_version": "v2_oos_package_v1",
+  "code_commit": "66a501f4abb636265c2ab0cb55736e0fd0bd296a",
+  "contract_sha256": "d85af642692fbaaa11fef3dc8aeec3d73d9e2590217749518677bceaae0cdfe8",
+  "dataset_frame_sha256": "156b1e73103edc456f96db848665eb359f3e77dbedae6b32260866a49732aa04",
+  "datasets": [
+    {
+      "bytes": 3025385,
+      "name": "hit_dataset_2023.parquet",
+      "sha256": "22f1b82eb97cd6113f629c56d1185babe52f392454dd99209d7045b8d9eb0085"
+    },
+    {
+      "bytes": 3018570,
+      "name": "hit_dataset_2024.parquet",
+      "sha256": "820f5af156ad8c16c0ac548e3deca064f7c0301bc158d237943e2cd1c21cd0a0"
+    },
+    {
+      "bytes": 3027809,
+      "name": "hit_dataset_2025.parquet",
+      "sha256": "13634ecdff1cef7f41bc003304f52f0312546db99216100390ff1e7ce30c57b4"
+    },
+    {
+      "bytes": 1629094,
+      "name": "hit_dataset.parquet",
+      "sha256": "82c9eafbcb8250bd15c3bc48ace7579c2df8896e13e6311168973db1f877f830"
+    }
+  ],
+  "dependency_fingerprint": "567665c6a0b0c388958243f93da535119b69c3a580b2a4b25ef517a9b5e44425",
+  "dependency_lock_sha256": "2d94fa612d134ead986ebce427cc5eadf77003e42358d201a64941092ef898f2",
+  "determinism_key": "752c9b5e98529e92d5bd6a19d940e65376bd4797ec1ba096093f0173ad8ddf32",
+  "feature_schema_sha256": "0c6c415c261bdc31ee36437a046b3f916d1603461d6162c3bdf8ec36fe1b6236",
+  "fold_metrics": {
+    "gbm": [
+      {
+        "auc": 0.5835,
+        "brier": 0.2369,
+        "log_loss": 0.6665,
+        "n_test": 21842,
+        "n_train": 42110,
+        "test_end": "2024-06-30",
+        "test_start": "2024-03-20",
+        "top10_hit_rate": 0.7041,
+        "top10_picks": 970,
+        "top15_hit_rate": 0.7024,
+        "top15_picks": 1455,
+        "top5_hit_rate": 0.7258,
+        "top5_picks": 485
+      },
+      {
+        "auc": 0.5914,
+        "brier": 0.2355,
+        "log_loss": 0.6636,
+        "n_test": 20202,
+        "n_train": 63952,
+        "test_end": "2024-09-30",
+        "test_start": "2024-07-01",
+        "top10_hit_rate": 0.7182,
+        "top10_picks": 880,
+        "top15_hit_rate": 0.7152,
+        "top15_picks": 1320,
+        "top5_hit_rate": 0.7364,
+        "top5_picks": 440
+      },
+      {
+        "auc": 0.5897,
+        "brier": 0.2353,
+        "log_loss": 0.6632,
+        "n_test": 21947,
+        "n_train": 84154,
+        "test_end": "2025-06-30",
+        "test_start": "2025-03-18",
+        "top10_hit_rate": 0.7163,
+        "top10_picks": 980,
+        "top15_hit_rate": 0.7102,
+        "top15_picks": 1470,
+        "top5_hit_rate": 0.7061,
+        "top5_picks": 490
+      },
+      {
+        "auc": 0.5963,
+        "brier": 0.2347,
+        "log_loss": 0.6619,
+        "n_test": 20079,
+        "n_train": 106101,
+        "test_end": "2025-09-28",
+        "test_start": "2025-07-01",
+        "top10_hit_rate": 0.7267,
+        "top10_picks": 860,
+        "top15_hit_rate": 0.7116,
+        "top15_picks": 1290,
+        "top5_hit_rate": 0.7233,
+        "top5_picks": 430
+      },
+      {
+        "auc": 0.5816,
+        "brier": 0.2383,
+        "log_loss": 0.6694,
+        "n_test": 15380,
+        "n_train": 126180,
+        "test_end": "2026-05-31",
+        "test_start": "2026-03-25",
+        "top10_hit_rate": 0.7029,
+        "top10_picks": 680,
+        "top15_hit_rate": 0.7029,
+        "top15_picks": 1020,
+        "top5_hit_rate": 0.7206,
+        "top5_picks": 340
+      },
+      {
+        "auc": 0.6054,
+        "brier": 0.232,
+        "log_loss": 0.6565,
+        "n_test": 7417,
+        "n_train": 141560,
+        "test_end": "2026-07-03",
+        "test_start": "2026-06-01",
+        "top10_hit_rate": 0.7424,
+        "top10_picks": 330,
+        "top15_hit_rate": 0.7152,
+        "top15_picks": 495,
+        "top5_hit_rate": 0.7697,
+        "top5_picks": 165
+      }
+    ],
+    "logistic": [
+      {
+        "auc": 0.5816,
+        "brier": 0.2373,
+        "log_loss": 0.6674,
+        "n_test": 21842,
+        "n_train": 42110,
+        "test_end": "2024-06-30",
+        "test_start": "2024-03-20",
+        "top10_hit_rate": 0.7113,
+        "top10_picks": 970,
+        "top15_hit_rate": 0.7093,
+        "top15_picks": 1455,
+        "top5_hit_rate": 0.7237,
+        "top5_picks": 485
+      },
+      {
+        "auc": 0.5875,
+        "brier": 0.2363,
+        "log_loss": 0.6652,
+        "n_test": 20202,
+        "n_train": 63952,
+        "test_end": "2024-09-30",
+        "test_start": "2024-07-01",
+        "top10_hit_rate": 0.7227,
+        "top10_picks": 880,
+        "top15_hit_rate": 0.7121,
+        "top15_picks": 1320,
+        "top5_hit_rate": 0.7705,
+        "top5_picks": 440
+      },
+      {
+        "auc": 0.5855,
+        "brier": 0.2364,
+        "log_loss": 0.6655,
+        "n_test": 21947,
+        "n_train": 84154,
+        "test_end": "2025-06-30",
+        "test_start": "2025-03-18",
+        "top10_hit_rate": 0.7153,
+        "top10_picks": 980,
+        "top15_hit_rate": 0.717,
+        "top15_picks": 1470,
+        "top5_hit_rate": 0.7122,
+        "top5_picks": 490
+      },
+      {
+        "auc": 0.5901,
+        "brier": 0.2359,
+        "log_loss": 0.6645,
+        "n_test": 20079,
+        "n_train": 106101,
+        "test_end": "2025-09-28",
+        "test_start": "2025-07-01",
+        "top10_hit_rate": 0.7081,
+        "top10_picks": 860,
+        "top15_hit_rate": 0.7031,
+        "top15_picks": 1290,
+        "top5_hit_rate": 0.7209,
+        "top5_picks": 430
+      },
+      {
+        "auc": 0.5722,
+        "brier": 0.24,
+        "log_loss": 0.673,
+        "n_test": 15380,
+        "n_train": 126180,
+        "test_end": "2026-05-31",
+        "test_start": "2026-03-25",
+        "top10_hit_rate": 0.6691,
+        "top10_picks": 680,
+        "top15_hit_rate": 0.6657,
+        "top15_picks": 1020,
+        "top5_hit_rate": 0.6647,
+        "top5_picks": 340
+      },
+      {
+        "auc": 0.5989,
+        "brier": 0.2338,
+        "log_loss": 0.6601,
+        "n_test": 7417,
+        "n_train": 141560,
+        "test_end": "2026-07-03",
+        "test_start": "2026-06-01",
+        "top10_hit_rate": 0.7303,
+        "top10_picks": 330,
+        "top15_hit_rate": 0.7192,
+        "top15_picks": 495,
+        "top5_hit_rate": 0.7636,
+        "top5_picks": 165
+      }
+    ],
+    "naive": [
+      {
+        "n_test": 21842,
+        "n_train": 42110,
+        "test_end": "2024-06-30",
+        "test_start": "2024-03-20",
+        "top10_hit_rate": 0.6915,
+        "top10_picks": 710,
+        "top15_hit_rate": 0.6894,
+        "top15_picks": 1056,
+        "top5_hit_rate": 0.7039,
+        "top5_picks": 358
+      },
+      {
+        "n_test": 20202,
+        "n_train": 63952,
+        "test_end": "2024-09-30",
+        "test_start": "2024-07-01",
+        "top10_hit_rate": 0.7091,
+        "top10_picks": 880,
+        "top15_hit_rate": 0.7,
+        "top15_picks": 1320,
+        "top5_hit_rate": 0.7091,
+        "top5_picks": 440
+      },
+      {
+        "n_test": 21947,
+        "n_train": 84154,
+        "test_end": "2025-06-30",
+        "test_start": "2025-03-18",
+        "top10_hit_rate": 0.6756,
+        "top10_picks": 712,
+        "top15_hit_rate": 0.6789,
+        "top15_picks": 1062,
+        "top5_hit_rate": 0.6851,
+        "top5_picks": 362
+      },
+      {
+        "n_test": 20079,
+        "n_train": 106101,
+        "test_end": "2025-09-28",
+        "test_start": "2025-07-01",
+        "top10_hit_rate": 0.6698,
+        "top10_picks": 860,
+        "top15_hit_rate": 0.6721,
+        "top15_picks": 1290,
+        "top5_hit_rate": 0.6698,
+        "top5_picks": 430
+      },
+      {
+        "n_test": 15380,
+        "n_train": 126180,
+        "test_end": "2026-05-31",
+        "test_start": "2026-03-25",
+        "top10_hit_rate": 0.6777,
+        "top10_picks": 422,
+        "top15_hit_rate": 0.6651,
+        "top15_picks": 627,
+        "top5_hit_rate": 0.662,
+        "top5_picks": 213
+      },
+      {
+        "n_test": 7417,
+        "n_train": 141560,
+        "test_end": "2026-07-03",
+        "test_start": "2026-06-01",
+        "top10_hit_rate": 0.6727,
+        "top10_picks": 330,
+        "top15_hit_rate": 0.6707,
+        "top15_picks": 495,
+        "top5_hit_rate": 0.6848,
+        "top5_picks": 165
+      }
+    ]
+  },
+  "folds": [
+    {
+      "test_end": "2024-06-30",
+      "test_start": "2024-03-20"
+    },
+    {
+      "test_end": "2024-09-30",
+      "test_start": "2024-07-01"
+    },
+    {
+      "test_end": "2025-06-30",
+      "test_start": "2025-03-18"
+    },
+    {
+      "test_end": "2025-09-28",
+      "test_start": "2025-07-01"
+    },
+    {
+      "test_end": "2026-05-31",
+      "test_start": "2026-03-25"
+    },
+    {
+      "test_end": "2026-07-03",
+      "test_start": "2026-06-01"
+    }
+  ],
+  "game_dates": 470,
+  "locked_final_baseline": {
+    "game_dates": 33,
+    "rows": 7417,
+    "window": {
+      "name": "2026_locked_final",
+      "test_end": "2026-07-03",
+      "test_start": "2026-06-01",
+      "v3_results_must_remain_hidden_until_candidate_is_frozen": true
+    }
+  },
+  "metrics": {
+    "calibrated_untouched": {
+      "brier": 0.23544,
+      "log_loss": 0.665074,
+      "roc_auc": 0.592965,
+      "rows": 42876,
+      "valid_from": "2025-07-01"
+    },
+    "raw": {
+      "brier": 0.235746,
+      "log_loss": 0.66414,
+      "roc_auc": 0.590198
+    },
+    "top_n": {
+      "top10": {
+        "ci_high": 0.729362,
+        "ci_low": 0.702553,
+        "clustered_standard_error": 0.006843,
+        "confidence_level": 0.95,
+        "game_dates": 470,
+        "hits": 3366,
+        "iterations": 10000,
+        "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+        "minimum_detectable_improvement_80pct_power": 0.019171,
+        "picks": 4700,
+        "rate": 0.71617,
+        "seed": 7302027
+      },
+      "top15": {
+        "ci_high": 0.720004,
+        "ci_low": 0.697589,
+        "clustered_standard_error": 0.005695,
+        "confidence_level": 0.95,
+        "game_dates": 470,
+        "hits": 4998,
+        "iterations": 10000,
+        "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+        "minimum_detectable_improvement_80pct_power": 0.015954,
+        "picks": 7050,
+        "rate": 0.708936,
+        "seed": 7302028
+      },
+      "top5": {
+        "ci_high": 0.743404,
+        "ci_low": 0.707234,
+        "clustered_standard_error": 0.009147,
+        "confidence_level": 0.95,
+        "game_dates": 470,
+        "hits": 1705,
+        "iterations": 10000,
+        "mde_method": "(two-sided normal critical value + 80% power critical value) * date-cluster bootstrap standard error",
+        "minimum_detectable_improvement_80pct_power": 0.025627,
+        "picks": 2350,
+        "rate": 0.725532,
+        "seed": 7302026
+      }
+    }
+  },
+  "model_version": "hit_gbm_v2_cal",
+  "notes": [
+    "Large row-level artifacts remain in gitignored backtest_results.",
+    "Top-N uncertainty resamples complete game dates, not individual hitters.",
+    "Raw probability is the deterministic secondary sort for flat isotonic ties.",
+    "Calibrated probability metrics exclude dates used to fit the V2 curve."
+  ],
+  "rows": 106867
+}
