@@ -1,8 +1,21 @@
 """Tests for the isotonic calibration curve and its runtime application."""
 
-import numpy as np
+import json
+from pathlib import Path
 
-from hit_calibration import CALIBRATION_PATH, apply_calibration, load_calibration
+import numpy as np
+import pytest
+
+from hit_calibration import (
+    CALIBRATION_PATH,
+    CalibrationCompatibilityError,
+    apply_calibration,
+    load_calibration,
+)
+
+BENCHMARK_PATH = Path(__file__).resolve().parents[1] / "calibration" / (
+    "hit_gbm_v2_benchmark.json"
+)
 
 
 class TestCommittedCurve:
@@ -23,6 +36,29 @@ class TestCommittedCurve:
     def test_curve_improved_brier(self):
         calibration = load_calibration()
         assert calibration["brier_calibrated"] <= calibration["brier_raw"]
+        assert calibration["calibration_fit"]["end"] < (
+            calibration["calibration_test"]["start"]
+        )
+        assert calibration["calibration_test"]["n_pairs"] > 0
+
+    def test_curve_carries_model_bundle_fingerprints(self):
+        calibration = load_calibration()
+        assert len(calibration["base_model_recipe_sha256"]) == 64
+        assert len(calibration["feature_schema_sha256"]) == 64
+        assert len(calibration["dependency_fingerprint"]) == 64
+
+    def test_frozen_benchmark_matches_the_untouched_test(self):
+        calibration = load_calibration()
+        benchmark = json.loads(BENCHMARK_PATH.read_text(encoding="utf-8"))
+        assert benchmark["untouched_test_window"]["start"] == (
+            calibration["calibration_test"]["start"]
+        )
+        assert benchmark["untouched_metrics"]["top10_hit_rate"] == (
+            calibration["calibration_test"]["ranking"]["top10_hit_rate"]
+        )
+        assert benchmark["base_model_recipe_sha256"] == (
+            calibration["base_model_recipe_sha256"]
+        )
 
 
 class TestApplyCalibration:
@@ -47,3 +83,13 @@ class TestApplyCalibration:
         calibration = {"x": [0.0, 0.5, 1.0], "y": [0.2, 0.5, 0.8]}
         out = apply_calibration(np.array([-0.5, 1.5]), calibration)
         assert out[0] == 0.2 and out[1] == 0.8
+
+
+def test_loader_fails_closed_on_incompatible_model_bundle(tmp_path):
+    payload = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
+    payload["base_model_recipe_sha256"] = "0" * 64
+    path = tmp_path / "wrong-bundle.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(CalibrationCompatibilityError, match="recipe"):
+        load_calibration(path)

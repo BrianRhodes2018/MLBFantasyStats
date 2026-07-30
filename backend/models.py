@@ -597,9 +597,24 @@ hit_pick_runs = Table(
     # the exact time at which its slate and lineups were frozen.
     Column("as_of_timestamp", String(40), nullable=True),
     Column("prediction_mode", String(20), nullable=False),
+    # Comparison identity is shared by every model scored from the exact same
+    # frozen slate. A run without this metadata (legacy history) is never
+    # presented as a valid V2/V3 comparison.
+    Column("comparison_group_id", String(36), nullable=True),
+    Column("prediction_window", String(20), nullable=False, server_default="legacy"),
+    # Role answers "which model leads the product"; visibility independently
+    # answers "may a reader open this board".
+    Column("model_role", String(20), nullable=False, server_default="archive"),
+    Column("is_visible", Integer, nullable=False, server_default="0"),
+    Column(
+        "probability_status",
+        String(20),
+        nullable=False,
+        server_default="legacy_unknown",
+    ),
     Column("is_public", Integer, nullable=False, server_default="0"),
-    # One designated evaluation run per date/model keeps reruns out of the
-    # live ledger while retaining every prediction snapshot for audit.
+    # One designated evaluation run per date/model/window keeps reruns out of
+    # the live ledger while retaining every prediction snapshot for audit.
     Column("is_evaluation", Integer, nullable=False, server_default="1"),
     Column("trained_on_rows", Integer, nullable=True),
     Column("candidate_cohort_id", String(64), nullable=True),
@@ -616,6 +631,29 @@ Index(
     hit_pick_runs.c.model_version,
     hit_pick_runs.c.is_evaluation,
 )
+Index(
+    "uq_hit_pick_runs_primary_evaluation_window",
+    hit_pick_runs.c.pick_date,
+    hit_pick_runs.c.prediction_window,
+    unique=True,
+    postgresql_where=(
+        (hit_pick_runs.c.model_role == "primary")
+        & (hit_pick_runs.c.is_evaluation == 1)
+    ),
+    sqlite_where=(
+        (hit_pick_runs.c.model_role == "primary")
+        & (hit_pick_runs.c.is_evaluation == 1)
+    ),
+)
+Index(
+    "uq_hit_pick_runs_model_evaluation_window",
+    hit_pick_runs.c.pick_date,
+    hit_pick_runs.c.model_version,
+    hit_pick_runs.c.prediction_window,
+    unique=True,
+    postgresql_where=hit_pick_runs.c.is_evaluation == 1,
+    sqlite_where=hit_pick_runs.c.is_evaluation == 1,
+)
 
 hit_picks = Table(
     "hit_picks",
@@ -630,8 +668,8 @@ hit_picks = Table(
     ),
     Column("pick_date", String(10), nullable=False),      # "YYYY-MM-DD"
     Column("model_version", String(40), nullable=False),  # e.g. "hit_gbm_v2"
-    # One public/champion list per date; shadow model runs use 0 so V2 and V3
-    # can coexist without changing what the normal page displays.
+    # Deprecated compatibility pointer for the original V2-only endpoint.
+    # Run-level model_role and is_visible now control reader presentation.
     Column("is_public", Integer, nullable=False, server_default="1"),
     Column("generated_at", String(40), nullable=True),
     Column("trained_on_rows", Integer, nullable=True),

@@ -8,57 +8,17 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { API_BASE } from '../config'
-
-function formatPct(value, digits = 1) {
-  if (value === null || value === undefined) return '-'
-  return `${(value * 100).toFixed(digits)}%`
-}
+import {
+  fetchData,
+  formatPct,
+  formatStatline,
+  monthKey,
+  resultLabel,
+} from '../utils/hitPicksUi'
 
 function formatRate(value) {
   if (value === null || value === undefined) return '-'
   return value.toFixed(3)
-}
-
-function formatStatline(pick) {
-  if (pick.played === null || pick.played === undefined) {
-    return 'Awaiting final box score'
-  }
-  if (!pick.played) return 'Did not play'
-
-  const parts = [`${pick.hits ?? 0}-for-${pick.at_bats ?? '?'}`]
-  if ((pick.doubles ?? 0) > 0) parts.push(`${pick.doubles} 2B`)
-  if ((pick.triples ?? 0) > 0) parts.push(`${pick.triples} 3B`)
-  if ((pick.home_runs ?? 0) > 0) parts.push(`${pick.home_runs} HR`)
-  if ((pick.runs ?? 0) > 0) parts.push(`${pick.runs} R`)
-  if ((pick.rbi ?? 0) > 0) parts.push(`${pick.rbi} RBI`)
-  if ((pick.walks ?? 0) > 0) parts.push(`${pick.walks} BB`)
-  if ((pick.strikeouts ?? 0) > 0) parts.push(`${pick.strikeouts} K`)
-  if (pick.total_bases !== null && pick.total_bases !== undefined) {
-    parts.push(`${pick.total_bases} TB`)
-  }
-  return parts.join(', ')
-}
-
-function resultLabel(pick) {
-  if (pick.played === null || pick.played === undefined) {
-    return { text: 'Pending', className: 'hit-result-pending' }
-  }
-  if (!pick.played) return { text: 'DNP', className: 'hit-result-dnp' }
-  if (pick.got_hit) return { text: 'Hit', className: 'hit-result-hit' }
-  return { text: 'Miss', className: 'hit-result-miss' }
-}
-
-async function fetchData(url) {
-  const response = await fetch(url)
-  if (!response.ok) {
-    const detail = (await response.json().catch(() => null))?.detail
-    throw new Error(detail || `Request failed (${response.status})`)
-  }
-  return (await response.json()).data
-}
-
-function monthKey(isoDate) {
-  return isoDate.slice(0, 7)
 }
 
 function moveMonth(key, offset) {
@@ -87,7 +47,7 @@ function monthLabel(key) {
   }).format(new Date(year, month - 1, 1))
 }
 
-function HitPicksCalendar({
+export function HitPicksCalendar({
   dates,
   selectedDate,
   visibleMonth,
@@ -182,7 +142,8 @@ function HitPicksCalendar({
   )
 }
 
-export default function HitPicksPage() {
+export default function HitPicksPage({ modelRole = 'primary' }) {
+  const isExperimental = modelRole === 'challenger'
   const [picks, setPicks] = useState(null)
   const [ledger, setLedger] = useState(null)
   const [historyDates, setHistoryDates] = useState([])
@@ -199,8 +160,8 @@ export default function HitPicksPage() {
     async function load() {
       try {
         const [latest, history, trackRecord] = await Promise.all([
-          fetchData(`${API_BASE}/hit-picks/latest?top=15`),
-          fetchData(`${API_BASE}/hit-picks/dates?limit=365`).catch(() => ({
+          fetchData(`${API_BASE}/hit-picks/boards/${modelRole}/latest?top=15`),
+          fetchData(`${API_BASE}/hit-picks/boards/${modelRole}/dates?limit=365`).catch(() => ({
             dates: [],
             latest_date: null,
           })),
@@ -224,17 +185,14 @@ export default function HitPicksPage() {
 
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [modelRole])
 
-  async function loadHistoricalDate(isoDate, modelVersion = null) {
+  async function loadHistoricalDate(isoDate) {
     setHistoryLoading(true)
     setHistoryError(null)
     try {
-      const modelQuery = modelVersion
-        ? `&model_version=${encodeURIComponent(modelVersion)}`
-        : ''
       const historical = await fetchData(
-        `${API_BASE}/hit-picks/${isoDate}?top=15${modelQuery}`,
+        `${API_BASE}/hit-picks/boards/${modelRole}/${isoDate}?top=15`,
       )
       setPicks(historical)
       setSelectedDate(isoDate)
@@ -247,6 +205,16 @@ export default function HitPicksPage() {
   }
 
   if (loading) return <div className="betting-loading">Loading hit picks…</div>
+  if (error && isExperimental) {
+    return (
+      <div className="hit-v3-empty">
+        <span className="hit-experimental-badge">V3 experimental</span>
+        <h2>V3 Hit Picks</h2>
+        <p>No V3 challenger board has been published yet.</p>
+        <small>{error}</small>
+      </div>
+    )
+  }
   if (error) return <div className="betting-empty">Could not load hit picks: {error}</div>
   if (!picks || !picks.picks?.length) {
     return <div className="betting-empty">No picks available yet.</div>
@@ -256,7 +224,7 @@ export default function HitPicksPage() {
   const latestDate = historyDates[0]?.date || picks.date
   const completed = picks.picks.filter((pick) => pick.played === 1)
   const dayHits = completed.filter((pick) => pick.got_hit === 1).length
-  const models = picks.available_models || []
+  const probabilityIsCalibrated = picks.probability_status === 'calibrated'
 
   return (
     <div className="betting-page">
@@ -273,25 +241,14 @@ export default function HitPicksPage() {
       <div className="betting-header hit-picks-header">
         <div>
           <span className="hit-history-eyebrow">
-            {picks.grading_status === 'graded' ? 'Final results' : 'Current board'}
+            {isExperimental
+              ? 'V3 experimental challenger'
+              : picks.grading_status === 'graded' ? 'V2 final results' : 'V2 current board'}
           </span>
-          <h2>Daily 1+ Hit Model Picks — {picks.date}</h2>
+          <h2>{isExperimental ? 'V3' : 'V2'} Daily 1+ Hit Model Picks — {picks.date}</h2>
         </div>
-        {models.length > 1 && (
-          <label className="hit-model-selector">
-            Model
-            <select
-              value={picks.model_version}
-              disabled={historyLoading}
-              onChange={(event) => loadHistoricalDate(picks.date, event.target.value)}
-            >
-              {models.map((model) => (
-                <option key={model.model_version} value={model.model_version}>
-                  {model.model_version}{model.is_public ? ' (public)' : ' (shadow)'}
-                </option>
-              ))}
-            </select>
-          </label>
+        {isExperimental && (
+          <span className="hit-experimental-badge">Experimental model score</span>
         )}
       </div>
 
@@ -304,6 +261,7 @@ export default function HitPicksPage() {
       <p className="betting-methodology">
         Model <strong>{picks.model_version}</strong>, trained on{' '}
         {picks.trained_on_rows?.toLocaleString()} batter-games (2023–present).
+        {' '}Snapshot: <strong>{picks.prediction_window || 'legacy'}</strong>.
         Lineups are projected from recent boxscores until officials post.
         {picks.grading_status === 'graded' && completed.length > 0 && (
           <>
@@ -335,7 +293,7 @@ export default function HitPicksPage() {
               <th>Player</th>
               <th>Team</th>
               <th>Slot</th>
-              <th>Hit Prob</th>
+              <th>{probabilityIsCalibrated ? 'Hit Prob' : 'Model Score'}</th>
               <th>L10 H/PA</th>
               <th>Opposing Pitcher</th>
               <th>Platoon</th>
@@ -355,7 +313,13 @@ export default function HitPicksPage() {
                   </td>
                   <td>{pick.team}</td>
                   <td>{pick.batting_order}</td>
-                  <td><strong>{formatPct(pick.hit_probability)}</strong></td>
+                  <td>
+                    <strong>
+                      {probabilityIsCalibrated
+                        ? formatPct(pick.hit_probability)
+                        : (pick.hit_probability ?? 0).toFixed(3)}
+                    </strong>
+                  </td>
                   <td>{formatRate(pick.last10_hit_per_pa)}</td>
                   <td>
                     {pick.pitcher_name}
@@ -376,8 +340,11 @@ export default function HitPicksPage() {
       </div>
 
       <p className="betting-methodology" style={{ marginTop: '16px' }}>
-        Probabilities are walk-forward validated (see backend/train_hit_model.py):
-        the model is only ever evaluated on days it has never seen. A pick is
+        {probabilityIsCalibrated
+          ? 'Probabilities are calibrated on a chronological holdout.'
+          : 'Scores are experimental and must not be interpreted as calibrated probabilities.'}
+        {' '}The base model is walk-forward validated: it is only evaluated on
+        days it has never seen. A pick is
         graded a win when the player records at least one hit; players who do
         not appear are marked DNP and excluded from the model hit-rate denominator.
       </p>

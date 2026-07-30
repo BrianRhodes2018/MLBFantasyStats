@@ -24,8 +24,8 @@ def test_single_migration_head():
 def test_run_table_grants_follow_existing_hit_pick_writer_grants():
     """The daily least-privilege writer must be able to append run records."""
     script = _script_directory()
-    head = script.get_revision(script.get_current_head())
-    source = Path(head.path).read_text(encoding="utf-8")
+    grant_revision = script.get_revision("f6c2b8d0e314")
+    source = Path(grant_revision.path).read_text(encoding="utf-8")
     assert "information_schema.table_privileges" in source
     assert "GRANT %s ON TABLE hit_pick_runs" in source
     assert "grantee <> current_user" in source

@@ -617,13 +617,13 @@ Treat these as preflight failures:
 - [x] Validate the Windows environment; Linux validation is configured in CI.
 - [x] Add the ML environment smoke script.
 - [x] Add dependency and prediction-file provenance.
-- [ ] Couple calibration to the model fingerprint.
+- [x] Couple calibration to the model, feature-schema, and dependency fingerprints.
 - [x] Reproduce V2's 72.2% pooled GBM top-10 benchmark deterministically.
 - [x] Run the complete walk-forward and feature-group ablation smoke.
 - [x] Build the project `.venv`.
-- [ ] Compare old and new daily outputs.
+- [x] Compare old and new daily outputs (exact-context probability delta was zero).
 - [x] Cut over the scheduled-runner script to the locked `.venv`.
-- [ ] Verify healthcheck, logs, JSON, and database writes.
+- [x] Verify healthcheck, logs, immutable JSON, and database writes in production.
 - [x] Align CI, the daily GitHub workflow, and Render configuration.
 - [x] Retain and document the untouched Anaconda rollback environment.
 

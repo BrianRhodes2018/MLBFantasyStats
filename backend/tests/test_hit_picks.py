@@ -11,7 +11,9 @@ from grade_hit_picks import grade_candidates, outcomes_for_date, summarize_ledge
 from hit_model.cohort import freeze_candidate_cohort
 from hit_picks_store import (
     apply_grades,
+    publish_paired_runs,
     replace_picks,
+    shape_paired_comparison,
     shape_pick_rows,
     summarize_available_dates,
     summarize_pick_rows,
@@ -220,6 +222,11 @@ def full_pick_row(**overrides):
         "generated_at": "2026-07-05T12:00:00+00:00",
         "as_of_timestamp": "2026-07-05T11:55:00+00:00",
         "prediction_mode": "official",
+        "comparison_group_id": "f2f5e0c7-76d5-4bd4-a799-ad4e31fac539",
+        "prediction_window": "afternoon",
+        "model_role": "primary",
+        "is_visible": 1,
+        "probability_status": "calibrated",
         "candidate_cohort_id": "a" * 64,
         "candidate_count": 18,
         "trained_on_rows": 149241,
@@ -337,7 +344,7 @@ class TestHistoryWrites:
         monkeypatch.setattr(hit_picks_store, "get_picks_db", fake_database)
         inserted = await replace_picks(
             pick_date="2026-07-05",
-            model_version="hit_gbm_v3",
+            model_version="hit_gbm_v2_cal",
             generated_at="2026-07-05T12:00:00+00:00",
             trained_on_rows=150000,
             candidates=[full_pick_row()],
@@ -347,12 +354,132 @@ class TestHistoryWrites:
         assert inserted == 1
         # Demote public pick/run pointers, demote the previous evaluation
         # pointer, then insert the new run. No prediction DELETE is issued.
-        assert len(database.executed) == 4
+        assert len(database.executed) == 5
         assert database.inserted[0]["is_public"] == 1
         assert database.inserted[0]["game_pk"] == 777
         assert all("DELETE" not in str(query).upper() for query in database.executed)
         insert_sql = str(database.executed[-1])
         assert "INSERT INTO hit_pick_runs" in insert_sql
+
+    @pytest.mark.asyncio
+    async def test_daily_write_persists_the_complete_candidate_slate(
+        self,
+        monkeypatch,
+    ):
+        database = FakePicksDatabase()
+
+        async def fake_database():
+            return database
+
+        monkeypatch.setattr(hit_picks_store, "get_picks_db", fake_database)
+        candidates = [
+            full_pick_row(player_id=player_id, rank=player_id)
+            for player_id in range(1, 41)
+        ]
+        inserted = await replace_picks(
+            pick_date="2026-07-05",
+            model_version="hit_gbm_v2_cal",
+            generated_at="2026-07-05T12:00:00+00:00",
+            trained_on_rows=150000,
+            candidates=candidates,
+            prediction_window="morning",
+            probability_status="calibrated",
+        )
+
+        assert inserted == 40
+        assert len(database.inserted) == 40
+        assert database.inserted[-1]["rank"] == 40
+
+    @pytest.mark.asyncio
+    async def test_challenger_failure_cannot_roll_back_primary(
+        self,
+        monkeypatch,
+    ):
+        calls = []
+
+        async def fake_replace(**run):
+            calls.append(run["model_version"])
+            if run["model_role"] == "challenger":
+                raise RuntimeError("simulated V3 scoring/storage failure")
+            return len(run["candidates"])
+
+        monkeypatch.setattr(hit_picks_store, "replace_picks", fake_replace)
+        shared = {
+            "pick_date": "2026-07-05",
+            "comparison_group_id": "f2f5e0c7-76d5-4bd4-a799-ad4e31fac539",
+            "candidate_cohort_id": "a" * 64,
+            "as_of_timestamp": "2026-07-05T11:55:00+00:00",
+            "prediction_window": "morning",
+            "generated_at": "2026-07-05T12:00:00+00:00",
+            "trained_on_rows": 150000,
+            "candidates": [full_pick_row()],
+        }
+        result = await publish_paired_runs(
+            primary_run={
+                **shared,
+                "model_version": "hit_gbm_v2_cal",
+                "probability_status": "calibrated",
+            },
+            challenger_runs=[{
+                **shared,
+                "model_version": "hit_gbm_v3",
+                "probability_status": "experimental",
+            }],
+        )
+
+        assert calls == ["hit_gbm_v2_cal", "hit_gbm_v3"]
+        assert result["primary"]["stored"] == 1
+        assert result["challengers"][0]["status"] == "failed"
+
+
+class TestPairedComparison:
+    def test_requires_the_exact_same_snapshot(self):
+        primary = full_pick_row()
+        challenger = full_pick_row(
+            run_id="ed3760a2-e470-45d6-82fb-8daecdc52fa0",
+            model_version="hit_gbm_v3",
+            model_role="challenger",
+            probability_status="experimental",
+            as_of_timestamp="2026-07-05T12:01:00+00:00",
+        )
+        payload = shape_paired_comparison(
+            primary_run=primary,
+            challenger_run=challenger,
+        )
+        assert payload["comparable"] is False
+        assert "as_of_timestamp" in payload["reason"]
+
+    def test_reports_rank_and_score_movement_for_a_valid_pair(self):
+        primary_run = full_pick_row(candidate_count=2)
+        challenger_run = full_pick_row(
+            run_id="ed3760a2-e470-45d6-82fb-8daecdc52fa0",
+            model_version="hit_gbm_v3",
+            model_role="challenger",
+            probability_status="experimental",
+            candidate_count=2,
+            runtime_manifest_json='{"fallbacks":{"pitch_mix":1}}',
+        )
+        primary_rows = [
+            full_pick_row(rank=1, player_id=1, hit_probability=0.70),
+            full_pick_row(rank=2, player_id=2, hit_probability=0.65),
+        ]
+        challenger_rows = [
+            full_pick_row(rank=1, player_id=2, hit_probability=0.74),
+            full_pick_row(rank=2, player_id=1, hit_probability=0.68),
+        ]
+        payload = shape_paired_comparison(
+            primary_run=primary_run,
+            challenger_run=challenger_run,
+            primary_rows=primary_rows,
+            challenger_rows=challenger_rows,
+            top=2,
+        )
+        moved = next(row for row in payload["rows"] if row["player_id"] == 2)
+        assert payload["comparable"] is True
+        assert payload["coverage"]["challenger_fraction"] == 1.0
+        assert payload["fallbacks"] == {"pitch_mix": 1}
+        assert moved["rank_movement"] == 1
+        assert moved["score_delta"] == pytest.approx(0.09)
 
     @pytest.mark.asyncio
     async def test_retrying_same_run_id_is_idempotent(self, monkeypatch):
@@ -475,7 +602,7 @@ class TestHitPicksRoutes:
         assert client.get("/hit-picks/latest").status_code == 404
 
     def test_ledger_returns_summary(self, client, monkeypatch):
-        async def fake_ledger():
+        async def fake_ledger(**kwargs):
             return {"summary": {"hit_gbm_v2": {"days": 1}}, "days_graded": 1}
 
         monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)
@@ -484,7 +611,7 @@ class TestHitPicksRoutes:
         assert response.json()["data"]["days_graded"] == 1
 
     def test_ledger_404_when_nothing_graded(self, client, monkeypatch):
-        async def fake_ledger():
+        async def fake_ledger(**kwargs):
             return {"summary": {}, "days_graded": 0}
 
         monkeypatch.setattr(hit_picks_store, "fetch_ledger_summary", fake_ledger)
@@ -552,3 +679,35 @@ class TestHitPicksRoutes:
         response = client.get("/hit-picks/2026-07-05")
         assert response.status_code == 404
         assert "2026-07-05" in response.json()["detail"]
+
+    def test_v3_board_route_is_available_before_v3_data(self, client, monkeypatch):
+        async def fake_role(**kwargs):
+            assert kwargs["model_role"] == "challenger"
+            return None
+
+        monkeypatch.setattr(hit_picks_store, "fetch_role_picks", fake_role)
+        response = client.get("/hit-picks/boards/challenger/latest")
+        assert response.status_code == 404
+        assert "challenger" in response.json()["detail"]
+
+    def test_comparison_route_returns_explicit_unpaired_state(
+        self,
+        client,
+        monkeypatch,
+    ):
+        async def fake_comparison(**kwargs):
+            return {
+                "date": "2026-07-05",
+                "status": "no_paired_run",
+                "comparable": False,
+                "reason": "No visible V3 run was scored from this V2 snapshot.",
+            }
+
+        monkeypatch.setattr(
+            hit_picks_store,
+            "fetch_paired_comparison",
+            fake_comparison,
+        )
+        response = client.get("/hit-picks/compare/latest")
+        assert response.status_code == 200
+        assert response.json()["data"]["comparable"] is False

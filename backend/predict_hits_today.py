@@ -30,7 +30,8 @@ import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
+from zoneinfo import ZoneInfo
 
 import polars as pl
 import statsapi
@@ -57,7 +58,13 @@ from hit_picks_store import close_picks_db, replace_picks
 from ml_environment import dataframe_fingerprint, runtime_manifest
 from park_factors import get_park_factor
 from projected_lineups import weighted_lineup_projection
-from train_hit_model import FEATURES, make_models, prepare_frame, to_matrix
+from train_hit_model import (
+    FEATURES,
+    GBM_RECIPE,
+    make_models,
+    prepare_frame,
+    to_matrix,
+)
 
 SEASON_START = "2026-03-25"
 DEFAULT_RESULTS_DIR = BACKEND_DIR / "backtest_results"
@@ -377,8 +384,13 @@ async def run(args: argparse.Namespace) -> int:
         confirmed = fetch_confirmed_lineups(slate, builder, names)
         # The point-in-time boundary is recorded after the live schedule and
         # lineup reads complete, so every retained input was available by it.
-        as_of_timestamp = (
-            datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        as_of_datetime = datetime.now(timezone.utc).replace(microsecond=0)
+        as_of_timestamp = as_of_datetime.isoformat()
+        local_hour = as_of_datetime.astimezone(
+            ZoneInfo("America/New_York")
+        ).hour
+        prediction_window = args.prediction_window or (
+            "morning" if local_hour < 12 else "afternoon"
         )
         confirmed_sides = sum(len(sides) for sides in confirmed.values())
         print(f"Official lineups posted: {confirmed_sides} of {len(slate) * 2} team-sides.")
@@ -392,9 +404,24 @@ async def run(args: argparse.Namespace) -> int:
             return 0
         frozen_cohort = freeze_candidate_cohort(candidates)
         snapshot_mode = prediction_mode(candidates)
+        comparison_group_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                "|".join(
+                    (
+                        "mlb-fantasy-stats/hit-pick-comparison",
+                        target.isoformat(),
+                        prediction_window,
+                        as_of_timestamp,
+                        frozen_cohort["candidate_cohort_id"],
+                    )
+                ),
+            )
+        )
 
         cand_df = prepare_frame(pl.DataFrame(candidates, infer_schema_length=None))
-        probs = model.predict_proba(to_matrix(cand_df))[:, 1]
+        raw_probs = model.predict_proba(to_matrix(cand_df))[:, 1]
+        probs = raw_probs
 
         # Isotonic calibration: translate raw probabilities into what those
         # raw values have historically delivered. Order-preserving, so the
@@ -403,12 +430,22 @@ async def run(args: argparse.Namespace) -> int:
         if calibration:
             probs = apply_calibration(probs, calibration)
             model_version = CALIBRATED_MODEL_VERSION
+            probability_status = "calibrated"
         else:
             print("Warning: no calibration file found — publishing raw probabilities.")
             model_version = MODEL_VERSION
+            probability_status = "uncalibrated"
 
-        cand_df = cand_df.with_columns(pl.Series("hit_probability", probs))
-        ranked = cand_df.sort("hit_probability", descending=True)
+        cand_df = cand_df.with_columns(
+            pl.Series("raw_hit_probability", raw_probs),
+            pl.Series("hit_probability", probs),
+        )
+        # Isotonic curves contain flat sections. Raw score is the deterministic
+        # tie-breaker so recalibration can never alter V2's underlying ranking.
+        ranked = cand_df.sort(
+            ["hit_probability", "raw_hit_probability"],
+            descending=[True, True],
+        )
         # Feature preparation and model scoring may not silently drop or add
         # players. V3 will be required to pass this same assertion against the
         # saved V2 cohort before a comparison is valid.
@@ -442,6 +479,7 @@ async def run(args: argparse.Namespace) -> int:
         ]
         runtime = runtime_manifest(
             feature_names=FEATURES,
+            model_recipe=GBM_RECIPE,
             calibration_path=CALIBRATION_PATH,
             training_paths=historical,
             training_row_count=train_df.height,
@@ -453,6 +491,11 @@ async def run(args: argparse.Namespace) -> int:
             "as_of_timestamp": as_of_timestamp,
             "date": target.isoformat(),
             "prediction_mode": snapshot_mode,
+            "prediction_window": prediction_window,
+            "comparison_group_id": comparison_group_id,
+            "model_role": "primary",
+            "probability_status": probability_status,
+            "ranking_basis": "raw_model_score_with_calibrated_display",
             "model_version": model_version,
             "model": f"{MODEL_KIND} (walk-forward validated in train_hit_model.py)",
             "trained_on_rows": train_df.height,
@@ -500,8 +543,13 @@ async def run(args: argparse.Namespace) -> int:
                 candidate_cohort_id=frozen_cohort["candidate_cohort_id"],
                 candidate_manifest=frozen_cohort["candidate_manifest"],
                 runtime_manifest=runtime,
+                comparison_group_id=comparison_group_id,
+                prediction_window=prediction_window,
+                model_role="primary",
+                is_visible=True,
+                probability_status=probability_status,
             )
-            print(f"Stored top {stored} picks in the picks database.")
+            print(f"Stored all {stored} scored candidates in the picks database.")
         finally:
             await close_picks_db()
         print("Note: lineups are projected from recent boxscores until officials post.")
@@ -516,6 +564,14 @@ def main() -> int:
     parser.add_argument("--top", type=int, default=15, help="How many picks to print.")
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR), help="Shared MLB StatsAPI JSON cache directory.")
     parser.add_argument("--output-json", help="Optional path for the JSON pick list.")
+    parser.add_argument(
+        "--prediction-window",
+        choices=("morning", "afternoon"),
+        help=(
+            "Evaluation window. Defaults to morning before noon Eastern and "
+            "afternoon otherwise."
+        ),
+    )
     return asyncio.run(run(parser.parse_args()))
 
 

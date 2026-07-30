@@ -40,15 +40,133 @@ async def get_hit_pick_dates(limit: int = Query(180, ge=1, le=730)):
 
 
 @router.get("/ledger", response_model=ApiResponse)
-async def get_hit_picks_ledger():
+async def get_hit_picks_ledger(
+    prediction_window: Optional[str] = Query(
+        None,
+        pattern="^(morning|afternoon|legacy)$",
+    ),
+):
     """Running per-model-version track record of graded picks."""
-    data = await hit_picks_store.fetch_ledger_summary()
+    data = await hit_picks_store.fetch_ledger_summary(
+        prediction_window=prediction_window
+    )
     if not data["days_graded"]:
         raise HTTPException(
             status_code=404,
             detail="No graded picks yet. Run grade_hit_picks.py first.",
         )
     return ApiResponse(code=200, message="Hit picks ledger", data=data)
+
+
+@router.get("/boards/{model_role}/latest", response_model=ApiResponse)
+async def get_latest_role_board(
+    model_role: str,
+    top: int = Query(15, ge=1, le=25),
+    prediction_window: Optional[str] = Query(
+        None,
+        pattern="^(morning|afternoon)$",
+    ),
+):
+    """Latest visible V2 primary or V3 challenger evaluation board."""
+    if model_role not in {"primary", "challenger"}:
+        raise HTTPException(status_code=422, detail="Unknown model role.")
+    data = await hit_picks_store.fetch_role_picks(
+        model_role=model_role,
+        top=top,
+        prediction_window=prediction_window,
+    )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No visible {model_role} hit-pick board is available yet.",
+        )
+    return ApiResponse(code=200, message=f"{model_role.title()} hit picks", data=data)
+
+
+@router.get("/boards/{model_role}/dates", response_model=ApiResponse)
+async def get_role_board_dates(
+    model_role: str,
+    limit: int = Query(180, ge=1, le=730),
+):
+    """History calendar for one visible model role."""
+    if model_role not in {"primary", "challenger"}:
+        raise HTTPException(status_code=422, detail="Unknown model role.")
+    data = await hit_picks_store.fetch_role_dates(
+        model_role=model_role,
+        limit=limit,
+    )
+    return ApiResponse(code=200, message=f"{model_role.title()} board dates", data=data)
+
+
+@router.get("/boards/{model_role}/{pick_date}", response_model=ApiResponse)
+async def get_role_board_for_date(
+    model_role: str,
+    pick_date: date,
+    top: int = Query(15, ge=1, le=25),
+    prediction_window: Optional[str] = Query(
+        None,
+        pattern="^(morning|afternoon)$",
+    ),
+):
+    """One active role board for a historical date/window."""
+    if model_role not in {"primary", "challenger"}:
+        raise HTTPException(status_code=422, detail="Unknown model role.")
+    data = await hit_picks_store.fetch_role_picks(
+        model_role=model_role,
+        top=top,
+        pick_date=pick_date.isoformat(),
+        prediction_window=prediction_window,
+    )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No visible {model_role} hit-pick board is available for "
+                f"{pick_date.isoformat()}."
+            ),
+        )
+    return ApiResponse(code=200, message=f"{model_role.title()} hit picks", data=data)
+
+
+@router.get("/compare/latest", response_model=ApiResponse)
+async def get_latest_hit_pick_comparison(
+    top: int = Query(15, ge=1, le=25),
+    prediction_window: Optional[str] = Query(
+        None,
+        pattern="^(morning|afternoon)$",
+    ),
+):
+    """Latest strictly paired V2/V3 comparison."""
+    data = await hit_picks_store.fetch_paired_comparison(
+        top=top,
+        prediction_window=prediction_window,
+    )
+    if data is None:
+        raise HTTPException(status_code=404, detail="No V2 board is available yet.")
+    return ApiResponse(code=200, message="V2/V3 hit-pick comparison", data=data)
+
+
+@router.get("/compare/{pick_date}", response_model=ApiResponse)
+async def get_hit_pick_comparison_for_date(
+    pick_date: date,
+    top: int = Query(15, ge=1, le=25),
+    prediction_window: Optional[str] = Query(
+        None,
+        pattern="^(morning|afternoon)$",
+    ),
+):
+    """Strictly paired V2/V3 comparison for one date/window."""
+    data = await hit_picks_store.fetch_paired_comparison(
+        pick_date=pick_date.isoformat(),
+        prediction_window=prediction_window,
+        top=top,
+    )
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No V2 board is available for {pick_date.isoformat()}.",
+        )
+    return ApiResponse(code=200, message="V2/V3 hit-pick comparison", data=data)
 
 
 @router.get("/{pick_date}", response_model=ApiResponse)
