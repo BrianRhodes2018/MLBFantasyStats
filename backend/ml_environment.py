@@ -154,6 +154,7 @@ def training_manifest(
 def runtime_manifest(
     *,
     feature_names: Sequence[str],
+    model_recipe: object,
     calibration_path: Path,
     training_paths: Iterable[Path],
     training_row_count: int,
@@ -171,6 +172,7 @@ def runtime_manifest(
         "code_dirty": code_is_dirty(),
         "code_source_sha256": source_fingerprint(),
         "feature_schema_sha256": json_fingerprint(list(feature_names)),
+        "base_model_recipe_sha256": json_fingerprint(model_recipe),
         "calibration_sha256": sha256_file(calibration_path),
         "training_data_manifest": training_manifest(
             training_paths,

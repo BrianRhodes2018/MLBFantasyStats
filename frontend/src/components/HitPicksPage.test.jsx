@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import HitPicksPage from './HitPicksPage'
@@ -69,8 +69,8 @@ describe('HitPicksPage history', () => {
     }
 
     const fetchMock = vi.fn(async (url) => {
-      if (url === '/hit-picks/latest?top=15') return response(latest)
-      if (url === '/hit-picks/dates?limit=365') {
+      if (url === '/hit-picks/boards/primary/latest?top=15') return response(latest)
+      if (url === '/hit-picks/boards/primary/dates?limit=365') {
         return response({
           latest_date: '2026-07-05',
           count: 2,
@@ -83,7 +83,7 @@ describe('HitPicksPage history', () => {
       if (url === '/hit-picks/ledger') {
         return response({ summary: {}, days_graded: 0 })
       }
-      if (url === '/hit-picks/2026-07-04?top=15') return response(historical)
+      if (url === '/hit-picks/boards/primary/2026-07-04?top=15') return response(historical)
       throw new Error(`Unexpected URL: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -100,57 +100,26 @@ describe('HitPicksPage history', () => {
     expect(await screen.findByText('History Player (L)')).toBeInTheDocument()
     expect(screen.getByText('2-for-4, 1 2B, 1 HR, 2 R, 3 RBI, 1 BB, 1 K, 6 TB')).toBeInTheDocument()
     expect(screen.getByText('Hit')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/hit-picks/2026-07-04?top=15')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/hit-picks/boards/primary/2026-07-04?top=15',
+    )
   })
 
-  it('switches between public and shadow models for the selected date', async () => {
-    const publicBoard = {
-      date: '2026-07-05',
-      model_version: 'hit_gbm_v2',
-      trained_on_rows: 150000,
-      grading_status: 'graded',
-      available_models: [
-        { model_version: 'hit_gbm_v2', is_public: true },
-        { model_version: 'hit_gbm_v3', is_public: false },
-      ],
-      picks: [pick({ played: 1, got_hit: 0, hits: 0, at_bats: 4 })],
-    }
-    const shadowBoard = {
-      ...publicBoard,
-      model_version: 'hit_gbm_v3',
-      picks: [pick({
-        player_id: 3,
-        player_name: 'V3 Player',
-        played: 1,
-        got_hit: 1,
-        hits: 1,
-        at_bats: 3,
-      })],
-    }
-
+  it('shows a clear experimental empty state before V3 is published', async () => {
     const fetchMock = vi.fn(async (url) => {
-      if (url === '/hit-picks/latest?top=15') return response(publicBoard)
-      if (url === '/hit-picks/dates?limit=365') {
-        return response({
-          latest_date: '2026-07-05',
-          dates: [{ date: '2026-07-05', grading_status: 'graded' }],
-        })
+      if (url === '/hit-picks/boards/challenger/latest?top=15') {
+        return response(null, false)
+      }
+      if (url === '/hit-picks/boards/challenger/dates?limit=365') {
+        return response({ dates: [] })
       }
       if (url === '/hit-picks/ledger') return response({ summary: {} })
-      if (url.includes('model_version=hit_gbm_v3')) return response(shadowBoard)
       throw new Error(`Unexpected URL: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<HitPicksPage />)
-    const selector = await screen.findByLabelText('Model')
-    fireEvent.change(selector, { target: { value: 'hit_gbm_v3' } })
-
-    await waitFor(() => {
-      expect(screen.getByText('V3 Player (L)')).toBeInTheDocument()
-    })
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/hit-picks/2026-07-05?top=15&model_version=hit_gbm_v3',
-    )
+    render(<HitPicksPage modelRole="challenger" />)
+    expect(await screen.findByText('V3 Hit Picks')).toBeInTheDocument()
+    expect(screen.getByText('No V3 challenger board has been published yet.')).toBeInTheDocument()
   })
 })

@@ -13,14 +13,17 @@
 #     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\run_daily_hit_picks.ps1`""
 #   $t1 = New-ScheduledTaskTrigger -Daily -At 7:30AM   # early board (projections)
 #   $t2 = New-ScheduledTaskTrigger -Daily -At 2:00PM   # refresh with official lineups
-#   Register-ScheduledTask -TaskName "MLB Daily Hit Picks" -Action $action -Trigger $t1, $t2
+#   $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
+#     -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 90)
+#   Register-ScheduledTask -TaskName "MLB Daily Hit Picks" -Action $action `
+#     -Trigger $t1, $t2 -Settings $settings
 #
 # Notes:
 #   - 7:30 AM local: yesterday's boxscores are final, today's slate is
 #     posted, and there's alerting margin before the earliest day games.
 #     Lineups are mostly projected this early.
-#   - 2:00 PM local: re-scores the slate once most official lineups are
-#     posted (pick storage is idempotent — the page updates in place).
+#   - 2:00 PM local: creates a second immutable evaluation window once most
+#     official lineups are posted. Morning history remains separately graded.
 #   - Output goes to backend/logs/hit_picks_daily.log (gitignored).
 #   - The boxscore cache is shared with the main checkout so nothing is
 #     ever downloaded twice, regardless of which checkout this runs from.
@@ -35,6 +38,7 @@ $python = Join-Path $backendDir ".venv\Scripts\python.exe"
 $smokeCheck = Join-Path $backendDir "scripts\check_ml_environment.py"
 $logicalCpus = [Environment]::ProcessorCount
 $env:LOKY_MAX_CPU_COUNT = [Math]::Max(1, $logicalCpus - 1).ToString()
+$predictionWindow = if ((Get-Date).Hour -lt 12) { "morning" } else { "afternoon" }
 
 # Shared boxscore cache lives in the primary checkout. Fall back to the
 # script-relative default if this copy IS the primary checkout.
@@ -98,10 +102,11 @@ Add-Content $log "--- step 1: grade yesterday's picks ---"
 $gradeExit = $LASTEXITCODE
 
 Add-Content $log "--- step 2: generate today's picks ---"
-& $python (Join-Path $backendDir "predict_hits_today.py") --cache-dir $cacheDir 2>&1 | Add-Content $log
+& $python (Join-Path $backendDir "predict_hits_today.py") --cache-dir $cacheDir `
+    --prediction-window $predictionWindow 2>&1 | Add-Content $log
 $predictExit = $LASTEXITCODE
 
-Add-Content $log "=== done: $(Get-Date -Format 'HH:mm:ss') (grade=$gradeExit, predict=$predictExit) ==="
+Add-Content $log "=== done: $(Get-Date -Format 'HH:mm:ss') (window=$predictionWindow, grade=$gradeExit, predict=$predictExit) ==="
 
 if ($gradeExit -eq 0 -and $predictExit -eq 0) {
     Send-Healthcheck "" "grade=$gradeExit predict=$predictExit"

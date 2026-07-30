@@ -48,6 +48,7 @@ import MatchupsPage from './components/MatchupsPage'
 import BettingPage from './components/BettingPage'
 import BetAuditPage from './components/BetAuditPage'
 import HitPicksPage from './components/HitPicksPage'
+import HitPicksComparisonPage from './components/HitPicksComparisonPage'
 import { fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
@@ -57,6 +58,15 @@ import { fuzzyMatchScore } from './utils/fuzzyMatch'
 // full URL in production (e.g., "https://your-app.onrender.com").
 // See config.js for details on how this works with Vite environment variables.
 import { API_BASE } from './config'
+
+function viewFromPath(pathname) {
+  if (pathname === '/hit-picks/v3') return 'hitpicks-v3'
+  if (pathname === '/hit-picks/compare') return 'hitpicks-compare'
+  if (pathname === '/hit-picks/v2' || pathname === '/hit-picks') {
+    return 'hitpicks-v2'
+  }
+  return 'dashboard'
+}
 
 function App() {
   // ---------------------------------------------------------------------------
@@ -167,7 +177,20 @@ function App() {
   //
   // 'dashboard' = the main stats tables (default)
   // 'matchups'  = today's pitching matchups page
-  const [currentView, setCurrentView] = useState('dashboard')
+  const [currentView, setCurrentView] = useState(
+    () => viewFromPath(window.location.pathname),
+  )
+
+  const navigateTo = useCallback((view, path = '/') => {
+    window.history.pushState({}, '', path)
+    setCurrentView(view)
+  }, [])
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentView(viewFromPath(window.location.pathname))
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   // Derived set for O(1) lookups when rendering Compare buttons in table rows
   const comparisonIds = new Set(comparisonPlayers.map(p => p.id ?? p.player_id))
@@ -750,7 +773,12 @@ function App() {
   // Renders the daily 1+ hit model pick list served by /hit-picks/latest.
   // Same shell as the betting view; the page is read-only (the model runs
   // offline via predict_hits_today.py, this just displays its output).
-  if (currentView === 'hitpicks') {
+  if (currentView.startsWith('hitpicks-')) {
+    const hitPage = currentView === 'hitpicks-v3'
+      ? <HitPicksPage modelRole="challenger" />
+      : currentView === 'hitpicks-compare'
+        ? <HitPicksComparisonPage />
+        : <HitPicksPage modelRole="primary" />
     return (
       <div className="app">
         <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
@@ -758,12 +786,44 @@ function App() {
         <div style={{ textAlign: 'center', marginTop: '-10px', marginBottom: '20px' }}>
           <span
             className="matchups-nav-link"
-            onClick={() => setCurrentView('dashboard')}
+            onClick={() => navigateTo('dashboard', '/')}
           >
             &larr; Back to Stats
           </span>
         </div>
-        <HitPicksPage />
+        <nav className="hit-version-nav" aria-label="Hit picks model pages">
+          <a
+            href="/hit-picks/v2"
+            aria-current={currentView === 'hitpicks-v2' ? 'page' : undefined}
+            onClick={(event) => {
+              event.preventDefault()
+              navigateTo('hitpicks-v2', '/hit-picks/v2')
+            }}
+          >
+            V2
+          </a>
+          <a
+            href="/hit-picks/v3"
+            aria-current={currentView === 'hitpicks-v3' ? 'page' : undefined}
+            onClick={(event) => {
+              event.preventDefault()
+              navigateTo('hitpicks-v3', '/hit-picks/v3')
+            }}
+          >
+            V3 Experimental
+          </a>
+          <a
+            href="/hit-picks/compare"
+            aria-current={currentView === 'hitpicks-compare' ? 'page' : undefined}
+            onClick={(event) => {
+              event.preventDefault()
+              navigateTo('hitpicks-compare', '/hit-picks/compare')
+            }}
+          >
+            Compare
+          </a>
+        </nav>
+        {hitPage}
       </div>
     )
   }
@@ -970,7 +1030,7 @@ function App() {
         </span>
         <span
           className="matchups-nav-link"
-          onClick={() => setCurrentView('hitpicks')}
+          onClick={() => navigateTo('hitpicks-v2', '/hit-picks/v2')}
         >
           Hit Picks &rarr;
         </span>

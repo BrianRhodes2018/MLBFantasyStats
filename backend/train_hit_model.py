@@ -49,6 +49,8 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from ml_environment import dependency_fingerprint, json_fingerprint
+
 BACKEND_DIR = Path(__file__).resolve().parent
 DEFAULT_DATASET = BACKEND_DIR / "data" / "hit_dataset.parquet"
 DEFAULT_RESULTS_DIR = BACKEND_DIR / "backtest_results"
@@ -108,6 +110,27 @@ CALIBRATION_FOLDS = [
 # The stored curve is the isotonic fit evaluated on a fixed grid — small,
 # smooth to inspect in review, and trivially monotonic.
 CALIBRATION_GRID_POINTS = 201
+# Earlier out-of-sample base predictions fit the calibrator. Later dates are
+# untouched until final calibration evaluation.
+CALIBRATION_FIT_END = "2025-06-30"
+CALIBRATION_TEST_START = "2025-07-01"
+
+GBM_RECIPE = {
+    "estimator": "sklearn.ensemble.HistGradientBoostingClassifier",
+    "max_depth": 3,
+    "learning_rate": 0.06,
+    "max_iter": 400,
+    "min_samples_leaf": 60,
+    "l2_regularization": 1.0,
+    "early_stopping": True,
+    "validation_fraction": 0.15,
+    "random_state": 7,
+}
+
+
+def model_recipe_fingerprint() -> str:
+    """Stable identity for the exact V2 estimator and hyperparameters."""
+    return json_fingerprint(GBM_RECIPE)
 
 # Feature groups for the ablation study: drop one group at a time and
 # measure how much the model degrades. Groups that cost nothing when
@@ -190,14 +213,7 @@ def make_models() -> dict[str, Any]:
             ("clf", LogisticRegression(max_iter=3000, C=1.0)),
         ]),
         "gbm": HistGradientBoostingClassifier(
-            max_depth=3,
-            learning_rate=0.06,
-            max_iter=400,
-            min_samples_leaf=60,
-            l2_regularization=1.0,
-            early_stopping=True,
-            validation_fraction=0.15,
-            random_state=7,
+            **{key: value for key, value in GBM_RECIPE.items() if key != "estimator"}
         ),
     }
 
@@ -274,6 +290,7 @@ def run_walk_forward(
         results["naive"] = []
     pooled_probs: dict[str, list[np.ndarray]] = {}
     pooled_truth: list[np.ndarray] = []
+    pooled_dates: list[np.ndarray] = []
 
     for test_start, test_end in folds:
         train_df = df.filter(pl.col("game_date") < test_start)
@@ -287,6 +304,7 @@ def run_walk_forward(
         X_test, y_test = to_matrix(test_df, features), test_df["got_hit"].to_numpy()
         if collect_probs:
             pooled_truth.append(y_test)
+            pooled_dates.append(test_df["game_date"].to_numpy())
 
         if include_naive:
             # Naive benchmark needs no training.
@@ -310,6 +328,7 @@ def run_walk_forward(
     pooled = {}
     if collect_probs and pooled_truth:
         pooled["y_true"] = np.concatenate(pooled_truth)
+        pooled["game_date"] = np.concatenate(pooled_dates)
         pooled["probs"] = {
             name: np.concatenate(chunks) for name, chunks in pooled_probs.items()
         }
@@ -462,14 +481,8 @@ def print_report(
 
 def fit_calibrator(df: pl.DataFrame, output_path: Path) -> dict[str, Any]:
     """
-    Fit the isotonic probability calibrator for the gbm and save it as a
-    reviewable JSON lookup table (see hit_calibration.py for the runtime
-    side).
-
-    The training pairs are strictly out-of-sample: CALIBRATION_FOLDS
-    walk forward through 2024-2026, each block predicted by a model that
-    never saw it. Fitting on in-sample predictions would just teach the
-    curve the model's self-flattery.
+    Fit on earlier out-of-sample base predictions and report performance
+    only on a later untouched calibration-test period.
     """
     from sklearn.isotonic import IsotonicRegression
 
@@ -482,23 +495,88 @@ def fit_calibrator(df: pl.DataFrame, output_path: Path) -> dict[str, Any]:
         raise RuntimeError("No out-of-sample predictions produced — check dataset dates.")
     y_true = pooled["y_true"]
     raw = pooled["probs"]["gbm"]
-    print(f"Fitting isotonic curve on {len(raw)} prediction/outcome pairs...")
+    game_dates = pooled["game_date"].astype(str)
+    fit_mask = game_dates <= CALIBRATION_FIT_END
+    test_mask = game_dates >= CALIBRATION_TEST_START
+    if not fit_mask.any() or not test_mask.any():
+        raise RuntimeError(
+            "Calibration requires both chronological fit and untouched test pairs."
+        )
+    fit_truth, fit_raw = y_true[fit_mask], raw[fit_mask]
+    test_truth, test_raw = y_true[test_mask], raw[test_mask]
+    print(
+        f"Fitting isotonic curve on {len(fit_raw)} earlier pairs; "
+        f"testing on {len(test_raw)} later pairs..."
+    )
 
-    iso = IsotonicRegression(y_min=0.0, y_max=1.0, increasing=True, out_of_bounds="clip")
-    iso.fit(raw, y_true)
+    iso = IsotonicRegression(
+        y_min=0.0,
+        y_max=1.0,
+        increasing=True,
+        out_of_bounds="clip",
+    )
+    iso.fit(fit_raw, fit_truth)
     grid = np.linspace(0.0, 1.0, CALIBRATION_GRID_POINTS)
     curve = iso.predict(grid)
 
-    calibrated = np.interp(raw, grid, curve)
+    fit_calibrated = np.interp(fit_raw, grid, curve)
+    test_calibrated = np.interp(test_raw, grid, curve)
+    calibration_test_frame = pl.DataFrame(
+        {
+            "game_date": game_dates[test_mask],
+            "got_hit": test_truth,
+        }
+    )
+    untouched_ranking = top_n_hit_rates(
+        calibration_test_frame,
+        test_raw,
+    )
+    dependency_sha256, _ = dependency_fingerprint()
     payload = {
         "model": "hit_gbm_v2",
-        "method": f"isotonic regression on {len(raw)} out-of-sample pairs, "
-                  f"{CALIBRATION_GRID_POINTS}-point grid",
+        "method": (
+            f"isotonic regression on {len(fit_raw)} chronological fit pairs, "
+            f"validated on {len(test_raw)} later pairs, "
+            f"{CALIBRATION_GRID_POINTS}-point grid"
+        ),
         "fitted_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "folds": CALIBRATION_FOLDS,
-        "n_pairs": int(len(raw)),
-        "brier_raw": round(float(brier_score_loss(y_true, raw)), 5),
-        "brier_calibrated": round(float(brier_score_loss(y_true, calibrated)), 5),
+        "calibration_fit": {
+            "start": sorted(game_dates[fit_mask].tolist())[0],
+            "end": CALIBRATION_FIT_END,
+            "n_pairs": int(fit_mask.sum()),
+            "brier_raw": round(float(brier_score_loss(fit_truth, fit_raw)), 5),
+            "brier_calibrated": round(
+                float(brier_score_loss(fit_truth, fit_calibrated)),
+                5,
+            ),
+        },
+        "calibration_test": {
+            "start": CALIBRATION_TEST_START,
+            "end": sorted(game_dates[test_mask].tolist())[-1],
+            "n_pairs": int(test_mask.sum()),
+            "brier_raw": round(float(brier_score_loss(test_truth, test_raw)), 5),
+            "brier_calibrated": round(
+                float(brier_score_loss(test_truth, test_calibrated)),
+                5,
+            ),
+            "auc_raw": round(float(roc_auc_score(test_truth, test_raw)), 5),
+            "auc_calibrated": round(
+                float(roc_auc_score(test_truth, test_calibrated)),
+                5,
+            ),
+            "ranking": untouched_ranking,
+        },
+        # Compatibility aliases point only at the untouched test metrics.
+        "n_pairs": int(test_mask.sum()),
+        "brier_raw": round(float(brier_score_loss(test_truth, test_raw)), 5),
+        "brier_calibrated": round(
+            float(brier_score_loss(test_truth, test_calibrated)),
+            5,
+        ),
+        "base_model_recipe_sha256": model_recipe_fingerprint(),
+        "feature_schema_sha256": json_fingerprint(FEATURES),
+        "dependency_fingerprint": dependency_sha256,
         "x": [round(float(v), 5) for v in grid],
         "y": [round(float(v), 5) for v in curve],
     }
@@ -507,10 +585,10 @@ def fit_calibrator(df: pl.DataFrame, output_path: Path) -> dict[str, Any]:
 
     print(f"\nBrier score (lower is better): raw {payload['brier_raw']} "
           f"-> calibrated {payload['brier_calibrated']}")
-    for label, probs in (("RAW", raw), ("CALIBRATED", calibrated)):
+    for label, probs in (("RAW", test_raw), ("CALIBRATED", test_calibrated)):
         print(f"\nRELIABILITY — {label}")
         print(f"{'bucket':16s} {'n':>7s} {'predicted':>10s} {'actual':>8s}")
-        for row in reliability_table(y_true, probs):
+        for row in reliability_table(test_truth, probs):
             if not row["count"]:
                 continue
             print(f"{row['bucket']:16s} {row['count']:>7d} "

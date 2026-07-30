@@ -11,7 +11,8 @@ daily stats update.
 Layout: `hit_pick_runs` stores one immutable prediction snapshot and
 `hit_picks` stores its ranked rows. Publishing a newer run only moves a
 pointer; it never deletes the previous prediction. One evaluation run per
-date/model feeds the live ledger, so operational reruns cannot double-count.
+date/model/window feeds the live ledger, so operational reruns cannot
+double-count or make morning and afternoon snapshots overwrite each other.
 Grading columns start NULL and get filled once that pick's exact game is final.
 
 Which database? The picks live in the PRODUCTION database — the one the
@@ -47,9 +48,19 @@ from models import hit_pick_runs, hit_picks
 
 BACKEND_DIR = Path(__file__).resolve().parent
 
-# How many ranked picks to persist per day. The UI shows 15; grading uses
-# top-5/10/15; a little headroom costs nothing.
-STORED_PICKS_PER_DAY = 25
+# Persist the complete scored slate. Reader endpoints still default to 15,
+# but evaluation, rank movement, and entering/leaving-top-N analysis require
+# every candidate rather than only the displayed board.
+STORED_PICKS_PER_DAY: Optional[int] = None
+
+PREDICTION_WINDOWS = {"morning", "afternoon", "legacy"}
+MODEL_ROLES = {"primary", "challenger", "archive"}
+PROBABILITY_STATUSES = {
+    "calibrated",
+    "experimental",
+    "uncalibrated",
+    "legacy_unknown",
+}
 
 TOP_NS = (5, 10, 15)
 
@@ -122,7 +133,7 @@ async def replace_picks(
     generated_at: Optional[str],
     trained_on_rows: Optional[int],
     candidates: list[Mapping[str, Any]],
-    top: int = STORED_PICKS_PER_DAY,
+    top: Optional[int] = STORED_PICKS_PER_DAY,
     is_public: bool = True,
     is_evaluation: bool = True,
     run_id: Optional[str] = None,
@@ -131,6 +142,11 @@ async def replace_picks(
     candidate_cohort_id: Optional[str] = None,
     candidate_manifest: Optional[Mapping[str, Any]] = None,
     runtime_manifest: Optional[Mapping[str, Any]] = None,
+    comparison_group_id: Optional[str] = None,
+    prediction_window: str = "legacy",
+    model_role: Optional[str] = None,
+    is_visible: bool = True,
+    probability_status: str = "legacy_unknown",
 ) -> int:
     """Append an immutable run and optionally make it public/evaluated.
 
@@ -144,6 +160,23 @@ async def replace_picks(
         run_id = str(UUID(run_id))
     except (TypeError, ValueError) as exc:
         raise ValueError("run_id must be a UUID string.") from exc
+    if comparison_group_id is not None:
+        try:
+            comparison_group_id = str(UUID(comparison_group_id))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("comparison_group_id must be a UUID string.") from exc
+    if prediction_window not in PREDICTION_WINDOWS:
+        raise ValueError(
+            f"prediction_window must be one of {sorted(PREDICTION_WINDOWS)}."
+        )
+    model_role = model_role or ("primary" if is_public else "challenger")
+    if model_role not in MODEL_ROLES:
+        raise ValueError(f"model_role must be one of {sorted(MODEL_ROLES)}.")
+    if probability_status not in PROBABILITY_STATUSES:
+        raise ValueError(
+            "probability_status must be one of "
+            f"{sorted(PROBABILITY_STATUSES)}."
+        )
 
     legacy_input = prediction_mode == "legacy_unknown"
     frozen = freeze_candidate_cohort(
@@ -176,10 +209,12 @@ async def replace_picks(
             )
         ):
             raise ValueError(f"run_id {run_id} already exists with different inputs.")
-        return min(int(existing["candidate_count"]), max(top, 0))
+        stored_count = int(existing["candidate_count"])
+        return stored_count if top is None else min(stored_count, max(top, 0))
 
     rows = []
-    for rank, candidate in enumerate(candidates[:top], start=1):
+    candidates_to_store = candidates if top is None else candidates[:max(top, 0)]
+    for rank, candidate in enumerate(candidates_to_store, start=1):
         row = {key: candidate.get(key) for key in _CANDIDATE_COLUMNS}
         row["game_pk"] = candidate.get("game_pk", candidate.get("game_id"))
         if row["game_pk"] is None and not legacy_input:
@@ -205,6 +240,13 @@ async def replace_picks(
         "generated_at": generated_at,
         "as_of_timestamp": as_of_timestamp,
         "prediction_mode": prediction_mode,
+        "comparison_group_id": comparison_group_id,
+        "prediction_window": prediction_window,
+        "model_role": model_role,
+        "is_visible": 1 if is_visible else 0,
+        "probability_status": probability_status,
+        # Retained as a compatibility pointer for the original endpoint.
+        # It no longer controls whether a challenger is reader-visible.
         "is_public": 1 if is_public else 0,
         "is_evaluation": 1 if is_evaluation else 0,
         "trained_on_rows": trained_on_rows,
@@ -222,7 +264,7 @@ async def replace_picks(
     }
     async with db.transaction():
         date_match = hit_picks.c.pick_date == pick_date
-        if is_public:
+        if model_role == "primary" and is_evaluation:
             await db.execute(
                 hit_picks.update()
                 .where(date_match & (hit_picks.c.is_public == 1))
@@ -242,14 +284,95 @@ async def replace_picks(
                 .where(
                     (hit_pick_runs.c.pick_date == pick_date)
                     & (hit_pick_runs.c.model_version == model_version)
+                    & (hit_pick_runs.c.prediction_window == prediction_window)
                     & (hit_pick_runs.c.is_evaluation == 1)
                 )
                 .values(is_evaluation=0)
+            )
+        if model_role == "primary" and is_evaluation:
+            # Only one primary evaluation board may lead a date/window. A
+            # rerun remains immutable and visible by UUID after its evaluation
+            # pointer is moved to the replacement.
+            await db.execute(
+                hit_pick_runs.update()
+                .where(
+                    (hit_pick_runs.c.pick_date == pick_date)
+                    & (hit_pick_runs.c.prediction_window == prediction_window)
+                    & (hit_pick_runs.c.model_role == "primary")
+                    & (hit_pick_runs.c.is_evaluation == 1)
+                )
+                .values(is_evaluation=0, is_public=0)
             )
         await db.execute(hit_pick_runs.insert().values(**run_row))
         if rows:
             await db.execute_many(hit_picks.insert(), rows)
     return len(rows)
+
+
+async def publish_paired_runs(
+    *,
+    primary_run: Mapping[str, Any],
+    challenger_runs: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Publish the primary first, then isolate every challenger failure.
+
+    V3 is allowed to fail loudly, but it is never allowed to roll back or
+    prevent a valid V2 board. All runs must carry the same frozen-slate keys
+    before they can be paired by the reader API.
+    """
+    primary = dict(primary_run)
+    primary.setdefault("model_role", "primary")
+    primary.setdefault("is_visible", True)
+    primary.setdefault("is_public", True)
+    primary_count = await replace_picks(**primary)
+    result = {
+        "primary": {
+            "model_version": primary["model_version"],
+            "stored": primary_count,
+        },
+        "challengers": [],
+    }
+    contract_keys = (
+        "pick_date",
+        "comparison_group_id",
+        "candidate_cohort_id",
+        "as_of_timestamp",
+        "prediction_window",
+    )
+    for candidate_run in challenger_runs:
+        challenger = dict(candidate_run)
+        challenger.setdefault("model_role", "challenger")
+        challenger.setdefault("is_visible", True)
+        challenger.setdefault("is_public", False)
+        try:
+            mismatches = [
+                key
+                for key in contract_keys
+                if challenger.get(key) != primary.get(key)
+            ]
+            if mismatches:
+                raise ValueError(
+                    "Challenger does not share the primary frozen-slate "
+                    f"contract: {', '.join(mismatches)}."
+                )
+            stored = await replace_picks(**challenger)
+            result["challengers"].append(
+                {
+                    "model_version": challenger["model_version"],
+                    "stored": stored,
+                    "status": "stored",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - isolation boundary is intentional
+            result["challengers"].append(
+                {
+                    "model_version": challenger.get("model_version", "unknown"),
+                    "stored": 0,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+    return result
 
 
 async def apply_grades(
@@ -344,6 +467,11 @@ def shape_pick_rows(
         "generated_at": first["generated_at"],
         "as_of_timestamp": _row_value(first, "as_of_timestamp"),
         "prediction_mode": _row_value(first, "prediction_mode"),
+        "comparison_group_id": _row_value(first, "comparison_group_id"),
+        "prediction_window": _row_value(first, "prediction_window"),
+        "model_role": _row_value(first, "model_role"),
+        "is_visible": bool(_row_value(first, "is_visible")),
+        "probability_status": _row_value(first, "probability_status"),
         "candidate_cohort_id": _row_value(first, "candidate_cohort_id"),
         "candidate_count": _row_value(first, "candidate_count"),
         "model_version": first["model_version"],
@@ -357,6 +485,9 @@ def shape_pick_rows(
             {
                 "model_version": first["model_version"],
                 "is_public": bool(_row_value(first, "is_public")),
+                "model_role": _row_value(first, "model_role"),
+                "is_visible": bool(_row_value(first, "is_visible")),
+                "probability_status": _row_value(first, "probability_status"),
                 "run_id": _row_value(first, "run_id"),
             }
         ],
@@ -422,7 +553,7 @@ async def _available_models_for_date(
         hit_pick_runs.select()
         .where(hit_pick_runs.c.pick_date == pick_date)
         .order_by(
-            hit_pick_runs.c.is_public.desc(),
+            hit_pick_runs.c.is_visible.desc(),
             hit_pick_runs.c.is_evaluation.desc(),
             hit_pick_runs.c.generated_at.desc(),
         )
@@ -438,11 +569,16 @@ async def _available_models_for_date(
             {
                 "model_version": version,
                 "is_public": bool(row["is_public"]),
+                "model_role": row["model_role"],
+                "is_visible": bool(row["is_visible"]),
+                "probability_status": row["probability_status"],
                 "generated_at": row["generated_at"],
                 "run_id": row["run_id"],
                 "as_of_timestamp": row["as_of_timestamp"],
                 "prediction_mode": row["prediction_mode"],
                 "candidate_cohort_id": row["candidate_cohort_id"],
+                "comparison_group_id": row["comparison_group_id"],
+                "prediction_window": row["prediction_window"],
             }
         )
     return models
@@ -495,6 +631,11 @@ async def fetch_picks_for_date(
             "candidate_cohort_id",
             "candidate_count",
             "is_evaluation",
+            "comparison_group_id",
+            "prediction_window",
+            "model_role",
+            "is_visible",
+            "probability_status",
         ):
             shaped[key] = run_metadata[key]
         shaped_rows.append(shaped)
@@ -526,6 +667,346 @@ async def fetch_available_dates(*, limit: int = 180) -> dict[str, Any]:
         .order_by(hit_picks.c.pick_date.desc(), hit_picks.c.rank)
     )
     return summarize_available_dates([dict(row) for row in rows], limit=limit)
+
+
+async def _selected_role_run(
+    db: Database,
+    *,
+    model_role: str,
+    pick_date: Optional[str] = None,
+    prediction_window: Optional[str] = None,
+) -> Optional[Mapping[str, Any]]:
+    if model_role not in {"primary", "challenger"}:
+        raise ValueError("model_role must be primary or challenger.")
+    query = hit_pick_runs.select().where(
+        (hit_pick_runs.c.model_role == model_role)
+        & (hit_pick_runs.c.is_visible == 1)
+        & (hit_pick_runs.c.is_evaluation == 1)
+    )
+    if pick_date:
+        query = query.where(hit_pick_runs.c.pick_date == pick_date)
+    if prediction_window:
+        if prediction_window not in PREDICTION_WINDOWS - {"legacy"}:
+            raise ValueError("prediction_window must be morning or afternoon.")
+        query = query.where(hit_pick_runs.c.prediction_window == prediction_window)
+    return await db.fetch_one(
+        query.order_by(
+            hit_pick_runs.c.pick_date.desc(),
+            hit_pick_runs.c.generated_at.desc(),
+        ).limit(1)
+    )
+
+
+async def _shape_run(
+    db: Database,
+    run: Mapping[str, Any],
+    *,
+    top: int,
+) -> Optional[dict[str, Any]]:
+    rows = await db.fetch_all(
+        hit_picks.select()
+        .where(hit_picks.c.run_id == run["run_id"])
+        .order_by(hit_picks.c.rank)
+        .limit(max(top, 0))
+    )
+    if not rows:
+        return None
+    shaped_rows = []
+    run_metadata = dict(run)
+    for row in rows:
+        shaped = dict(row)
+        shaped.update(
+            {
+                key: run_metadata.get(key)
+                for key in (
+                    "as_of_timestamp",
+                    "prediction_mode",
+                    "comparison_group_id",
+                    "prediction_window",
+                    "model_role",
+                    "is_visible",
+                    "probability_status",
+                    "candidate_cohort_id",
+                    "candidate_count",
+                    "is_evaluation",
+                )
+            }
+        )
+        shaped_rows.append(shaped)
+    return shape_pick_rows(shaped_rows)
+
+
+async def fetch_role_picks(
+    *,
+    model_role: str,
+    top: int = 15,
+    pick_date: Optional[str] = None,
+    prediction_window: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Return the active visible primary or challenger board."""
+    db = await get_picks_db()
+    run = await _selected_role_run(
+        db,
+        model_role=model_role,
+        pick_date=pick_date,
+        prediction_window=prediction_window,
+    )
+    if run is None:
+        return None
+    return await _shape_run(db, run, top=top)
+
+
+async def fetch_role_dates(
+    *,
+    model_role: str,
+    limit: int = 180,
+) -> dict[str, Any]:
+    """Calendar metadata for active evaluation boards of one role."""
+    if model_role not in {"primary", "challenger"}:
+        raise ValueError("model_role must be primary or challenger.")
+    db = await get_picks_db()
+    joined = hit_picks.join(
+        hit_pick_runs, hit_picks.c.run_id == hit_pick_runs.c.run_id
+    )
+    rows = await db.fetch_all(
+        hit_picks.select()
+        .select_from(joined)
+        .where(
+            (hit_pick_runs.c.model_role == model_role)
+            & (hit_pick_runs.c.is_visible == 1)
+            & (hit_pick_runs.c.is_evaluation == 1)
+        )
+        .order_by(
+            hit_picks.c.pick_date.desc(),
+            hit_picks.c.generated_at.desc(),
+            hit_picks.c.rank,
+        )
+    )
+    # A date may have both morning and afternoon evaluation runs. The calendar
+    # is date-grained, so keep only the newest run's rows.
+    newest_run_by_date: dict[str, str] = {}
+    selected = []
+    for row in rows:
+        pick_date = row["pick_date"]
+        run_id = row["run_id"]
+        newest_run_by_date.setdefault(pick_date, run_id)
+        if newest_run_by_date[pick_date] == run_id:
+            selected.append(dict(row))
+    return summarize_available_dates(selected, limit=limit)
+
+
+def _pick_identity(row: Mapping[str, Any]) -> tuple[Optional[int], int]:
+    game_pk = _row_value(row, "game_pk")
+    return (
+        int(game_pk) if game_pk is not None else None,
+        int(row["player_id"]),
+    )
+
+
+def shape_paired_comparison(
+    *,
+    primary_run: Mapping[str, Any],
+    challenger_run: Optional[Mapping[str, Any]],
+    primary_rows: Iterable[Mapping[str, Any]] = (),
+    challenger_rows: Iterable[Mapping[str, Any]] = (),
+    top: int = 15,
+) -> dict[str, Any]:
+    """Build a comparison only when both runs prove identical inputs."""
+    base = {
+        "date": primary_run["pick_date"],
+        "prediction_window": primary_run["prediction_window"],
+        "comparison_group_id": primary_run["comparison_group_id"],
+        "candidate_cohort_id": primary_run["candidate_cohort_id"],
+        "primary": {
+            "run_id": primary_run["run_id"],
+            "model_version": primary_run["model_version"],
+            "probability_status": primary_run["probability_status"],
+            "candidate_count": primary_run["candidate_count"],
+        },
+        "challenger": None,
+        "rows": [],
+    }
+    if challenger_run is None:
+        return {
+            **base,
+            "status": "no_paired_run",
+            "comparable": False,
+            "reason": "No visible V3 run was scored from this V2 snapshot.",
+        }
+
+    base["challenger"] = {
+        "run_id": challenger_run["run_id"],
+        "model_version": challenger_run["model_version"],
+        "probability_status": challenger_run["probability_status"],
+        "candidate_count": challenger_run["candidate_count"],
+    }
+    contract = (
+        "pick_date",
+        "comparison_group_id",
+        "candidate_cohort_id",
+        "as_of_timestamp",
+        "prediction_window",
+    )
+    mismatches = [
+        key for key in contract if primary_run[key] != challenger_run[key]
+    ]
+    if mismatches:
+        return {
+            **base,
+            "status": "not_comparable",
+            "comparable": False,
+            "reason": (
+                "Runs do not share the same frozen snapshot: "
+                + ", ".join(mismatches)
+            ),
+        }
+
+    primary_by_id = {_pick_identity(row): dict(row) for row in primary_rows}
+    challenger_by_id = {_pick_identity(row): dict(row) for row in challenger_rows}
+    identities = {
+        identity
+        for identity in primary_by_id.keys() | challenger_by_id.keys()
+        if (
+            primary_by_id.get(identity, {}).get("rank", top + 1) <= top
+            or challenger_by_id.get(identity, {}).get("rank", top + 1) <= top
+        )
+    }
+    rows = []
+    for identity in identities:
+        primary = primary_by_id.get(identity)
+        challenger = challenger_by_id.get(identity)
+        context = primary or challenger or {}
+        p_rank = primary.get("rank") if primary else None
+        c_rank = challenger.get("rank") if challenger else None
+        p_score = primary.get("hit_probability") if primary else None
+        c_score = challenger.get("hit_probability") if challenger else None
+        actual = primary or challenger or {}
+        rows.append(
+            {
+                "game_pk": identity[0],
+                "player_id": identity[1],
+                "player_name": context.get("player_name"),
+                "team": context.get("team"),
+                "opponent": context.get("opponent"),
+                "batting_order": context.get("batting_order"),
+                "lineup_source": context.get("lineup_source"),
+                "pitcher_name": context.get("pitcher_name"),
+                "primary_rank": p_rank,
+                "challenger_rank": c_rank,
+                "rank_movement": (
+                    p_rank - c_rank
+                    if p_rank is not None and c_rank is not None
+                    else None
+                ),
+                "primary_score": p_score,
+                "challenger_score": c_score,
+                "score_delta": (
+                    c_score - p_score
+                    if p_score is not None and c_score is not None
+                    else None
+                ),
+                "entered_top": c_rank is not None and c_rank <= top
+                and (p_rank is None or p_rank > top),
+                "left_top": p_rank is not None and p_rank <= top
+                and (c_rank is None or c_rank > top),
+                "context_matches": (
+                    primary is not None
+                    and challenger is not None
+                    and all(
+                        primary.get(key) == challenger.get(key)
+                        for key in (
+                            "team",
+                            "opponent",
+                            "batting_order",
+                            "pitcher_id",
+                            "lineup_source",
+                        )
+                    )
+                ),
+                "played": actual.get("played"),
+                "got_hit": actual.get("got_hit"),
+                **{key: actual.get(key) for key in _STATLINE_COLUMNS},
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            min(
+                row["primary_rank"] or top + 1,
+                row["challenger_rank"] or top + 1,
+            ),
+            row["player_name"] or "",
+        )
+    )
+    shared = len(primary_by_id.keys() & challenger_by_id.keys())
+    runtime = json.loads(challenger_run.get("runtime_manifest_json") or "{}")
+    return {
+        **base,
+        "status": "paired",
+        "comparable": True,
+        "reason": None,
+        "coverage": {
+            "shared_candidates": shared,
+            "primary_candidates": len(primary_by_id),
+            "challenger_candidates": len(challenger_by_id),
+            "challenger_fraction": (
+                round(shared / len(primary_by_id), 4) if primary_by_id else None
+            ),
+        },
+        "fallbacks": runtime.get("fallbacks", {}),
+        "rows": rows,
+    }
+
+
+async def fetch_paired_comparison(
+    *,
+    pick_date: Optional[str] = None,
+    prediction_window: Optional[str] = None,
+    top: int = 15,
+) -> Optional[dict[str, Any]]:
+    db = await get_picks_db()
+    primary = await _selected_role_run(
+        db,
+        model_role="primary",
+        pick_date=pick_date,
+        prediction_window=prediction_window,
+    )
+    if primary is None:
+        return None
+    challenger = None
+    if primary["comparison_group_id"]:
+        challenger = await db.fetch_one(
+            hit_pick_runs.select()
+            .where(
+                (hit_pick_runs.c.model_role == "challenger")
+                & (hit_pick_runs.c.is_visible == 1)
+                & (hit_pick_runs.c.is_evaluation == 1)
+                & (
+                    hit_pick_runs.c.comparison_group_id
+                    == primary["comparison_group_id"]
+                )
+            )
+            .order_by(hit_pick_runs.c.generated_at.desc())
+            .limit(1)
+        )
+    primary_rows = await db.fetch_all(
+        hit_picks.select()
+        .where(hit_picks.c.run_id == primary["run_id"])
+        .order_by(hit_picks.c.rank)
+    )
+    challenger_rows = []
+    if challenger is not None:
+        challenger_rows = await db.fetch_all(
+            hit_picks.select()
+            .where(hit_picks.c.run_id == challenger["run_id"])
+            .order_by(hit_picks.c.rank)
+        )
+    return shape_paired_comparison(
+        primary_run=dict(primary),
+        challenger_run=dict(challenger) if challenger else None,
+        primary_rows=[dict(row) for row in primary_rows],
+        challenger_rows=[dict(row) for row in challenger_rows],
+        top=top,
+    )
 
 
 def summarize_pick_rows(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
@@ -561,7 +1042,19 @@ def summarize_pick_rows(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return by_version
 
 
-async def fetch_ledger_summary() -> dict[str, Any]:
+async def fetch_ledger_summary(
+    *,
+    prediction_window: Optional[str] = None,
+) -> dict[str, Any]:
+    """Track evaluation boards without mixing two snapshots from one day.
+
+    With no explicit window, afternoon is preferred, then morning, then
+    legacy. `by_window` preserves separate morning/afternoon evaluation.
+    """
+    if prediction_window and prediction_window not in PREDICTION_WINDOWS:
+        raise ValueError(
+            f"prediction_window must be one of {sorted(PREDICTION_WINDOWS)}."
+        )
     db = await get_picks_db()
     evaluation_join = hit_picks.join(
         hit_pick_runs, hit_picks.c.run_id == hit_pick_runs.c.run_id
@@ -574,6 +1067,9 @@ async def fetch_ledger_summary() -> dict[str, Any]:
             hit_picks.c.rank,
             hit_picks.c.played,
             hit_picks.c.got_hit,
+            hit_picks.c.run_id,
+            hit_pick_runs.c.prediction_window,
+            hit_pick_runs.c.generated_at,
         )
         .select_from(evaluation_join)
         .where(
@@ -581,9 +1077,46 @@ async def fetch_ledger_summary() -> dict[str, Any]:
             & (hit_pick_runs.c.is_evaluation == 1)
         )
     )
-    summary = summarize_pick_rows([dict(row) for row in rows])
-    days_graded = len({row["pick_date"] for row in rows})
-    return {"summary": summary, "days_graded": days_graded}
+    records = [dict(row) for row in rows]
+    by_window = {
+        window: summarize_pick_rows(
+            row for row in records if row["prediction_window"] == window
+        )
+        for window in sorted(PREDICTION_WINDOWS)
+        if any(row["prediction_window"] == window for row in records)
+    }
+    if prediction_window:
+        selected = [
+            row for row in records if row["prediction_window"] == prediction_window
+        ]
+    else:
+        precedence = {"legacy": 0, "morning": 1, "afternoon": 2}
+        chosen: dict[tuple[str, str], tuple[int, str]] = {}
+        for row in records:
+            key = (row["model_version"] or "unknown", row["pick_date"])
+            candidate = (
+                precedence.get(row["prediction_window"], -1),
+                row["generated_at"] or "",
+            )
+            if candidate > chosen.get(key, (-1, "")):
+                chosen[key] = candidate
+        selected = [
+            row
+            for row in records
+            if (
+                precedence.get(row["prediction_window"], -1),
+                row["generated_at"] or "",
+            )
+            == chosen[(row["model_version"] or "unknown", row["pick_date"])]
+        ]
+    summary = summarize_pick_rows(selected)
+    days_graded = len({row["pick_date"] for row in selected})
+    return {
+        "summary": summary,
+        "by_window": by_window,
+        "prediction_window": prediction_window or "preferred",
+        "days_graded": days_graded,
+    }
 
 
 # ---------------------------------------------------------------------------

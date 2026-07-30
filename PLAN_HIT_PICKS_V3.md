@@ -22,7 +22,8 @@ Probability that the player records at least one hit
 ## Decision summary
 
 - Keep `hit_gbm_v2_cal` as the production champion until V3 passes every promotion gate.
-- Build V3 as a shadow challenger that scores the same daily slate without changing the public ranking.
+- Build V3 as a visible experimental challenger that scores the same daily
+  slate without replacing V2 as the primary ranking.
 - Test feature groups one at a time. Do not combine every new idea into one unreviewable model change.
 - Add pitch-mix information as trained model features, not as a hand-written percentage bonus.
 - Correct point-in-time, projected-lineup, park-factor, and calibration evaluation issues before claiming an improvement.
@@ -49,6 +50,9 @@ Current behavior:
 - Inputs: 51 pregame features covering batting order, home/away, platoon, BvP, park, batter form, starter quality, bullpen quality, and one strikeout interaction.
 - Probability layer: isotonic calibration fitted from walk-forward base-model predictions.
 - Product ranking: top 5, 10, and 15 hitters by calibrated probability.
+- Frozen calibration test: 42,876 later batter-games from 2025-07-01 through
+  2026-07-03, with Brier improving from 0.23555 raw to 0.23548 calibrated
+  and a 71.82% top-10 hit rate.
 
 Recorded evaluation evidence to retain as the comparison baseline:
 
@@ -68,7 +72,8 @@ V3 does not initially include:
 - Sportsbook price collection or expected-value betting recommendations.
 - A manual rule such as `base probability + 5% for a good pitch matchup`.
 - Same-team two-player or three-player joint probabilities.
-- A new public page before the new measurements have passed validation.
+- Treating the visible experimental V3 page as the primary recommendation
+  before the new measurements have passed validation.
 - Player or pitcher identity memorization through raw IDs.
 - Training from completed-game information that was unavailable when the daily prediction would have run.
 - Replacing V2 solely because V3 wins one month or one top-N metric.
@@ -106,6 +111,25 @@ No single metric is sufficient. Top-N hit rate measures the visible product, whi
 
 ---
 
+## V3 readiness foundation
+
+Completed before feature development:
+
+- [x] Persist the complete scored candidate slate while reader APIs still
+  return only the requested top N.
+- [x] Separate morning and afternoon evaluation windows and require a shared
+  comparison group, cohort, and as-of snapshot.
+- [x] Separate primary/challenger role, reader visibility, evaluation
+  designation, and probability status.
+- [x] Couple calibration to the model recipe, feature schema, and dependency
+  environment; evaluate calibration on a later untouched block.
+- [x] Provide visible V2, experimental V3, and strict comparison routes with
+  safe empty states before V3 data exists.
+- [x] Add partial uniqueness constraints, primary-first failure isolation, a
+  bounded scheduler runtime, and paired-run/UI regression fixtures.
+
+---
+
 ## Phase 0 - Freeze the experiment contract
 
 ### 0.1 Lock the run, game, and cohort identities
@@ -116,9 +140,11 @@ Before producing a V3 score:
   date/model run.
 - Record `as_of_timestamp`, `prediction_mode`, model/runtime provenance, and
   the full candidate-cohort manifest on the run.
-- Treat `is_public` as the current display pointer and `is_evaluation` as the
-  one date/model run allowed into the live ledger. Moving either pointer must
-  not alter the saved predictions.
+- Use `model_role` (`primary` or `challenger`) independently from
+  `is_visible`. Use `is_evaluation` as the one date/model/window run allowed
+  into that window's live ledger. Moving a pointer must not alter predictions.
+- Record `comparison_group_id` and `prediction_window` (`morning` or
+  `afternoon`) and require equal cohort, as-of time, and window before pairing.
 - Carry MLB `game_pk` from candidate construction through JSON, database
   storage, API output, and grading.
 - Grade by `(game_pk, player_id)`, not `(date, player_id)`, so doubleheaders
@@ -540,6 +566,9 @@ V3 can replace V2 publicly only if:
 - The exact model/calibrator/environment bundle can be reproduced.
 - V2 remains available for immediate rollback.
 
+V3 may remain reader-visible during this period, but it must retain the
+experimental label and must not be described as the primary recommendation.
+
 The Phase 0 power analysis should define the practical improvement threshold. Do not invent a fixed percentage-point requirement after seeing the results.
 
 ---
@@ -551,11 +580,14 @@ The Phase 0 power analysis should define the practical improvement threshold. Do
 - Score V2 and V3 from the same slate and lineup snapshot.
 - Materialize the candidate cohort once and require both models to match its
   id before either result enters the comparison.
-- Persist both as immutable runs without changing the public winner.
+- Persist every scored candidate for both immutable runs without changing
+  the primary model role.
 - Store a run manifest, as-of timestamp, prediction mode, and cohort manifest
   for both models.
 - Record feature coverage, fallback use, and lineup source.
-- Add a comparison endpoint restricted to development/admin use initially.
+- Serve the visible V2, visible experimental V3, and strict paired comparison
+  endpoints. Return an explicit no-paired-run state instead of comparing
+  different snapshots.
 
 Suggested output fields:
 
@@ -573,12 +605,17 @@ Suggested output fields:
 
 ### Frontend
 
-Do not create a separate public page until shadow evaluation is complete.
+Three reader-visible routes are available during evaluation:
 
-First presentation:
+- `/hit-picks/v2` keeps the existing V2 board as primary.
+- `/hit-picks/v3` uses the same board layout with prominent experimental
+  labeling and calls uncalibrated output a model score.
+- `/hit-picks/compare` shows rank movement, score changes, feature
+  coverage/fallbacks, and actual statlines only for strictly paired runs.
+
+Presentation rules:
 
 - Existing V2 probability remains primary.
-- Development-only expandable matchup detail shows V3.
 - Show pitcher arsenal, batter pitch-type strengths, coverage, and sample confidence.
 - Label V3 as experimental.
 - Never imply that a pitch-match score is itself a probability.
@@ -699,7 +736,7 @@ Large datasets, trained models, and prediction outputs remain outside Git. Small
 4. Build feature groups.
 5. Run the experiment ladder.
 6. Fit and test candidate-specific calibration.
-7. Run V3 in shadow mode.
+7. Run V3 as a visible experimental challenger.
 8. Review the promotion report.
 9. Promote through a configuration switch.
 

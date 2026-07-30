@@ -1,0 +1,27 @@
+{
+  "contract": "v3_readiness_v1",
+  "model": "hit_gbm_v2",
+  "calibrator_fit_window": {
+    "start": "2024-03-20",
+    "end": "2025-06-30",
+    "pairs": 63991
+  },
+  "untouched_test_window": {
+    "start": "2025-07-01",
+    "end": "2026-07-03",
+    "pairs": 42876
+  },
+  "untouched_metrics": {
+    "brier_raw": 0.23555,
+    "brier_calibrated": 0.23548,
+    "auc_raw": 0.59329,
+    "auc_calibrated": 0.5929,
+    "top5_hit_rate": 0.7337,
+    "top10_hit_rate": 0.7182,
+    "top15_hit_rate": 0.7059
+  },
+  "base_model_recipe_sha256": "62085cbb712d030aad828ad1f1a337fccce9997155539ae2931dea70fd8be490",
+  "feature_schema_sha256": "0c6c415c261bdc31ee36437a046b3f916d1603461d6162c3bdf8ec36fe1b6236",
+  "dependency_fingerprint": "416400407dffff984639e03a2f2fe310f139627e0e3d5df7e2fa336154466a15",
+  "generated_at": "2026-07-30T11:30:33+00:00"
+}
