@@ -223,7 +223,10 @@ def _slice_metrics(
                 float(brier_score_loss(y_true, probabilities)),
                 6,
             ),
-            "log_loss": round(float(log_loss(y_true, probabilities)), 6),
+            "log_loss": round(
+                float(log_loss(y_true, probabilities, labels=[0, 1])),
+                6,
+            ),
         }
         if len(np.unique(y_true)) > 1:
             entry["roc_auc"] = round(
