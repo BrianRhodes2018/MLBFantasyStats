@@ -418,6 +418,7 @@ class HitDatasetBuilder:
         source: BoxscoreSource,
         prediction_mode: str = "official",
         point_in_time_park_factors: Optional[PointInTimeParkFactors] = None,
+        include_v3_features: bool = True,
     ) -> None:
         if prediction_mode not in {"official", "projected"}:
             raise ValueError("prediction_mode must be official or projected.")
@@ -425,6 +426,7 @@ class HitDatasetBuilder:
         self.source = source
         self.prediction_mode = prediction_mode
         self.point_in_time_park_factors = point_in_time_park_factors
+        self.include_v3_features = include_v3_features
         # Per-player game lines accumulated from boxscores as days are
         # processed in order. Only PRIOR days' lines are ever present when
         # a day's features are computed (updated at the end of each day).
@@ -442,7 +444,9 @@ class HitDatasetBuilder:
         self.lineup_history: dict[str, list[dict[str, Any]]] = {}
         # V3 additions use the same point-in-time lifecycle as the V2 form
         # histories. No current-date pitch or team result enters a feature.
-        self.v3_history = V3FeatureHistory()
+        self.v3_history = (
+            V3FeatureHistory() if self.include_v3_features else None
+        )
         self.team_game_history: dict[str, list[dict[str, Any]]] = {}
 
     def park_factor(
@@ -577,18 +581,24 @@ class HitDatasetBuilder:
             **self.batter_features(player_id, target),
             **pitcher_feats,
             # -- V3 contact, arsenal, and workload layers
-            **self.v3_history.features(
-                batter_id=player_id,
-                pitcher_id=starter_id,
-                pitcher_hand=throws,
-            ),
-            **starter_workload_features(
-                self.pitcher_history.get(starter_id, []),
-                target_date=target.isoformat(),
-            ),
-            **bullpen_workload_features(
-                self.bullpen_history.get(opponent or "", []),
-                target_date=target.isoformat(),
+            **(
+                {
+                    **self.v3_history.features(
+                        batter_id=player_id,
+                        pitcher_id=starter_id,
+                        pitcher_hand=throws,
+                    ),
+                    **starter_workload_features(
+                        self.pitcher_history.get(starter_id, []),
+                        target_date=target.isoformat(),
+                    ),
+                    **bullpen_workload_features(
+                        self.bullpen_history.get(opponent or "", []),
+                        target_date=target.isoformat(),
+                    ),
+                }
+                if self.v3_history is not None
+                else {}
             ),
         }
 
@@ -611,7 +621,8 @@ class HitDatasetBuilder:
         for slate_game in self.source.final_games(target):
             schedule = slate_game["schedule"]
             game = slate_game["game"]
-            day_v3_games.append(game)
+            if self.include_v3_features:
+                day_v3_games.append(game)
             game_data = game.get("gameData", {})
             game_players = game_data.get("players", {})
             box_teams = game.get("liveData", {}).get("boxscore", {}).get("teams", {})
@@ -645,7 +656,7 @@ class HitDatasetBuilder:
                     .get("teamStats", {})
                     .get("batting", {})
                 )
-                if side_team:
+                if side_team and self.include_v3_features:
                     player_batting = [
                         (player.get("stats") or {}).get("batting") or {}
                         for player in (
@@ -865,10 +876,12 @@ class HitDatasetBuilder:
             self.bullpen_history.setdefault(team, []).append(line)
         for team, entry in day_lineup_entries:
             self.lineup_history.setdefault(team, []).append(entry)
-        for team, line in day_team_lines:
-            self.team_game_history.setdefault(team, []).append(line)
-        for game in day_v3_games:
-            self.v3_history.add_game(game)
+        if self.include_v3_features:
+            for team, line in day_team_lines:
+                self.team_game_history.setdefault(team, []).append(line)
+            for game in day_v3_games:
+                assert self.v3_history is not None
+                self.v3_history.add_game(game)
         return day_rows
 
     def build(self, start: date, end: date, *, verbose: bool = True) -> list[dict[str, Any]]:

@@ -2,6 +2,7 @@ from datetime import date
 
 import pytest
 
+from build_hit_dataset import HitDatasetBuilder
 from hit_model.v3_features import (
     PitchAggregate,
     V3FeatureHistory,
@@ -132,6 +133,14 @@ class TestV3FeatureHistory:
 
 
 class TestV3FeatureHelpers:
+    def test_v3_history_can_be_disabled_for_the_v2_daily_path(self):
+        builder = HitDatasetBuilder(
+            db=None,
+            source=None,
+            include_v3_features=False,
+        )
+        assert builder.v3_history is None
+
     def test_pitch_codes_map_to_stable_families(self):
         assert pitch_family("FF") == "four_seam"
         assert pitch_family("ST") == "slider"
@@ -189,4 +198,3 @@ class TestV3FeatureHelpers:
         assert bullpen["bullpen_pitches_yesterday"] == 22
         assert bullpen["bullpen_pitches_last3_days"] == 52
         assert bullpen["bullpen_relievers_last3_days"] == 2
-

@@ -397,7 +397,14 @@ async def run(args: argparse.Namespace) -> int:
     await db.connect()
     try:
         source = BoxscoreSource(Path(args.cache_dir))
-        builder = HitDatasetBuilder(db=db, source=source)
+        # The frozen V3 candidate did not pass shadow-entry gates. Keep its
+        # pitch-event extraction off the production V2 path until a future
+        # candidate earns deployment.
+        builder = HitDatasetBuilder(
+            db=db,
+            source=source,
+            include_v3_features=False,
+        )
         await builder.load_db_context()
 
         print(f"Replaying season {SEASON_START} .. {train_end.isoformat()} for training data...")
