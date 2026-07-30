@@ -40,6 +40,19 @@
       "isotonic",
       "sigmoid_platt"
     ],
+    "method_parameters": {
+      "isotonic": {
+        "out_of_bounds": "clip",
+        "increasing": true
+      },
+      "sigmoid_platt": {
+        "input": "logit(raw_probability_clipped_to_1e-6)",
+        "C": 1.0,
+        "solver": "lbfgs",
+        "random_state": 7
+      },
+      "serialized_lookup_grid_points": 201
+    },
     "method_fit_window": {
       "start": "2025-07-01",
       "end": "2025-09-28"
