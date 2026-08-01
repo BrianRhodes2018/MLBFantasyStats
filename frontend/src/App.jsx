@@ -59,22 +59,8 @@ import { fuzzyMatchScore } from './utils/fuzzyMatch'
 // API_BASE is the backend URL prefix. Empty string in dev (uses Vite proxy),
 // full URL in production (e.g., "https://your-app.onrender.com").
 // See config.js for details on how this works with Vite environment variables.
-import { API_BASE } from './config'
-
-function viewFromPath(pathname) {
-  if (pathname === '/pitcher-ks/count-model') return 'pitcherks-count'
-  if (pathname === '/pitcher-ks/empirical-bayes') return 'pitcherks-bayes'
-  if (pathname === '/pitcher-ks/compare') return 'pitcherks-compare'
-  if (pathname === '/pitcher-ks/decomposed' || pathname === '/pitcher-ks') {
-    return 'pitcherks-decomposed'
-  }
-  if (pathname === '/hit-picks/v3') return 'hitpicks-v3'
-  if (pathname === '/hit-picks/compare') return 'hitpicks-compare'
-  if (pathname === '/hit-picks/v2' || pathname === '/hit-picks') {
-    return 'hitpicks-v2'
-  }
-  return 'dashboard'
-}
+import { API_BASE, PITCHER_KS_ENABLED } from './config'
+import { viewFromPath } from './routes'
 
 function App() {
   // ---------------------------------------------------------------------------
@@ -186,7 +172,7 @@ function App() {
   // 'dashboard' = the main stats tables (default)
   // 'matchups'  = today's pitching matchups page
   const [currentView, setCurrentView] = useState(
-    () => viewFromPath(window.location.pathname),
+    () => viewFromPath(window.location.pathname, PITCHER_KS_ENABLED),
   )
 
   const navigateTo = useCallback((view, path = '/') => {
@@ -195,7 +181,9 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const handlePopState = () => setCurrentView(viewFromPath(window.location.pathname))
+    const handlePopState = () => setCurrentView(
+      viewFromPath(window.location.pathname, PITCHER_KS_ENABLED),
+    )
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
@@ -839,10 +827,9 @@ function App() {
   // ---------------------------------------------------------------------------
   // PITCHER KS PAGE VIEWS
   // ---------------------------------------------------------------------------
-  // UI-only shells for the three planned projection approaches and their
-  // strict same-slate comparison. No model endpoint is called until the
-  // historical datasets and candidates are implemented and validated.
-  if (currentView.startsWith('pitcherks-')) {
+  // Feature-gated daily boards for the three projection approaches and their
+  // strict same-slate comparison. The backend serves only published runs.
+  if (PITCHER_KS_ENABLED && currentView.startsWith('pitcherks-')) {
     const pitcherKsPage = currentView === 'pitcherks-count'
       ? <PitcherKsPage approach="count" />
       : currentView === 'pitcherks-bayes'
@@ -1112,12 +1099,14 @@ function App() {
         >
           Hit Picks &rarr;
         </span>
-        <span
-          className="matchups-nav-link"
-          onClick={() => navigateTo('pitcherks-decomposed', '/pitcher-ks/decomposed')}
-        >
-          Pitcher Ks &rarr;
-        </span>
+        {PITCHER_KS_ENABLED && (
+          <span
+            className="matchups-nav-link"
+            onClick={() => navigateTo('pitcherks-decomposed', '/pitcher-ks/decomposed')}
+          >
+            Pitcher Ks &rarr;
+          </span>
+        )}
       </div>
 
       {/* Show a visible error banner if the backend connection failed.

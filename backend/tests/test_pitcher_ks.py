@@ -5,6 +5,7 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
+from pitcher_ks.artifacts import verify_artifact_checksum, write_artifact_checksum
 from pitcher_ks.features import FEATURE_NAMES, PitcherKsDatasetBuilder
 from pitcher_ks.modeling import (
     APPROACH_ORDER,
@@ -77,6 +78,18 @@ def test_dataset_profile_checks_grain_and_targets():
     assert profile["duplicate_identity_rows"] == 0
     assert profile["invalid_target_rows"] == 0
     assert max(profile["missing_rate_by_feature"].values()) == 0
+
+
+def test_artifact_checksum_detects_tampering(tmp_path):
+    artifact = tmp_path / "pitcher_ks_v1.pkl"
+    artifact.write_bytes(b"trusted model bytes")
+    write_artifact_checksum(artifact)
+
+    assert len(verify_artifact_checksum(artifact)) == 64
+
+    artifact.write_bytes(b"tampered model bytes")
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        verify_artifact_checksum(artifact)
 
 
 class FakeSource:

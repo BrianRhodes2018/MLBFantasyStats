@@ -9,12 +9,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from build_hit_dataset import BoxscoreSource, DEFAULT_CACHE_DIR, parse_iso_date
+from pitcher_ks.artifacts import write_artifact_checksum
 from pitcher_ks.features import build_training_rows
 from pitcher_ks.modeling import train_model_package
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
-DEFAULT_ARTIFACT = BACKEND_DIR / "backtest_results" / "pitcher_ks" / "pitcher_ks_v1.pkl"
+DEFAULT_ARTIFACT = BACKEND_DIR / "model_artifacts" / "pitcher_ks_v1.pkl"
 DEFAULT_REPORT = BACKEND_DIR / "reports" / "pitcher_ks" / "v1_backtest.json"
 
 
@@ -50,6 +51,7 @@ def run(args: argparse.Namespace) -> int:
     artifact_path = Path(args.artifact)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_bytes(pickle.dumps(package, protocol=pickle.HIGHEST_PROTOCOL))
+    checksum_path = write_artifact_checksum(artifact_path)
 
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +63,7 @@ def run(args: argparse.Namespace) -> int:
     print(json.dumps(package["data_profile"], indent=2, sort_keys=True))
     print(json.dumps(package["backtest"]["aggregate"], indent=2, sort_keys=True))
     print(f"Saved artifact: {artifact_path}")
+    print(f"Saved checksum: {checksum_path}")
     print(f"Saved report: {report_path}")
     return 0
 

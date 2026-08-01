@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 from build_hit_dataset import BoxscoreSource, DEFAULT_CACHE_DIR, parse_iso_date, safe_int
 from database import normalize_database_url
-from migrations import run_migrations
+from pitcher_ks.artifacts import verify_artifact_checksum
 from pitcher_ks.features import replay_current_season
 from pitcher_ks.modeling import APPROACH_ORDER, score_approaches
 from pitcher_ks.store import store_daily_bundle
@@ -96,6 +96,7 @@ async def run(args: argparse.Namespace) -> int:
             f"Pitcher Ks artifact is missing: {artifact_path}. "
             "Run train_pitcher_ks.py first."
         )
+    artifact_sha256 = verify_artifact_checksum(artifact_path)
     package = pickle.loads(artifact_path.read_bytes())
     if str(package["trained_through"]) >= target.isoformat():
         raise RuntimeError(
@@ -159,6 +160,7 @@ async def run(args: argparse.Namespace) -> int:
                 "feature_names": package["feature_names"],
                 "data_identity_sha256": package["data_profile"]["identity_sha256"],
                 "artifact": artifact_path.name,
+                "artifact_sha256": artifact_sha256,
             },
             "predictions": scored[approach],
         }
@@ -171,10 +173,13 @@ async def run(args: argparse.Namespace) -> int:
     }
     output_path.write_text(json.dumps(serializable, indent=2, sort_keys=True), encoding="utf-8")
 
+    if args.dry_run:
+        print(f"Dry run complete; no database rows were written. Bundle: {output_path}")
+        return 0
+
     raw_url = os.environ.get("PITCHER_KS_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not raw_url:
         raise RuntimeError("DATABASE_URL is required to publish Pitcher Ks projections.")
-    run_migrations()
     async_url, _ = normalize_database_url(raw_url)
     db = Database(async_url)
     await db.connect()
@@ -205,6 +210,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output")
     parser.add_argument("--prediction-window", choices=("morning", "afternoon"))
     parser.add_argument("--request-delay-seconds", type=float, default=0.02)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate and validate the bundle without writing to a database.",
+    )
     return parser
 
 
