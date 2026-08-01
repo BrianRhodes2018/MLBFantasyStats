@@ -85,6 +85,7 @@ from sqlalchemy import text, inspect
 from baseball_math import parse_mlb_innings_pitched
 from routers.betting import router as betting_router
 from routers.hit_picks import router as hit_picks_router
+from routers.pitcher_ks import router as pitcher_ks_router
 from routers.system import router as system_router
 from settings import get_cors_origins
 
@@ -125,6 +126,7 @@ app.add_middleware(
 app.include_router(system_router)
 app.include_router(betting_router)
 app.include_router(hit_picks_router)
+app.include_router(pitcher_ks_router)
 
 # ---------------------------------------------------------------------------
 # Database Schema Migrations (Alembic)

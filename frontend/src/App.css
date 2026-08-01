@@ -949,6 +949,153 @@ body {
   margin-top: 3px;
 }
 
+/* Pitcher Ks model shells reuse the Hit Picks table and version-tab language.
+   These styles deliberately describe an empty, pre-model state without
+   implying that projections or APIs already exist. */
+.pitcher-ks-page {
+  max-width: 1180px;
+}
+
+.pitcher-ks-header h2 {
+  margin: 3px 0 0;
+}
+
+.pitcher-ks-status-badge,
+.pitcher-ks-run-state {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  padding: 7px 11px;
+  text-transform: uppercase;
+}
+
+.pitcher-ks-status-badge {
+  background: rgba(85, 139, 190, 0.16);
+  border: 1px solid rgba(111, 175, 228, 0.58);
+  color: #9cc9ef;
+}
+
+.pitcher-ks-readiness {
+  background: rgba(66, 155, 103, 0.08);
+  border: 1px solid rgba(104, 195, 137, 0.38);
+  border-radius: 10px;
+  margin-bottom: 22px;
+  padding: 14px 16px;
+}
+
+.pitcher-ks-readiness > span {
+  color: #7fd69c;
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.pitcher-ks-readiness strong {
+  color: #e8ecf0;
+  display: block;
+  font-size: 0.92rem;
+}
+
+.pitcher-ks-readiness p {
+  color: #a9bdcf;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 5px 0 0;
+}
+
+.pitcher-ks-board {
+  background: #101b2e;
+  border: 1px solid #31527a;
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+.pitcher-ks-board-heading {
+  align-items: center;
+  background: rgba(34, 63, 94, 0.58);
+  border-bottom: 1px solid #31527a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 16px 18px;
+}
+
+.pitcher-ks-board-heading h3 {
+  color: #e8ecf0;
+  font-size: 1.08rem;
+  margin: 2px 0 0;
+}
+
+.pitcher-ks-run-state {
+  background: rgba(138, 153, 168, 0.1);
+  border: 1px solid rgba(155, 174, 190, 0.3);
+  color: #9fb0c0;
+}
+
+.pitcher-ks-table {
+  margin: 0;
+  min-width: 1120px;
+}
+
+.pitcher-ks-table td small {
+  color: #91a7ba;
+  display: block;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+
+.pitcher-ks-empty-cell {
+  padding: 0 !important;
+}
+
+.pitcher-ks-empty {
+  padding: 42px 24px;
+  text-align: center;
+}
+
+.pitcher-ks-empty h3 {
+  color: #dbe8f4;
+  margin: 0 0 8px;
+}
+
+.pitcher-ks-empty p {
+  color: #9db1c4;
+  line-height: 1.5;
+  margin: 0 auto 8px;
+  max-width: 620px;
+}
+
+.pitcher-ks-empty small {
+  color: #748da5;
+  display: block;
+  line-height: 1.45;
+  margin: 0 auto;
+  max-width: 680px;
+}
+
+@media (max-width: 640px) {
+  .pitcher-ks-header {
+    align-items: flex-start;
+  }
+
+  .pitcher-ks-nav a {
+    flex: 1 1 42%;
+    text-align: center;
+  }
+
+  .pitcher-ks-board-heading {
+    align-items: flex-start;
+  }
+}
+
 .hit-history-loading {
   align-items: center;
   backdrop-filter: blur(2px);

@@ -1,0 +1,39 @@
+# Pitcher Ks staging backend only.
+#
+# This Blueprint is intentionally separate from render.yaml so importing it
+# cannot modify the production service. In Render, select this file explicitly
+# as the Blueprint Path and review that exactly one new service is proposed.
+version: "1"
+
+services:
+  - type: web
+    name: mlb-stats-api-pitcher-ks-staging
+    runtime: python
+    branch: codex/pitcher-ks-release
+    rootDir: backend
+
+    buildCommand: uv sync --locked --no-dev && uv run --locked --no-dev python scripts/check_ml_environment.py --json
+    startCommand: uv run --locked --no-dev uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+
+    # Staging stays free and does not redeploy on future branch pushes until a
+    # person has reviewed the commit and explicitly starts a manual deploy.
+    plan: free
+    autoDeployTrigger: "off"
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+
+      - key: UV_VERSION
+        value: "0.11.33"
+
+      # Use only backend/.env's STAGING_DATABASE_URL value. Never paste the
+      # production connection string into this service.
+      - key: DATABASE_URL
+        sync: false
+
+      # Set to the protected Vercel branch alias and, while validating a
+      # specific deployment, its generated Preview URL (comma-separated).
+      - key: CORS_ORIGINS
+        sync: false

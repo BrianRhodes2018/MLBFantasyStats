@@ -1,0 +1,18 @@
+{
+  "artifact": "pitcher_ks_v1.pkl",
+  "artifact_size_bytes": 1071003,
+  "data_identity_sha256": "b732b0280c75f2dbb375f700e00aafe0e71211cd35db9107bda09ba1596ef2cb",
+  "generated_at_utc": "2026-08-01T18:14:18Z",
+  "model_version": "pitcher_ks_v1",
+  "runtime": {
+    "numpy": "2.5.1",
+    "python": "3.12.7",
+    "scikit_learn": "1.9.0",
+    "scipy": "1.18.0"
+  },
+  "serialization": "python-pickle",
+  "sha256": "37f07be17e18424ac3ab3779e3c7b5403de47ef60230da6ec21e2fd61c310ba3",
+  "source": "trusted repository artifact produced by backend/train_pitcher_ks.py",
+  "trained_on_rows": 17906,
+  "trained_through": "2026-07-31"
+}

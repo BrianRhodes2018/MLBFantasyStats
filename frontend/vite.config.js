@@ -21,6 +21,8 @@
  * a reverse proxy (like Nginx) or deploy both on the same domain.
  */
 
+import process from 'node:process'
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -42,7 +44,15 @@ import react from '@vitejs/plugin-react'
 // ---------------------------------------------------------------------------
 import { VitePWA } from 'vite-plugin-pwa'
 
+const pitcherKsReleaseFlag = process.env.VITE_PITCHER_KS_ENABLED
+  ?? (process.env.VERCEL_ENV === 'preview' ? 'true' : 'false')
+
 export default defineConfig({
+  define: {
+    // Preview deployments exercise the feature automatically. Production is
+    // dark unless its environment explicitly opts in after approval.
+    'import.meta.env.VITE_PITCHER_KS_ENABLED': JSON.stringify(pitcherKsReleaseFlag),
+  },
   // Plugins extend Vite's functionality. @vitejs/plugin-react adds
   // React-specific features like Fast Refresh (hot module replacement)
   // and JSX transformation.
@@ -231,6 +241,12 @@ export default defineConfig({
       },
       // Forward the daily hit-model pick list routes (Hit Picks page).
       '/hit-picks': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
+      // New feature APIs use /api so direct browser routes can remain under
+      // /pitcher-ks without colliding with the development proxy.
+      '/api': {
         target: 'http://localhost:8001',
         changeOrigin: true,
       },

@@ -1,0 +1,103 @@
+name: Publish Pitcher Ks Predictions
+
+on:
+  workflow_dispatch:
+    inputs:
+      projection_date:
+        description: Optional target date in YYYY-MM-DD format; defaults to today
+        required: false
+        type: string
+      prediction_window:
+        description: Frozen slate window
+        required: true
+        default: morning
+        type: choice
+        options:
+          - morning
+          - afternoon
+      publish:
+        description: Write the validated three-model bundle to production
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pitcher-ks-production-publish
+  cancel-in-progress: false
+
+jobs:
+  predict:
+    name: Validate and optionally publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.33"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        working-directory: backend
+        run: uv sync --locked --no-dev
+
+      - name: Validate scientific environment
+        working-directory: backend
+        run: uv run --locked --no-dev python scripts/check_ml_environment.py --json
+
+      - name: Verify model artifact integrity
+        working-directory: backend/model_artifacts
+        run: sha256sum --check pitcher_ks_v1.sha256
+
+      - name: Require the production schema before publishing
+        if: ${{ inputs.publish }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        working-directory: backend
+        shell: bash
+        run: |
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "DATABASE_URL is not configured for the production environment." >&2
+            exit 1
+          fi
+          current="$(uv run --locked --no-dev alembic current)"
+          echo "$current"
+          grep -q "b3f1d6a9c420 (head)" <<<"$current" || {
+            echo "Production is not at the reviewed Pitcher Ks migration head." >&2
+            exit 1
+          }
+
+      - name: Generate the paired three-model bundle
+        env:
+          DATABASE_URL: ${{ inputs.publish && secrets.DATABASE_URL || '' }}
+          PUBLISH: ${{ inputs.publish }}
+          PREDICTION_WINDOW: ${{ inputs.prediction_window }}
+          TARGET_DATE: ${{ inputs.projection_date }}
+        working-directory: backend
+        shell: bash
+        run: |
+          args=(--prediction-window "$PREDICTION_WINDOW")
+          if [[ -n "$TARGET_DATE" ]]; then
+            [[ "$TARGET_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
+              echo "projection_date must use YYYY-MM-DD." >&2
+              exit 1
+            }
+            args+=(--date "$TARGET_DATE")
+          fi
+          if [[ "$PUBLISH" != "true" ]]; then
+            args+=(--dry-run)
+          fi
+          uv run --locked --no-dev python predict_pitcher_ks_today.py "${args[@]}"

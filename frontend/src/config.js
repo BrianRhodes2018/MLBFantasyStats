@@ -35,3 +35,7 @@ const DEFAULT_PRODUCTION_API_BASE = 'https://mlbfantasystats.onrender.com'
 // API base URL — prepended to all backend API calls.
 // Empty string in local development (uses Vite proxy), full URL in deployed builds.
 export const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? DEFAULT_PRODUCTION_API_BASE : '')
+
+// Pitcher Ks remains dark unless explicitly enabled for a Vercel environment.
+// This flag controls both navigation and direct route resolution.
+export const PITCHER_KS_ENABLED = String(import.meta.env.VITE_PITCHER_KS_ENABLED).toLowerCase() === 'true'

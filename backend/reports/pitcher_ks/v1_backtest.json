@@ -1,0 +1,163 @@
+{
+  "approaches": {
+    "bayes": "empirical-Bayes pitcher, opponent, and workload mixture",
+    "count": "Poisson mean plus 10th/90th quantile gradient boosting",
+    "decomposed": "gradient-boosted K/BF plus workload distribution"
+  },
+  "backtest": {
+    "aggregate": {
+      "bayes": {
+        "bias": 0.1316,
+        "interval_80_coverage": 0.8884,
+        "mae": 1.8722,
+        "mean_log_score": 2.246,
+        "rmse": 2.329,
+        "starts": 8172
+      },
+      "count": {
+        "bias": 0.0665,
+        "interval_80_coverage": 0.8522,
+        "mae": 1.8192,
+        "mean_log_score": 2.2346,
+        "rmse": 2.275,
+        "starts": 8172
+      },
+      "decomposed": {
+        "bias": 0.1131,
+        "interval_80_coverage": 0.866,
+        "mae": 1.8329,
+        "mean_log_score": 2.2212,
+        "rmse": 2.2849,
+        "starts": 8172
+      }
+    },
+    "folds": [
+      {
+        "approaches": {
+          "bayes": {
+            "bias": 0.0854,
+            "interval_80_coverage": 0.889,
+            "mae": 1.8588,
+            "mean_log_score": 2.2456,
+            "rmse": 2.325,
+            "starts": 4867
+          },
+          "count": {
+            "bias": 0.1232,
+            "interval_80_coverage": 0.8428,
+            "mae": 1.835,
+            "mean_log_score": 2.2474,
+            "rmse": 2.2951,
+            "starts": 4867
+          },
+          "decomposed": {
+            "bias": 0.166,
+            "interval_80_coverage": 0.8634,
+            "mae": 1.8465,
+            "mean_log_score": 2.2311,
+            "rmse": 2.305,
+            "starts": 4867
+          }
+        },
+        "fold": "2025",
+        "test_end": "2025-09-28",
+        "test_start": "2025-03-18",
+        "test_starts": 4867,
+        "train_starts": 9734
+      },
+      {
+        "approaches": {
+          "bayes": {
+            "bias": 0.1996,
+            "interval_80_coverage": 0.8874,
+            "mae": 1.8919,
+            "mean_log_score": 2.2465,
+            "rmse": 2.335,
+            "starts": 3305
+          },
+          "count": {
+            "bias": -0.0169,
+            "interval_80_coverage": 0.866,
+            "mae": 1.796,
+            "mean_log_score": 2.2158,
+            "rmse": 2.2455,
+            "starts": 3305
+          },
+          "decomposed": {
+            "bias": 0.0353,
+            "interval_80_coverage": 0.8699,
+            "mae": 1.8128,
+            "mean_log_score": 2.2065,
+            "rmse": 2.2553,
+            "starts": 3305
+          }
+        },
+        "fold": "2026",
+        "test_end": "2026-07-31",
+        "test_start": "2026-03-25",
+        "test_starts": 3305,
+        "train_starts": 14601
+      }
+    ]
+  },
+  "data_profile": {
+    "duplicate_identity_rows": 0,
+    "first_date": "2023-03-30",
+    "grain": "one row per actual MLB starting pitcher and game",
+    "identity_sha256": "b732b0280c75f2dbb375f700e00aafe0e71211cd35db9107bda09ba1596ef2cb",
+    "invalid_target_rows": 0,
+    "last_date": "2026-07-31",
+    "mean_batters_faced": 21.8573,
+    "mean_strikeouts": 4.8044,
+    "missing_rate_by_feature": {
+      "is_home_pitcher": 0.0,
+      "league_k_rate": 0.0,
+      "lineup_confidence": 0.0,
+      "lineup_history_coverage": 0.0,
+      "month_cos": 0.0,
+      "month_sin": 0.0,
+      "opponent_lineup_k_rate": 0.0,
+      "opponent_team_k_rate": 0.0,
+      "pitcher_bf_avg": 0.0,
+      "pitcher_days_rest": 0.0,
+      "pitcher_ip_avg": 0.0,
+      "pitcher_k_rate": 0.0,
+      "pitcher_k_rate_trend": 0.0,
+      "pitcher_pitches_avg": 0.0,
+      "pitcher_recent_bf_avg": 0.0,
+      "pitcher_recent_k_rate": 0.0,
+      "pitcher_recent_pitches_avg": 0.0,
+      "pitcher_starts_log": 0.0,
+      "pitcher_vs_opponent_k_rate": 0.0,
+      "throws_left": 0.0
+    },
+    "starts": 17906,
+    "strikeout_p95": 9.0,
+    "unique_pitchers": 700
+  },
+  "feature_names": [
+    "pitcher_k_rate",
+    "pitcher_recent_k_rate",
+    "pitcher_k_rate_trend",
+    "pitcher_starts_log",
+    "pitcher_bf_avg",
+    "pitcher_recent_bf_avg",
+    "pitcher_pitches_avg",
+    "pitcher_recent_pitches_avg",
+    "pitcher_ip_avg",
+    "pitcher_days_rest",
+    "pitcher_vs_opponent_k_rate",
+    "opponent_lineup_k_rate",
+    "opponent_team_k_rate",
+    "lineup_history_coverage",
+    "lineup_confidence",
+    "is_home_pitcher",
+    "throws_left",
+    "league_k_rate",
+    "month_sin",
+    "month_cos"
+  ],
+  "model_version": "pitcher_ks_v1",
+  "trained_on_rows": 17906,
+  "trained_through": "2026-07-31"
+}
