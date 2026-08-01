@@ -68,8 +68,8 @@ Do not continue if `/health` fails, the database revision is not
 3. Select **Preview**, narrow it to Git branch
    `codex/pitcher-ks-release`, and enter the staging Render URL.
 4. Confirm **Production is not selected**.
-5. Redeploy commit `fd01c36` from the branch so the Vite build receives the
-   new Preview-only value.
+5. Redeploy the latest reviewed commit from the branch so the Vite build
+   receives the new Preview-only value.
 
 The Pitcher Ks navigation is already enabled automatically for Vercel Preview
 builds. Production remains dark unless `VITE_PITCHER_KS_ENABLED=true` is
