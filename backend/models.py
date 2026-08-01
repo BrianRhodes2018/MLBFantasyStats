@@ -713,3 +713,94 @@ hit_picks = Table(
 
 Index("ix_hit_picks_date_public", hit_picks.c.pick_date, hit_picks.c.is_public)
 Index("ix_hit_picks_game_player", hit_picks.c.game_pk, hit_picks.c.player_id)
+
+
+# =============================================================================
+# PITCHER KS - Immutable daily runs for three projection approaches
+# =============================================================================
+
+pitcher_k_runs = Table(
+    "pitcher_k_runs",
+    metadata,
+    Column("run_id", String(36), primary_key=True),
+    Column("projection_date", String(10), nullable=False),
+    Column("approach", String(30), nullable=False),
+    Column("model_version", String(50), nullable=False),
+    Column("generated_at", String(40), nullable=False),
+    Column("as_of_timestamp", String(40), nullable=False),
+    Column("prediction_window", String(20), nullable=False),
+    Column("comparison_group_id", String(36), nullable=False),
+    Column("candidate_cohort_id", String(64), nullable=False),
+    Column("trained_through", String(10), nullable=False),
+    Column("trained_on_rows", Integer, nullable=False),
+    Column("candidate_count", Integer, nullable=False),
+    Column("backtest_metrics_json", Text, nullable=False),
+    Column("model_manifest_json", Text, nullable=False),
+    Column("is_public", Integer, nullable=False, server_default="1"),
+    Column("is_evaluation", Integer, nullable=False, server_default="1"),
+    Column("created_at", String(40), nullable=False),
+)
+
+Index(
+    "ix_pitcher_k_runs_date_approach_public",
+    pitcher_k_runs.c.projection_date,
+    pitcher_k_runs.c.approach,
+    pitcher_k_runs.c.is_public,
+)
+Index(
+    "ix_pitcher_k_runs_comparison_group",
+    pitcher_k_runs.c.comparison_group_id,
+)
+
+pitcher_k_predictions = Table(
+    "pitcher_k_predictions",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("pitcher_k_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("projection_date", String(10), nullable=False),
+    Column("approach", String(30), nullable=False),
+    Column("rank", Integer, nullable=False),
+    Column("game_pk", Integer, nullable=False),
+    Column("game_time", String(40), nullable=True),
+    Column("pitcher_id", Integer, nullable=False),
+    Column("pitcher_name", String(150), nullable=False),
+    Column("team", String(80), nullable=False),
+    Column("opponent", String(80), nullable=False),
+    Column("venue", String(120), nullable=True),
+    Column("pitcher_throws", String(2), nullable=True),
+    Column("lineup_source", String(40), nullable=False),
+    Column("lineup_confidence", Float, nullable=False),
+    Column("projected_ks", Float, nullable=False),
+    Column("median_ks", Integer, nullable=False),
+    Column("p10_ks", Integer, nullable=False),
+    Column("p90_ks", Integer, nullable=False),
+    Column("probability_5_plus", Float, nullable=False),
+    Column("probability_6_plus", Float, nullable=False),
+    Column("projected_batters_faced", Float, nullable=False),
+    Column("pmf_json", Text, nullable=False),
+    Column("actual_ks", Integer, nullable=True),
+    Column("actual_batters_faced", Integer, nullable=True),
+    Column("graded_at", String(40), nullable=True),
+    UniqueConstraint(
+        "run_id",
+        "game_pk",
+        "pitcher_id",
+        name="uq_pitcher_k_prediction_run_game_pitcher",
+    ),
+)
+
+Index(
+    "ix_pitcher_k_predictions_date_approach",
+    pitcher_k_predictions.c.projection_date,
+    pitcher_k_predictions.c.approach,
+)
+Index(
+    "ix_pitcher_k_predictions_game_pitcher",
+    pitcher_k_predictions.c.game_pk,
+    pitcher_k_predictions.c.pitcher_id,
+)

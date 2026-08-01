@@ -49,6 +49,8 @@ import BettingPage from './components/BettingPage'
 import BetAuditPage from './components/BetAuditPage'
 import HitPicksPage from './components/HitPicksPage'
 import HitPicksComparisonPage from './components/HitPicksComparisonPage'
+import PitcherKsPage from './components/PitcherKsPage'
+import PitcherKsComparisonPage from './components/PitcherKsComparisonPage'
 import { fuzzyMatchScore } from './utils/fuzzyMatch'
 // TimePeriodSelector is now rendered INSIDE PlayerSearch/PitcherSearch
 // rather than as a standalone component in App.jsx. This keeps the
@@ -60,6 +62,12 @@ import { fuzzyMatchScore } from './utils/fuzzyMatch'
 import { API_BASE } from './config'
 
 function viewFromPath(pathname) {
+  if (pathname === '/pitcher-ks/count-model') return 'pitcherks-count'
+  if (pathname === '/pitcher-ks/empirical-bayes') return 'pitcherks-bayes'
+  if (pathname === '/pitcher-ks/compare') return 'pitcherks-compare'
+  if (pathname === '/pitcher-ks/decomposed' || pathname === '/pitcher-ks') {
+    return 'pitcherks-decomposed'
+  }
   if (pathname === '/hit-picks/v3') return 'hitpicks-v3'
   if (pathname === '/hit-picks/compare') return 'hitpicks-compare'
   if (pathname === '/hit-picks/v2' || pathname === '/hit-picks') {
@@ -829,6 +837,76 @@ function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // PITCHER KS PAGE VIEWS
+  // ---------------------------------------------------------------------------
+  // UI-only shells for the three planned projection approaches and their
+  // strict same-slate comparison. No model endpoint is called until the
+  // historical datasets and candidates are implemented and validated.
+  if (currentView.startsWith('pitcherks-')) {
+    const pitcherKsPage = currentView === 'pitcherks-count'
+      ? <PitcherKsPage approach="count" />
+      : currentView === 'pitcherks-bayes'
+        ? <PitcherKsPage approach="bayes" />
+        : currentView === 'pitcherks-compare'
+          ? <PitcherKsComparisonPage />
+          : <PitcherKsPage approach="decomposed" />
+
+    const pitcherKsTabs = [
+      {
+        view: 'pitcherks-decomposed',
+        path: '/pitcher-ks/decomposed',
+        label: '1 · Simulation',
+      },
+      {
+        view: 'pitcherks-count',
+        path: '/pitcher-ks/count-model',
+        label: '2 · Count ML',
+      },
+      {
+        view: 'pitcherks-bayes',
+        path: '/pitcher-ks/empirical-bayes',
+        label: '3 · Empirical Bayes',
+      },
+      {
+        view: 'pitcherks-compare',
+        path: '/pitcher-ks/compare',
+        label: 'Compare',
+      },
+    ]
+
+    return (
+      <div className="app">
+        <h1><a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>MLB Player Stats</a></h1>
+        {renderLastUpdated()}
+        <div style={{ textAlign: 'center', marginTop: '-10px', marginBottom: '20px' }}>
+          <span
+            className="matchups-nav-link"
+            onClick={() => navigateTo('dashboard', '/')}
+          >
+            &larr; Back to Stats
+          </span>
+        </div>
+        <nav className="hit-version-nav pitcher-ks-nav" aria-label="Pitcher Ks model pages">
+          {pitcherKsTabs.map((tab) => (
+            <a
+              key={tab.view}
+              href={tab.path}
+              aria-current={currentView === tab.view ? 'page' : undefined}
+              onClick={(event) => {
+                event.preventDefault()
+                navigateTo(tab.view, tab.path)
+              }}
+            >
+              {tab.label}
+            </a>
+          ))}
+        </nav>
+        {pitcherKsPage}
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
   // BET AUDIT PAGE VIEW
   // ---------------------------------------------------------------------------
   // Renders the /betting/audit historical-performance page. Same shell as
@@ -1033,6 +1111,12 @@ function App() {
           onClick={() => navigateTo('hitpicks-v2', '/hit-picks/v2')}
         >
           Hit Picks &rarr;
+        </span>
+        <span
+          className="matchups-nav-link"
+          onClick={() => navigateTo('pitcherks-decomposed', '/pitcher-ks/decomposed')}
+        >
+          Pitcher Ks &rarr;
         </span>
       </div>
 

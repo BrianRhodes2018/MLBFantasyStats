@@ -234,6 +234,12 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true,
       },
+      // New feature APIs use /api so direct browser routes can remain under
+      // /pitcher-ks without colliding with the development proxy.
+      '/api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
     },
   },
   test: {
