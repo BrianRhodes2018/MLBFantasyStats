@@ -9,7 +9,7 @@ services:
   - type: web
     name: mlb-stats-api-pitcher-ks-staging
     runtime: python
-    branch: codex/pitcher-ks-release
+    branch: codex/pitcher-ks-results
     rootDir: backend
 
     buildCommand: uv sync --locked --no-dev && uv run --locked --no-dev python scripts/check_ml_environment.py --json
