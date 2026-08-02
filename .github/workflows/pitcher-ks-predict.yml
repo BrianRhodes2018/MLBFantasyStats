@@ -75,7 +75,7 @@ jobs:
           fi
           current="$(uv run --locked --no-dev alembic current)"
           echo "$current"
-          grep -q "b3f1d6a9c420 (head)" <<<"$current" || {
+          grep -q "c8a4e7d2f610 (head)" <<<"$current" || {
             echo "Production is not at the reviewed Pitcher Ks migration head." >&2
             exit 1
           }

@@ -15,8 +15,17 @@ from database import SYNC_URL
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PRE_PITCHER_KS_REVISION = "a7d9e2c4f681"
-PITCHER_KS_REVISION = "b3f1d6a9c420"
+PITCHER_KS_REVISION = "c8a4e7d2f610"
 PITCHER_TABLES = {"pitcher_k_runs", "pitcher_k_predictions"}
+GRADING_COLUMNS = {
+    "actual_innings_pitched",
+    "actual_pitch_count",
+    "result_status",
+    "started",
+    "game_status",
+    "grading_source",
+    "grade_detail",
+}
 
 
 def _config(database_url: URL, monkeypatch) -> Config:
@@ -68,6 +77,10 @@ def test_fresh_database_contains_pitcher_k_tables(
     engine = create_engine(rehearsal_database)
     try:
         assert PITCHER_TABLES <= set(inspect(engine).get_table_names())
+        assert GRADING_COLUMNS <= {
+            column["name"]
+            for column in inspect(engine).get_columns("pitcher_k_predictions")
+        }
         with engine.connect() as connection:
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
@@ -102,6 +115,10 @@ def test_evolved_database_adds_tables_without_touching_existing_data(
         command.upgrade(config, "head")
 
         assert PITCHER_TABLES <= set(inspect(engine).get_table_names())
+        assert GRADING_COLUMNS <= {
+            column["name"]
+            for column in inspect(engine).get_columns("pitcher_k_predictions")
+        }
         with engine.connect() as connection:
             assert connection.execute(
                 text(

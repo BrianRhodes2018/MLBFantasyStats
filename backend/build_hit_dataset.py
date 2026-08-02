@@ -381,10 +381,11 @@ class BoxscoreSource:
         )
         return data or []
 
-    def game(self, game_id: int) -> Optional[dict[str, Any]]:
+    def game(self, game_id: int, *, refresh: bool = False) -> Optional[dict[str, Any]]:
         return self._cached_fetch(
             f"game_{game_id}.json",
             lambda: statsapi.get("game", {"gamePk": game_id}),
+            refresh=refresh,
         )
 
     def final_games(self, target: date, *, refresh_schedule: bool = False) -> list[dict[str, Any]]:

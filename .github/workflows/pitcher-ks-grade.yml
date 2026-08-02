@@ -1,0 +1,96 @@
+name: Grade Pitcher Ks Predictions
+
+on:
+  workflow_dispatch:
+    inputs:
+      projection_date:
+        description: Projection date to grade in YYYY-MM-DD format
+        required: true
+        type: string
+      apply:
+        description: Write reviewed official outcomes (false is a dry run)
+        required: true
+        default: false
+        type: boolean
+      force_stat_correction:
+        description: Replace a conflicting final result after manual review
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pitcher-ks-production-grade
+  cancel-in-progress: false
+
+jobs:
+  grade:
+    name: Confirm official final pitching lines
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.33"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        working-directory: backend
+        run: uv sync --locked --no-dev
+
+      - name: Validate date and production schema
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_DATE: ${{ inputs.projection_date }}
+        working-directory: backend
+        shell: bash
+        run: |
+          [[ "$TARGET_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
+            echo "projection_date must use YYYY-MM-DD." >&2
+            exit 1
+          }
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "DATABASE_URL is not configured for the production environment." >&2
+            exit 1
+          fi
+          current="$(uv run --locked --no-dev alembic current)"
+          echo "$current"
+          grep -q "c8a4e7d2f610 (head)" <<<"$current" || {
+            echo "Production is not at the reviewed Pitcher Ks grading migration head." >&2
+            exit 1
+          }
+
+      - name: Preview or apply official grades
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_DATE: ${{ inputs.projection_date }}
+          APPLY_GRADES: ${{ inputs.apply }}
+          FORCE_STAT_CORRECTION: ${{ inputs.force_stat_correction }}
+        working-directory: backend
+        shell: bash
+        run: |
+          args=(--date "$TARGET_DATE")
+          if [[ "$APPLY_GRADES" == "true" ]]; then
+            args+=(--apply)
+          fi
+          if [[ "$FORCE_STAT_CORRECTION" == "true" ]]; then
+            [[ "$APPLY_GRADES" == "true" ]] || {
+              echo "force_stat_correction requires apply=true." >&2
+              exit 1
+            }
+            args+=(--force)
+          fi
+          uv run --locked --no-dev python grade_pitcher_ks.py "${args[@]}"
