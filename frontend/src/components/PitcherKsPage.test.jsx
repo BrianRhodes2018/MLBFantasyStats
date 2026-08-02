@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import PitcherKsComparisonPage from './PitcherKsComparisonPage'
@@ -105,5 +105,101 @@ describe('Pitcher Ks model pages', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/pitcher-ks/compare/latest'),
     )
+  })
+
+  it('shows confirmed results, signed error, history, and the shared glossary', async () => {
+    const gradedBoard = {
+      ...approachBoard('decomposed'),
+      evaluation: {
+        complete: true,
+        graded_starts: 1,
+        mae: 1.24,
+      },
+      predictions: [{
+        ...prediction,
+        actual_ks: 5,
+        actual_batters_faced: 22,
+        actual_innings_pitched: 5.2,
+        error: 1.24,
+        result_status: 'graded',
+        grade_detail: 'Confirmed from the official final MLB pitching line.',
+      }],
+    }
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('/dates')) {
+        return apiResponse({
+          dates: [{ date: '2026-08-01', grading_status: 'graded' }],
+        })
+      }
+      if (url.includes('/ledger')) {
+        return apiResponse({
+          approaches: {
+            decomposed: {
+              graded_starts: 1,
+              days: 1,
+              mae: 1.24,
+              rmse: 1.24,
+              bias: 1.24,
+            },
+          },
+        })
+      }
+      return apiResponse(gradedBoard)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<PitcherKsPage approach="decomposed" />)
+
+    await waitFor(() => expect(screen.getByText('+1.24')).toBeInTheDocument())
+    expect(screen.getByText('Final')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pitcher Ks projection history calendar')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('How to read this board'))
+    expect(screen.getByText('Mean absolute error: the average distance between projected and actual Ks. Lower is better.')).toBeInTheDocument()
+    expect(screen.getByText(/An 80% prediction interval/)).toBeInTheDocument()
+  })
+
+  it('shows per-model errors and the closest approach on a graded comparison', async () => {
+    const comparison = {
+      projection_date: '2026-08-01',
+      prediction_window: 'afternoon',
+      as_of_timestamp: '2026-08-01T15:00:00+00:00',
+      candidate_cohort_id: 'abcdef1234567890',
+      evaluation: {
+        complete: true,
+        graded_starters: 1,
+        best_approaches: ['decomposed'],
+        approaches: {
+          decomposed: { mae: 0.4, rmse: 0.4, bias: 0.4 },
+          count: { mae: 0.8, rmse: 0.8, bias: 0.8 },
+          bayes: { mae: 0.9, rmse: 0.9, bias: 0.9 },
+        },
+      },
+      rows: [{
+        ...prediction,
+        actual_ks: 6,
+        actual_batters_faced: 23,
+        actual_innings_pitched: 6,
+        result_status: 'graded',
+        closest_approaches: ['decomposed'],
+        model_spread: 0.7,
+        decomposed: { projected_ks: 6.4, error: 0.4 },
+        count: { projected_ks: 6.8, error: 0.8 },
+        bayes: { projected_ks: 6.9, error: 0.9 },
+      }],
+    }
+    const fetchMock = vi.fn((url) => (
+      url.includes('/dates')
+        ? apiResponse({ dates: [{ date: '2026-08-01', grading_status: 'graded' }] })
+        : apiResponse(comparison)
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<PitcherKsComparisonPage />)
+
+    await waitFor(() => expect(screen.getAllByText('Simulation').length).toBeGreaterThan(0))
+    expect(screen.getByText('Error +0.40')).toBeInTheDocument()
+    expect(screen.getByText('Best final MAE')).toBeInTheDocument()
+    expect(screen.getByText('All eligible results are final.', { exact: false })).toBeInTheDocument()
   })
 })

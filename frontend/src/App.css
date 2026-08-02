@@ -949,9 +949,7 @@ body {
   margin-top: 3px;
 }
 
-/* Pitcher Ks model shells reuse the Hit Picks table and version-tab language.
-   These styles deliberately describe an empty, pre-model state without
-   implying that projections or APIs already exist. */
+/* Pitcher Ks projections, result confirmation, and model comparison. */
 .pitcher-ks-page {
   max-width: 1180px;
 }
@@ -1044,6 +1042,16 @@ body {
   min-width: 1120px;
 }
 
+.pitcher-ks-results-table {
+  min-width: 1420px;
+}
+
+.pitcher-ks-table abbr {
+  cursor: help;
+  text-decoration-color: rgba(156, 201, 239, 0.65);
+  text-underline-offset: 3px;
+}
+
 .pitcher-ks-table td small {
   color: #91a7ba;
   display: block;
@@ -1081,6 +1089,177 @@ body {
   max-width: 680px;
 }
 
+.pitcher-ks-legend {
+  background: rgba(28, 49, 75, 0.72);
+  border: 1px solid #31527a;
+  border-radius: 10px;
+  color: #dbe8f4;
+  margin: 0 0 22px;
+}
+
+.pitcher-ks-legend summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  list-style-position: inside;
+  padding: 13px 16px;
+}
+
+.pitcher-ks-legend summary span {
+  font-weight: 800;
+}
+
+.pitcher-ks-legend summary small {
+  color: #91a7ba;
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.pitcher-ks-legend-content {
+  border-top: 1px solid #31527a;
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.pitcher-ks-legend-content h3 {
+  color: #9cc9ef;
+  font-size: 0.86rem;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.pitcher-ks-legend-content dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.pitcher-ks-legend-content dl > div {
+  background: rgba(7, 18, 31, 0.34);
+  border-radius: 7px;
+  padding: 9px 10px;
+}
+
+.pitcher-ks-legend-content dt {
+  color: #e8ecf0;
+  font-size: 0.79rem;
+  font-weight: 800;
+}
+
+.pitcher-ks-legend-content dd {
+  color: #a9bdcf;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  margin: 3px 0 0;
+}
+
+.pitcher-ks-interval-note {
+  background: rgba(215, 163, 62, 0.1);
+  border: 1px solid rgba(215, 163, 62, 0.38);
+  border-radius: 8px;
+  color: #e7d39c;
+  font-size: 0.78rem;
+  grid-column: 1 / -1;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.pitcher-ks-summary-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 22px;
+}
+
+.pitcher-ks-summary-grid .pitcher-ks-readiness {
+  margin-bottom: 0;
+}
+
+.pitcher-ks-live-record {
+  background: rgba(72, 122, 173, 0.09);
+  border-color: rgba(111, 175, 228, 0.42);
+}
+
+.pitcher-ks-live-record > span {
+  color: #8bc3ef;
+}
+
+.pitcher-ks-metric-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 22px;
+}
+
+.pitcher-ks-metric-grid article {
+  background: rgba(24, 43, 66, 0.78);
+  border: 1px solid #31527a;
+  border-radius: 9px;
+  padding: 12px 13px;
+}
+
+.pitcher-ks-metric-grid article > span,
+.pitcher-ks-metric-grid article > small {
+  color: #91a7ba;
+  display: block;
+  font-size: 0.72rem;
+}
+
+.pitcher-ks-metric-grid article > span {
+  font-weight: 800;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.pitcher-ks-metric-grid article > strong {
+  color: #e8ecf0;
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 3px;
+}
+
+.pitcher-ks-metric-grid .pitcher-ks-best-model {
+  background: rgba(66, 155, 103, 0.11);
+  border-color: rgba(104, 195, 137, 0.42);
+}
+
+.pitcher-k-result {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.pitcher-k-result-graded {
+  background: rgba(61, 160, 95, 0.16);
+  border-color: rgba(91, 196, 127, 0.45);
+  color: #86dda4;
+}
+
+.pitcher-k-result-pending {
+  background: rgba(205, 151, 48, 0.14);
+  border-color: rgba(222, 174, 79, 0.42);
+  color: #e7c87b;
+}
+
+.pitcher-k-result-dns {
+  background: rgba(136, 145, 156, 0.13);
+  border-color: rgba(156, 169, 184, 0.34);
+  color: #b6c2ce;
+}
+
+.pitcher-ks-result-methodology {
+  margin-top: 16px;
+}
+
 @media (max-width: 640px) {
   .pitcher-ks-header {
     align-items: flex-start;
@@ -1093,6 +1272,22 @@ body {
 
   .pitcher-ks-board-heading {
     align-items: flex-start;
+  }
+
+  .pitcher-ks-summary-grid,
+  .pitcher-ks-metric-grid,
+  .pitcher-ks-legend-content {
+    grid-template-columns: 1fr;
+  }
+
+  .pitcher-ks-legend summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .pitcher-ks-interval-note {
+    grid-column: auto;
   }
 }
 

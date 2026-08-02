@@ -55,6 +55,10 @@ export function HitPicksCalendar({
   onSelectDate,
   latestDate,
   loading,
+  ariaLabel = 'Hit picks history calendar',
+  eyebrow = 'Pick history',
+  title = 'Select a game date',
+  itemLabel = 'picks',
 }) {
   const metadata = useMemo(
     () => new Map(dates.map((item) => [item.date, item])),
@@ -63,11 +67,11 @@ export function HitPicksCalendar({
   const cells = useMemo(() => calendarCells(visibleMonth), [visibleMonth])
 
   return (
-    <section className="hit-history-panel" aria-label="Hit picks history calendar">
+    <section className="hit-history-panel" aria-label={ariaLabel}>
       <div className="hit-history-heading">
         <div>
-          <span className="hit-history-eyebrow">Pick history</span>
-          <h3>Select a game date</h3>
+          <span className="hit-history-eyebrow">{eyebrow}</span>
+          <h3>{title}</h3>
         </div>
         <button
           type="button"
@@ -116,8 +120,8 @@ export function HitPicksCalendar({
               key={isoDate}
               aria-label={
                 day
-                  ? `Show picks for ${isoDate}, ${status}`
-                  : `${isoDate}, no saved picks`
+                  ? `Show ${itemLabel} for ${isoDate}, ${status}`
+                  : `${isoDate}, no saved ${itemLabel}`
               }
               className={[
                 'hit-calendar-day',

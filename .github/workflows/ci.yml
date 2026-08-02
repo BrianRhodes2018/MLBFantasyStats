@@ -81,7 +81,7 @@ jobs:
         run: uv run --locked python scripts/check_ml_environment.py --json
 
       - name: Compile backend modules
-        run: uv run --locked python -m py_compile baseball_math.py betting_math.py settings.py routers/system.py routers/betting.py main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py ml_environment.py predict_hits_today.py
+        run: uv run --locked python -m py_compile baseball_math.py betting_math.py settings.py routers/system.py routers/betting.py routers/pitcher_ks.py main.py database.py models.py schemas.py mlb_data_fetcher.py daily_update.py migrations.py espn_fantasy.py yahoo_fantasy.py ml_environment.py predict_hits_today.py predict_pitcher_ks_today.py grade_pitcher_ks.py pitcher_ks/store.py
 
       - name: Run backend tests
         run: uv run --locked python -m pytest -q

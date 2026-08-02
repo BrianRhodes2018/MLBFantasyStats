@@ -785,6 +785,13 @@ pitcher_k_predictions = Table(
     Column("pmf_json", Text, nullable=False),
     Column("actual_ks", Integer, nullable=True),
     Column("actual_batters_faced", Integer, nullable=True),
+    Column("actual_innings_pitched", Float, nullable=True),
+    Column("actual_pitch_count", Integer, nullable=True),
+    Column("result_status", String(30), nullable=True),
+    Column("started", Integer, nullable=True),
+    Column("game_status", String(60), nullable=True),
+    Column("grading_source", String(80), nullable=True),
+    Column("grade_detail", String(200), nullable=True),
     Column("graded_at", String(40), nullable=True),
     UniqueConstraint(
         "run_id",
@@ -803,4 +810,9 @@ Index(
     "ix_pitcher_k_predictions_game_pitcher",
     pitcher_k_predictions.c.game_pk,
     pitcher_k_predictions.c.pitcher_id,
+)
+Index(
+    "ix_pitcher_k_predictions_date_status",
+    pitcher_k_predictions.c.projection_date,
+    pitcher_k_predictions.c.result_status,
 )
